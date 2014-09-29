@@ -105,7 +105,7 @@ static void mal_vector_free(mal_vector *list) {
 
 static void mal_did_create_context(mal_context *context);
 static void mal_will_destory_context(mal_context *context);
-static void mal_will_set_active(mal_context *context, const bool active);
+static void mal_did_set_active(mal_context *context, const bool active);
 
 typedef ALvoid AL_APIENTRY (*alcMacOSXMixerOutputRateProcPtr) (const ALdouble value);
 typedef ALvoid AL_APIENTRY (*alBufferDataStaticProcPtr) (ALint bid, ALenum format, const ALvoid *data,
@@ -181,13 +181,13 @@ bool mal_context_copies_buffers(const mal_context *context) {
 
 void mal_context_set_active(mal_context *context, const bool active) {
     if (context != NULL) {
-        mal_will_set_active(context, active);
         if (active) {
             alcMakeContextCurrent(context->al_context);
         }
         else {
             alcMakeContextCurrent(NULL);
         }
+        mal_did_set_active(context, active);
     }
 }
 

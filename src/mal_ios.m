@@ -89,7 +89,7 @@ static void mal_will_destory_context(mal_context *context) {
     }
 }
 
-static void mal_will_set_active(mal_context *context, const bool active) {
+static void mal_did_set_active(mal_context *context, const bool active) {
     AVAudioSession *audioSession = [AVAudioSession sharedInstance];
     
     if (active) {
@@ -100,15 +100,16 @@ static void mal_will_set_active(mal_context *context, const bool active) {
         NSError *categoryError = nil;
         [audioSession setCategory:category error:&categoryError];
         if (categoryError != nil) {
-            NSLog(@"iOSAudioEngine: Error setting audio session category. Error: %@", [categoryError localizedDescription]);
+            NSLog(@"mal: Error setting audio session category. Error: %@", [categoryError localizedDescription]);
         }
         check_routes(context);
     }
     
+    // NOTE: Setting the audio session to active should happen after setting the AL context
     NSError *activeError = nil;
     [[AVAudioSession sharedInstance] setActive:active error:&activeError];
     if (activeError != nil) {
-        NSLog(@"iOSAudioEngine: Error setting audio session to active (%@). Error: %@", active?@"true":@"false",
+        NSLog(@"mal: Error setting audio session to active (%@). Error: %@", active?@"true":@"false",
               [activeError localizedDescription]);
     }
 }
