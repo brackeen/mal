@@ -79,7 +79,7 @@ extern "C" {
     /// mal_source_create returns NULL, then the maximum number of sources has been reached.
     bool mal_context_format_is_valid(const mal_context *context, const mal_format format);
     
-    /// Frees the context. All buffers and sources must be freed before the context is freed.
+    /// Frees the context. All buffers and sources created with this context will not longer be valid.
     void mal_context_free(mal_context *context);
     
     bool mal_formats_equal(const mal_format format1, const mal_format format2);
@@ -108,9 +108,7 @@ extern "C" {
     uint32_t mal_buffer_get_num_frames(const mal_buffer *buffer);
     
     /**
-     Frees this buffer. Before freeing a mal_buffer, all mal_sources that are bound to this mal_buffer must first
-     be unbound by calling mal_source_set_buffer(source, NULL);
-     (TODO: Considering changing this to make it safe. Keep track of bounded sources?)
+     Frees this buffer. Any mal_sources using this buffer are stopped.
      */
     void mal_buffer_free(mal_buffer *buffer);
     

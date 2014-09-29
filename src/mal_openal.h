@@ -61,7 +61,7 @@ static bool mal_vector_add_all(mal_vector *list, unsigned int num_values, void *
     }
 }
 
-static bool mal_vector_contains(mal_vector *list, void *value) {
+static bool mal_vector_contains(const mal_vector *list, void *value) {
     if (list != NULL) {
         for (unsigned int i = 0; i < list->length; i++) {
             if (list->values[i] == value) {
@@ -87,9 +87,12 @@ static bool mal_vector_remove(mal_vector *list, void *value) {
     return false;
 }
 
-static void mal_vector_clear(mal_vector *list) {
-    if (list != NULL) {
+static void mal_vector_free(mal_vector *list) {
+    if (list != NULL && list->values != NULL) {
+        free(list->values);
+        list->values = NULL;
         list->length = 0;
+        list->capacity = 0;
     }
 }
 
@@ -135,6 +138,10 @@ struct mal_source {
     bool mute;
     float gain;
 };
+
+// Deletes OpenAL resources without deleting other info
+static void mal_source_cleanup(mal_source *source);
+static void mal_buffer_cleanup(mal_buffer *buffer);
 
 // MARK: Context
 
@@ -216,6 +223,22 @@ bool mal_context_format_is_valid(const mal_context *context, const mal_format fo
 
 void mal_context_free(mal_context *context) {
     if (context != NULL) {
+        // Delete AL sources
+        for (unsigned int i = 0; i < context->sources.length; i++) {
+            mal_source *source = context->sources.values[i];
+            mal_source_cleanup(source);
+            source->context = NULL;
+        }
+        mal_vector_free(&context->sources);
+        
+        // Delete AL buffers
+        for (unsigned int i = 0; i < context->buffers.length; i++) {
+            mal_buffer *buffer = context->buffers.values[i];
+            mal_buffer_cleanup(buffer);
+            buffer->context = NULL;
+        }
+        mal_vector_free(&context->buffers);
+        
         mal_will_destory_context(context);
         mal_context_set_active(context, false);
         if (context->al_context != NULL) {
@@ -293,14 +316,32 @@ uint32_t mal_buffer_get_num_frames(const mal_buffer *buffer) {
     return (buffer == NULL) ? 0 : buffer->num_frames;
 }
 
+static void mal_buffer_cleanup(mal_buffer *buffer) {
+    if (buffer != NULL && buffer->al_buffer != 0) {
+        // First, stop all sources that are using this buffer.
+        if (buffer->context != NULL) {
+            for (unsigned int i = 0; i < buffer->context->sources.length; i++) {
+                mal_source *source = buffer->context->sources.values[i];
+                if (mal_vector_contains(&source->buffers, buffer)) {
+                    mal_source_set_buffer(source, NULL);
+                }
+            }
+        }
+        
+        // Delete buffer
+        alDeleteBuffers(1, &buffer->al_buffer);
+        alGetError();
+        buffer->al_buffer = 0;
+    }
+}
+
 void mal_buffer_free(mal_buffer *buffer) {
     if (buffer != NULL) {
-        if (buffer->al_buffer != 0) {
-            alDeleteBuffers(1, &buffer->al_buffer);
-            alGetError();
-            buffer->al_buffer = 0;
+        mal_buffer_cleanup(buffer);
+        if (buffer->context != NULL) {
+            mal_vector_remove(&buffer->context->buffers, buffer);
+            buffer->context = NULL;
         }
-        mal_vector_remove(&buffer->context->buffers, buffer);
         free(buffer);
     }
 }
@@ -355,16 +396,16 @@ bool mal_source_set_buffer(mal_source *source, const mal_buffer *buffer) {
 
 bool mal_source_set_buffer_sequence(mal_source *source, const unsigned int num_buffers,
                                     const mal_buffer **buffers) {
-    if (source == NULL) {
+    if (source == NULL || source->al_source == 0) {
         return false;
     }
     else if (num_buffers == 0) {
         if (source->buffers.length > 0) {
-            source->buffers.length = 0;
             mal_source_set_state(source, MAL_SOURCE_STATE_STOPPED);
-            alSourcei(source->al_source, AL_BUFFER, AL_NONE);
-            alGetError();
+            source->buffers.length = 0;
         }
+        alSourcei(source->al_source, AL_BUFFER, AL_NONE);
+        alGetError();
         return true;
     }
     else if (buffers == NULL || buffers[0] == NULL) {
@@ -373,13 +414,13 @@ bool mal_source_set_buffer_sequence(mal_source *source, const unsigned int num_b
     else {
         // Check if format valid
         const mal_format format = buffers[0]->format;
-        if (!mal_context_format_is_valid(source->context, format)) {
+        if (!mal_context_format_is_valid(source->context, format) || buffers[0]->al_buffer == 0) {
             return false;
         }
         
         // Check if all buffers are non-NULL and have the same format
         for (int i = 1; i < num_buffers; i++) {
-            if (buffers[i] == NULL || !mal_formats_equal(format, buffers[i]->format)) {
+            if (buffers[i] == NULL || !mal_formats_equal(format, buffers[i]->format) || buffers[i]->al_buffer == 0) {
                 return false;
             }
         }
@@ -483,17 +524,25 @@ mal_source_state mal_source_get_state(const mal_source *source) {
     }
 }
 
+static void mal_source_cleanup(mal_source *source) {
+    if (source != NULL && source->al_source != 0) {
+        mal_source_set_state(source, MAL_SOURCE_STATE_STOPPED);
+        alSourcei(source->al_source, AL_BUFFER, AL_NONE);
+        alGetError();
+        alDeleteSources(1, &source->al_source);
+        alGetError();
+        source->al_source = 0;
+    }
+}
+
 void mal_source_free(mal_source *source) {
     if (source != NULL) {
-        if (source->al_source != 0) {
-            mal_source_set_state(source, MAL_SOURCE_STATE_STOPPED);
-            alSourcei(source->al_source, AL_BUFFER, AL_NONE);
-            alGetError();
-            alDeleteSources(1, &source->al_source);
-            alGetError();
-            source->al_source = 0;
+        if (source->context != NULL) {
+            mal_vector_remove(&source->context->sources, source);
+            source->context = NULL;
         }
-        mal_vector_remove(&source->context->sources, source);
+        mal_source_cleanup(source);
+        mal_vector_free(&source->buffers);
         free(source);
     }
 }
