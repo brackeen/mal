@@ -9,6 +9,92 @@
 #include <stdlib.h>
 #include <memory.h>
 
+#ifndef MIN
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#endif
+#ifndef MAX
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#endif
+
+// MARK: Vector
+
+typedef struct {
+    void **values;
+    unsigned int length;
+    unsigned int capacity;
+} mal_vector;
+
+static bool mal_vector_ensure_capacity(mal_vector *list, const unsigned int additional_values) {
+    if (list != NULL) {
+        if (list->values == NULL || list->length + additional_values > list->capacity) {
+            const unsigned int new_capacity = MAX(list->length + additional_values, list->capacity << 1);
+            void **new_data = realloc(list->values, sizeof(void*) * new_capacity);
+            if (new_data == NULL) {
+                return false;
+            }
+            list->values = new_data;
+            list->capacity = new_capacity;
+        }
+        return true;
+    }
+    return false;
+}
+
+static bool mal_vector_add(mal_vector *list, void *value) {
+    if (mal_vector_ensure_capacity(list, 1)) {
+        list->values[list->length++] = value;
+        return true;
+    }
+    else {
+        return false;
+    }
+}
+
+static bool mal_vector_add_all(mal_vector *list, unsigned int num_values, void **values) {
+    if (mal_vector_ensure_capacity(list, num_values)) {
+        memcpy(list->values + list->length, values, sizeof(void *) * num_values);
+        list->length += num_values;
+        return true;
+    }
+    else {
+        return false;
+    }
+}
+
+static bool mal_vector_contains(mal_vector *list, void *value) {
+    if (list != NULL) {
+        for (unsigned int i = 0; i < list->length; i++) {
+            if (list->values[i] == value) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+static bool mal_vector_remove(mal_vector *list, void *value) {
+    if (list != NULL) {
+        for (unsigned int i = 0; i < list->length; i++) {
+            if (list->values[i] == value) {
+                for (unsigned int j = i; j < list->length - 1; j++) {
+                    list->values[j] = list->values[j + 1];
+                }
+                list->length--;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+static void mal_vector_clear(mal_vector *list) {
+    if (list != NULL) {
+        list->length = 0;
+    }
+}
+
+// MARK: Types
+
 /**
  Engines using this class need to implement mal_did_create_context, mal_will_destory_context, mal_will_set_active,
  and mal_context_is_audio_route_enabled()
@@ -19,7 +105,7 @@ static void mal_will_destory_context(mal_context *context);
 static void mal_will_set_active(mal_context *context, const bool active);
 
 typedef ALvoid AL_APIENTRY (*alcMacOSXMixerOutputRateProcPtr) (const ALdouble value);
-typedef ALvoid AL_APIENTRY (*alBufferDataStaticProcPtr) (ALint bid, ALenum format, const ALvoid* data,
+typedef ALvoid AL_APIENTRY (*alBufferDataStaticProcPtr) (ALint bid, ALenum format, const ALvoid *data,
                                                          ALsizei size, ALsizei freq);
 
 struct mal_context {
@@ -29,9 +115,12 @@ struct mal_context {
     bool mute;
     float gain;
     void *internal_data;
+    mal_vector sources;
+    mal_vector buffers;
 };
 
 struct mal_buffer {
+    mal_context *context;
     ALuint al_buffer;
     mal_format format;
     uint32_t num_frames;
@@ -41,8 +130,7 @@ struct mal_source {
     mal_context *context;
     ALuint al_source;
     mal_format format;
-    mal_buffer **buffers;
-    unsigned int num_buffers;
+    mal_vector buffers;
     bool looping;
     bool mute;
     float gain;
@@ -64,7 +152,7 @@ mal_context *mal_context_create(const double output_sample_rate) {
                                            alcGetProcAddress(NULL, "alBufferDataStatic"));
         context->alcMacOSXMixerOutputRateProc = ((alcMacOSXMixerOutputRateProcPtr)
                                                  alcGetProcAddress(NULL, "alcMacOSXMixerOutputRate"));
-
+        
         if (context->alcMacOSXMixerOutputRateProc != NULL) {
             context->alcMacOSXMixerOutputRateProc(output_sample_rate);
         }
@@ -159,6 +247,8 @@ mal_buffer *mal_buffer_create(mal_context *context, const mal_format format,
     }
     mal_buffer *buffer = calloc(1, sizeof(mal_buffer));
     if (buffer != NULL) {
+        mal_vector_add(&context->buffers, buffer);
+        buffer->context = context;
         buffer->format = format;
         buffer->num_frames = num_frames;
         alGenBuffers(1, &buffer->al_buffer);
@@ -210,6 +300,7 @@ void mal_buffer_free(mal_buffer *buffer) {
             alGetError();
             buffer->al_buffer = 0;
         }
+        mal_vector_remove(&buffer->context->buffers, buffer);
         free(buffer);
     }
 }
@@ -223,6 +314,7 @@ mal_source *mal_source_create(mal_context *context, const mal_format format) {
     }
     mal_source *source = calloc(1, sizeof(mal_source));
     if (source != NULL) {
+        mal_vector_add(&context->sources, source);
         source->context = context;
         source->format = format;
         
@@ -267,15 +359,11 @@ bool mal_source_set_buffer_sequence(mal_source *source, const unsigned int num_b
         return false;
     }
     else if (num_buffers == 0) {
-        if (source->num_buffers > 0) {
+        if (source->buffers.length > 0) {
+            source->buffers.length = 0;
             mal_source_set_state(source, MAL_SOURCE_STATE_STOPPED);
             alSourcei(source->al_source, AL_BUFFER, AL_NONE);
             alGetError();
-            source->num_buffers = 0;
-            if (source->buffers != NULL) {
-                free(source->buffers);
-                source->buffers = NULL;
-            }
         }
         return true;
     }
@@ -296,27 +384,22 @@ bool mal_source_set_buffer_sequence(mal_source *source, const unsigned int num_b
             }
         }
         
-        // Create buffer array
-        mal_buffer **new_buffers = calloc(num_buffers, sizeof(mal_buffer *));
-        if (new_buffers == NULL) {
-            return false;
+        // Stop and clear
+        if (source->buffers.length > 0) {
+            mal_source_set_state(source, MAL_SOURCE_STATE_STOPPED);
+            source->buffers.length = 0;
         }
-
-        // Success
-        mal_source_set_state(source, MAL_SOURCE_STATE_STOPPED);
-        if (source->buffers != NULL) {
-            free(source->buffers);
-            source->buffers = NULL;
-        }
-        source->num_buffers = num_buffers;
-        source->buffers = new_buffers;
-        memcpy(source->buffers, buffers, num_buffers * sizeof(mal_buffer *));
-
-        // Reset type first
         alSourcei(source->al_source, AL_BUFFER, AL_NONE);
         alGetError();
+        
+        // Add buffers to list
+        const bool success = mal_vector_add_all(&source->buffers, num_buffers, (void **)buffers);
+        if (!success) {
+            return false;
+        }
         for (int i = 0; i < num_buffers; i++) {
-            alSourceQueueBuffers(source->al_source, 1, &source->buffers[i]->al_buffer);
+            mal_buffer *buffer = source->buffers.values[i];
+            alSourceQueueBuffers(source->al_source, 1, &buffer->al_buffer);
         }
         alGetError();
         return true;
@@ -324,7 +407,7 @@ bool mal_source_set_buffer_sequence(mal_source *source, const unsigned int num_b
 }
 
 bool mal_source_has_buffer(const mal_source *source) {
-    return source != NULL && source->num_buffers > 0;
+    return source != NULL && source->buffers.length > 0;
 }
 
 bool mal_source_get_mute(const mal_source *source) {
@@ -364,7 +447,7 @@ void mal_source_set_looping(mal_source *source, const bool looping) {
 }
 
 bool mal_source_set_state(mal_source *source, const mal_source_state state) {
-    if (source != NULL && source->num_buffers > 0) {
+    if (source != NULL && source->buffers.length > 0) {
         if (state == MAL_SOURCE_STATE_PLAYING) {
             alSourcePlay(source->al_source);
         }
@@ -410,5 +493,7 @@ void mal_source_free(mal_source *source) {
             alGetError();
             source->al_source = 0;
         }
+        mal_vector_remove(&source->context->sources, source);
+        free(source);
     }
 }
