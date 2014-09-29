@@ -527,6 +527,7 @@ mal_source_state mal_source_get_state(const mal_source *source) {
 static void mal_source_cleanup(mal_source *source) {
     if (source != NULL && source->al_source != 0) {
         mal_source_set_state(source, MAL_SOURCE_STATE_STOPPED);
+        source->buffers.length = 0;
         alSourcei(source->al_source, AL_BUFFER, AL_NONE);
         alGetError();
         alDeleteSources(1, &source->al_source);
