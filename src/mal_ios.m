@@ -9,7 +9,7 @@ typedef struct {
 static void check_routes(mal_context *context) {
     if (context != NULL && context->internal_data != NULL) {
         mal_context_internal *internal = (mal_context_internal *)context->internal_data;
-        memset(internal, 0, sizeof(context->internal_data));
+        memset(internal->routes, 0, sizeof(internal->routes));
         AVAudioSession *session = [AVAudioSession sharedInstance];
         NSArray *outputs = session.currentRoute.outputs;
         for (AVAudioSessionPortDescription *port in outputs) {
