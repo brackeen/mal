@@ -127,6 +127,8 @@ struct mal_buffer {
     ALuint al_buffer;
     mal_format format;
     uint32_t num_frames;
+    void *managed_data;
+    mal_deallocator managed_data_deallocator;
 };
 
 struct mal_source {
@@ -173,10 +175,6 @@ mal_context *mal_context_create(const double output_sample_rate) {
         mal_context_set_active(context, true);
     }
     return context;
-}
-
-bool mal_context_copies_buffers(const mal_context *context) {
-    return (context != NULL && context->alBufferDataStaticProc == NULL);
 }
 
 void mal_context_set_active(mal_context *context, const bool active) {
@@ -262,10 +260,12 @@ bool mal_formats_equal(const mal_format format1, const mal_format format2) {
 
 // MARK: Buffer
 
-mal_buffer *mal_buffer_create(mal_context *context, const mal_format format,
-                              const uint32_t num_frames, const void *data) {
+static mal_buffer *mal_buffer_create_internal(mal_context *context, const mal_format format,
+                                              const uint32_t num_frames, const void *copied_data,
+                                              void *managed_data, const mal_deallocator data_deallocator) {
     // Check params
-    if (context == NULL || !mal_context_format_is_valid(context, format) || num_frames == 0 || data == NULL) {
+    const bool oneNonNullData = (copied_data == NULL) != (managed_data == NULL);
+    if (context == NULL || !mal_context_format_is_valid(context, format) || num_frames == 0 || !oneNonNullData) {
         return NULL;
     }
     mal_buffer *buffer = calloc(1, sizeof(mal_buffer));
@@ -286,20 +286,53 @@ mal_buffer *mal_buffer_create(mal_context *context, const mal_format format,
                                       (format.num_channels == 2 ? AL_FORMAT_STEREO8 : AL_FORMAT_MONO8) :
                                       (format.num_channels == 2 ? AL_FORMAT_STEREO16 : AL_FORMAT_MONO16));
             const ALsizei freq = (ALsizei)format.sample_rate;
-            if (context->alBufferDataStaticProc) {
-                context->alBufferDataStaticProc(buffer->al_buffer, al_format, data, data_length, freq);
+            if (copied_data != NULL) {
+                alBufferData(buffer->al_buffer, al_format, copied_data, data_length, freq);
+                if ((error = alGetError()) != AL_NO_ERROR) {
+                    mal_buffer_free(buffer);
+                    return NULL;
+                }
             }
             else {
-                alBufferData(buffer->al_buffer, al_format, data, data_length, freq);
-            }
-            
-            if ((error = alGetError()) != AL_NO_ERROR) {
-                mal_buffer_free(buffer);
-                return NULL;
+                if (context->alBufferDataStaticProc) {
+                    context->alBufferDataStaticProc(buffer->al_buffer, al_format, managed_data, data_length, freq);
+                    if ((error = alGetError()) != AL_NO_ERROR) {
+                        mal_buffer_free(buffer);
+                        return NULL;
+                    }
+                    else {
+                        buffer->managed_data = managed_data;
+                        buffer->managed_data_deallocator = data_deallocator;
+                    }
+                }
+                else {
+                    alBufferData(buffer->al_buffer, al_format, managed_data, data_length, freq);
+                    if ((error = alGetError()) != AL_NO_ERROR) {
+                        mal_buffer_free(buffer);
+                        return NULL;
+                    }
+                    else {
+                        // Managed data was copied because there is no alBufferDataStaticProc, so dealloc immediately.
+                        if (data_deallocator != NULL) {
+                            data_deallocator(managed_data);
+                        }
+                    }
+                }
             }
         }
     }
     return buffer;
+}
+
+mal_buffer *mal_buffer_create(mal_context *context, const mal_format format,
+                              const uint32_t num_frames, const void *data) {
+    return mal_buffer_create_internal(context, format, num_frames, data, NULL, NULL);
+}
+
+mal_buffer *mal_buffer_create_no_copy(mal_context *context, const mal_format format,
+                                      const uint32_t num_frames, void *data,
+                                      const mal_deallocator data_deallocator) {
+    return mal_buffer_create_internal(context, format, num_frames, NULL, data, data_deallocator);
 }
 
 mal_format mal_buffer_get_format(const mal_buffer *buffer) {
@@ -341,6 +374,12 @@ void mal_buffer_free(mal_buffer *buffer) {
         if (buffer->context != NULL) {
             mal_vector_remove(&buffer->context->buffers, buffer);
             buffer->context = NULL;
+        }
+        if (buffer->managed_data != NULL) {
+            if (buffer->managed_data_deallocator != NULL) {
+                buffer->managed_data_deallocator(buffer->managed_data);
+            }
+            buffer->managed_data = NULL;
         }
         free(buffer);
     }

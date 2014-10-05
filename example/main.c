@@ -1,4 +1,3 @@
-// Example app that draws a triangle. The triangle can be moved via touch or keyboard arrow keys.
 
 #include "glfm.h"
 #include <stdlib.h>
@@ -7,13 +6,17 @@
 
 static const int MAX_SOURCES = 16;
 typedef struct {
-    ok_audio *audio;
     mal_context *context;
     mal_buffer *buffer;
     mal_source *sources[MAX_SOURCES];
 } mal_app;
 
 static void play_sound(mal_app *app, mal_buffer *buffer) {
+    // This is useful to test buffer freeing during playback
+//    if (app->buffer != NULL) {
+//        mal_buffer_free(app->buffer);
+//        app->buffer = NULL;
+//    }
     for (int i = 0; i < MAX_SOURCES; i++) {
         if (app->sources[i] != NULL && mal_source_get_state(app->sources[i]) == MAL_SOURCE_STATE_STOPPED) {
             mal_source_set_buffer(app->sources[i], buffer);
@@ -69,20 +72,21 @@ void glfm_main(GLFMDisplay *display) {
         if (app->context == NULL) {
             printf("Couldn't create audio context\n");
         }
-        mal_format format = {.sample_rate = audio->sample_rate, .num_channels = audio->num_channels, .bit_depth = audio->bit_depth };
+        mal_format format = {
+            .sample_rate = audio->sample_rate,
+            .num_channels = audio->num_channels,
+            .bit_depth = audio->bit_depth
+        };
         if (!mal_context_format_is_valid(app->context, format)) {
             printf("Audio format is invalid\n");
         }
-        app->buffer = mal_buffer_create(app->context, format, (uint32_t)audio->num_frames, audio->data);
+        app->buffer = mal_buffer_create_no_copy(app->context, format, (uint32_t)audio->num_frames, audio->data, free);
         if (app->buffer == NULL) {
             printf("Couldn't create audio buffer\n");
         }
-        if (mal_context_copies_buffers(app->context)) {
-            ok_audio_free(audio);
-        }
-        else {
-            app->audio = audio;
-        }
+        audio->data = NULL; // Audio buffer is now managed by mal, don't free it
+        ok_audio_free(audio);
+        
         for (int i = 0; i < MAX_SOURCES; i++) {
             app->sources[i] = mal_source_create(app->context, format);
             //mal_source_set_gain(app->sources[i], 0.25f);
@@ -99,8 +103,6 @@ void glfm_main(GLFMDisplay *display) {
             printf("Couldn't play audio\n");
         }
     }
-    // TODO: buffer free at end
-    //ok_audio_free(audio);
 }
 
 static GLboolean onTouch(GLFMDisplay *display, const int touch, const GLFMTouchPhase phase, const int x, const int y) {

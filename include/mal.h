@@ -52,6 +52,8 @@ extern "C" {
     typedef struct mal_buffer mal_buffer;
     typedef struct mal_source mal_source;
     
+    typedef void (*mal_deallocator)(void*);
+    
     //
     // MARK: Context
     //
@@ -59,13 +61,6 @@ extern "C" {
     /// Creates an audio context. Only one context should be created.
     /// The output sample rate is typically 44100 or 22050.
     mal_context *mal_context_create(const double output_sample_rate);
-    
-    /**
-     Returns true if buffer data is copied (the original buffer data can be freed immediately after creating
-     a mal_buffer). If false, the buffer data is directly accessed, and shoudn't be freed until after mal_buffer_free
-     is called.
-     */
-    bool mal_context_copies_buffers(const mal_context *context);
     
     void mal_context_set_active(mal_context *context, const bool active);
     
@@ -91,11 +86,24 @@ extern "C" {
     /**
      Creates a new audio buffer. The data buffer must have the same byte order as
      the native CPU, and it must have a byte length of (format.bit_depth/8 * format.num_channels * num_frames).
-     If possible, the data is used directly, otherwise, the data is copied (see mal_context_copies_buffers).
+     The data buffer is copied.
      Returns NULL if the format is invalid, num_frames is zero, data is NULL, or an out-of-memory error occurs.
      */
     mal_buffer *mal_buffer_create(mal_context *context, const mal_format format,
                                   const uint32_t num_frames, const void *data);
+    
+    /**
+     Creates a new audio buffer. The data buffer must have the same byte order as
+     the native CPU, and it must have a byte length of (format.bit_depth/8 * format.num_channels * num_frames).
+     If possible, the data is used directly without copying. When the original data is no longer needed,
+     the data_deallocator function is called. The data_deallocator function may be NULL. If the underlying
+     implementation must copy buffers, the data_deallocator function is called immediately, before returning.
+     Returns NULL if the format is invalid, num_frames is zero, data is NULL, or an out-of-memory error occurs.
+     The data_deallocator is not called if this function returns NULL.
+     */
+    mal_buffer *mal_buffer_create_no_copy(mal_context *context, const mal_format format,
+                                          const uint32_t num_frames, void *data,
+                                          const mal_deallocator data_deallocator);
     
     /**
      Gets the format of this buffer. Note, the sample rate may be slightly different than the one
