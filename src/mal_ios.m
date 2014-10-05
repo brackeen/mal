@@ -7,31 +7,32 @@ typedef struct {
 } mal_context_internal;
 
 static void check_routes(mal_context *context) {
-    if (context->internal_data != NULL) {
+    if (context != NULL && context->internal_data != NULL) {
         mal_context_internal *internal = (mal_context_internal *)context->internal_data;
         memset(internal, 0, sizeof(context->internal_data));
         AVAudioSession *session = [AVAudioSession sharedInstance];
         NSArray *outputs = session.currentRoute.outputs;
         for (AVAudioSessionPortDescription *port in outputs) {
-            if ([port.portType isEqual:AVAudioSessionPortHeadphones]) {
+            // This covers all the ports up to iOS 8 but there could be more in the future.
+            if ([port.portType isEqualToString:AVAudioSessionPortHeadphones]) {
                 internal->routes[MAL_ROUTE_HEADPHONES] = true;
             }
-            else if ([port.portType isEqual:AVAudioSessionPortBuiltInSpeaker]) {
+            else if ([port.portType isEqualToString:AVAudioSessionPortBuiltInSpeaker]) {
                 internal->routes[MAL_ROUTE_SPEAKER] = true;
             }
-            else if ([port.portType isEqual:AVAudioSessionPortBuiltInReceiver]) {
+            else if ([port.portType isEqualToString:AVAudioSessionPortBuiltInReceiver]) {
                 internal->routes[MAL_ROUTE_RECIEVER] = true;
             }
-            else if ([port.portType isEqual:AVAudioSessionPortBluetoothA2DP] ||
-                     [port.portType isEqual:AVAudioSessionPortBluetoothLE] ||
-                     [port.portType isEqual:AVAudioSessionPortBluetoothHFP] ||
-                     [port.portType isEqual:AVAudioSessionPortAirPlay]) {
+            else if ([port.portType isEqualToString:AVAudioSessionPortBluetoothA2DP] ||
+                     [port.portType isEqualToString:AVAudioSessionPortBluetoothHFP] ||
+                     [port.portType isEqualToString:AVAudioSessionPortBluetoothLE] ||
+                     [port.portType isEqualToString:AVAudioSessionPortAirPlay]) {
                 internal->routes[MAL_ROUTE_WIRELESS] = true;
             }
-            else if ([port.portType isEqual:AVAudioSessionPortLineOut] ||
-                     [port.portType isEqual:AVAudioSessionPortHDMI] ||
-                     [port.portType isEqual:AVAudioSessionPortUSBAudio] ||
-                     [port.portType isEqual:AVAudioSessionPortCarAudio]) {
+            else if ([port.portType isEqualToString:AVAudioSessionPortLineOut] ||
+                     [port.portType isEqualToString:AVAudioSessionPortHDMI] ||
+                     [port.portType isEqualToString:AVAudioSessionPortUSBAudio] ||
+                     [port.portType isEqualToString:AVAudioSessionPortCarAudio]) {
                 internal->routes[MAL_ROUTE_LINEOUT] = true;
             }
         }
@@ -45,7 +46,6 @@ static void notification_handler(CFNotificationCenterRef center, void *observer,
     mal_context *context = (mal_context*)observer;
     if ([AVAudioSessionInterruptionNotification isEqualToString:nsName]) {
         // NOTE: Test interruption on iOS by activating Siri
-        
         NSDictionary *dict = (__bridge NSDictionary*)userInfo;
         NSNumber *interruptionType = dict[AVAudioSessionInterruptionTypeKey];
         if (interruptionType != nil) {
@@ -63,7 +63,7 @@ static void notification_handler(CFNotificationCenterRef center, void *observer,
 }
 
 static void mal_did_create_context(mal_context *context) {
-    if (context->internal_data == NULL) {
+    if (context != NULL && context->internal_data == NULL) {
         context->internal_data = calloc(1, sizeof(mal_context_internal));
     }
     CFNotificationCenterAddObserver(CFNotificationCenterGetLocalCenter(),
@@ -83,7 +83,7 @@ static void mal_did_create_context(mal_context *context) {
 
 static void mal_will_destory_context(mal_context *context) {
     CFNotificationCenterRemoveEveryObserver(CFNotificationCenterGetLocalCenter(), context);
-    if (context->internal_data != NULL) {
+    if (context != NULL && context->internal_data != NULL) {
         free(context->internal_data);
         context->internal_data = NULL;
     }
@@ -115,7 +115,7 @@ static void mal_did_set_active(mal_context *context, const bool active) {
 }
 
 bool mal_context_is_route_enabled(const mal_context *context, const mal_route route) {
-    if (context->internal_data != NULL && route < NUM_MAL_ROUTES) {
+    if (context != NULL && context->internal_data != NULL && route < NUM_MAL_ROUTES) {
         mal_context_internal *internal = (mal_context_internal *)context->internal_data;
         return internal->routes[route];
     }
