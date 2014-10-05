@@ -349,6 +349,10 @@ uint32_t mal_buffer_get_num_frames(const mal_buffer *buffer) {
     return (buffer == NULL) ? 0 : buffer->num_frames;
 }
 
+void *mal_buffer_get_data(const mal_buffer *buffer) {
+    return (buffer == NULL) ? NULL : buffer->managed_data;
+}
+
 static void mal_buffer_cleanup(mal_buffer *buffer) {
     if (buffer != NULL && buffer->al_buffer != 0) {
         // First, stop all sources that are using this buffer.

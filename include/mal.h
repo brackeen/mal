@@ -116,6 +116,13 @@ extern "C" {
     uint32_t mal_buffer_get_num_frames(const mal_buffer *buffer);
     
     /**
+     Gets the pointer to this buffer's underlying data, if this buffer was created with mal_buffer_create_no_copy. 
+     Returns NULL if this buffer was created with mal_buffer_create, or if the underlying implementation must 
+     copy buffers.
+     */
+    void *mal_buffer_get_data(const mal_buffer *buffer);
+    
+    /**
      Frees this buffer. Any mal_sources using this buffer are stopped.
      */
     void mal_buffer_free(mal_buffer *buffer);
