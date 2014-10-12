@@ -29,6 +29,8 @@
 #define LOGI(...) ((void)__android_log_print(ANDROID_LOG_INFO, "MAL", __VA_ARGS__))
 #define LOGW(...) ((void)__android_log_print(ANDROID_LOG_WARN, "MAL", __VA_ARGS__))
 
+#define kNumQueuedBuffers 2
+
 struct mal_context {
     mal_vector players;
     mal_vector buffers;
@@ -319,25 +321,41 @@ static void mal_player_cleanup(mal_player *player) {
 
 static void mal_buffer_queue_callback(SLAndroidSimpleBufferQueueItf bq, void *void_player) {
     mal_player *player = void_player;
-    if (player->next_buffer >= player->buffers.length) {
-        if (player->buffers.length > 0 && player->looping) {
-            player->next_buffer = 0;
-        }
-        else {
-            if (player->sl_play != NULL) {
-                (*player->sl_play)->SetPlayState(player->sl_play, SL_PLAYSTATE_STOPPED);
-            }
-            return;
-        }
+    int buffer_count = 0;
+    int buffers_to_add = 1;
+
+    SLAndroidSimpleBufferQueueState state;
+    SLresult result = (*player->sl_buffer_queue)->GetState(player->sl_buffer_queue, &state);
+    if (result == SL_RESULT_SUCCESS) {
+        buffer_count = state.count;
+        buffers_to_add = kNumQueuedBuffers - buffer_count;
     }
     
-    mal_buffer *buffer = player->buffers.values[player->next_buffer];
-    if (player->sl_buffer_queue != NULL && buffer->managed_data != NULL) {
-        size_t len = buffer->num_frames * (buffer->format.bit_depth/8) * buffer->format.num_channels;
-        (*player->sl_buffer_queue)->Enqueue(player->sl_buffer_queue,
-                                            buffer->managed_data, len);
+    for (int i = 0; i < buffers_to_add; i++) {
+        if (player->next_buffer >= player->buffers.length) {
+            if (player->buffers.length > 0 && player->looping) {
+                // Looping.
+                player->next_buffer = 0;
+            }
+            else {
+                // Nothing to enqueue. Stop if the buffer_count is 0
+                if (player->sl_play != NULL && buffer_count == 0) {
+                    (*player->sl_play)->SetPlayState(player->sl_play, SL_PLAYSTATE_STOPPED);
+                }
+                return;
+            }
+        }
+
+        // Enqueue
+        mal_buffer *buffer = player->buffers.values[player->next_buffer];
+        if (player->sl_buffer_queue != NULL && buffer->managed_data != NULL) {
+            const size_t len = buffer->num_frames * (buffer->format.bit_depth/8) * buffer->format.num_channels;
+            (*player->sl_buffer_queue)->Enqueue(player->sl_buffer_queue,
+                                                buffer->managed_data, len);
+        }
+        player->next_buffer++;
+        buffer_count++;
     }
-    player->next_buffer++;
 }
 
 static void mal_player_update_gain(mal_player *player) {
@@ -373,7 +391,7 @@ static bool mal_player_reset(mal_player *player, const mal_format format) {
         
         SLDataLocator_AndroidSimpleBufferQueue sl_buffer_queue;
         sl_buffer_queue.locatorType = SL_DATALOCATOR_ANDROIDSIMPLEBUFFERQUEUE;
-        sl_buffer_queue.numBuffers = 2;
+        sl_buffer_queue.numBuffers = kNumQueuedBuffers;
         
         SLDataFormat_PCM sl_format;
         sl_format.formatType = SL_DATAFORMAT_PCM;
@@ -591,11 +609,7 @@ bool mal_player_set_state(mal_player *player, const mal_player_state state) {
 
         // Queue if needed
         if (sl_state == SL_PLAYSTATE_PLAYING && player->sl_buffer_queue != NULL) {
-            SLBufferQueueState state;
-            SLresult result = (*player->sl_buffer_queue)->GetState(player->sl_buffer_queue, &state);
-            if (result == SL_RESULT_SUCCESS && state.count == 0) {
-                mal_buffer_queue_callback(player->sl_buffer_queue, player);
-            }
+            mal_buffer_queue_callback(player->sl_buffer_queue, player);
         }
         
         (*player->sl_play)->SetPlayState(player->sl_play, sl_state);
