@@ -1,3 +1,5 @@
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+
 #include "mal.h"
 #include "mal_openal.h"
 #include <AVFoundation/AVFoundation.h>
@@ -6,7 +8,7 @@ typedef struct {
     bool routes[NUM_MAL_ROUTES];
 } mal_context_internal;
 
-static void check_routes(mal_context *context) {
+static void mal_check_routes(mal_context *context) {
     if (context != NULL && context->internal_data != NULL) {
         mal_context_internal *internal = (mal_context_internal *)context->internal_data;
         memset(internal->routes, 0, sizeof(internal->routes));
@@ -39,9 +41,9 @@ static void check_routes(mal_context *context) {
     }
 }
 
-static void notification_handler(CFNotificationCenterRef center, void *observer,
-                                 CFStringRef name, const void *object,
-                                 CFDictionaryRef userInfo) {
+static void mal_notification_handler(CFNotificationCenterRef center, void *observer,
+                                     CFStringRef name, const void *object,
+                                     CFDictionaryRef userInfo) {
     NSString *nsName = (__bridge NSString *)name;
     mal_context *context = (mal_context*)observer;
     if ([AVAudioSessionInterruptionNotification isEqualToString:nsName]) {
@@ -58,27 +60,33 @@ static void notification_handler(CFNotificationCenterRef center, void *observer,
         }
     }
     else if ([AVAudioSessionRouteChangeNotification isEqualToString:nsName]) {
-        check_routes(context);
+        mal_check_routes(context);
     }
+    else if ([UIApplicationDidEnterBackgroundNotification isEqualToString:nsName]) {
+        mal_context_set_active(context, false);
+    }
+    else if ([UIApplicationWillEnterForegroundNotification isEqualToString:nsName]) {
+        mal_context_set_active(context, true);
+    }
+}
+
+static void mal_add_notification(mal_context *context, CFStringRef name) {
+    CFNotificationCenterAddObserver(CFNotificationCenterGetLocalCenter(),
+                                    context,
+                                    &mal_notification_handler,
+                                    name,
+                                    NULL,
+                                    CFNotificationSuspensionBehaviorDeliverImmediately);
 }
 
 static void mal_did_create_context(mal_context *context) {
     if (context != NULL && context->internal_data == NULL) {
         context->internal_data = calloc(1, sizeof(mal_context_internal));
     }
-    CFNotificationCenterAddObserver(CFNotificationCenterGetLocalCenter(),
-                                    context,
-                                    &notification_handler,
-                                    (__bridge CFStringRef)AVAudioSessionInterruptionNotification,
-                                    NULL,
-                                    CFNotificationSuspensionBehaviorDeliverImmediately);
-    
-    CFNotificationCenterAddObserver(CFNotificationCenterGetLocalCenter(),
-                                    context,
-                                    &notification_handler,
-                                    (__bridge CFStringRef)AVAudioSessionRouteChangeNotification,
-                                    NULL,
-                                    CFNotificationSuspensionBehaviorDeliverImmediately);
+    mal_add_notification(context, (__bridge CFStringRef)AVAudioSessionInterruptionNotification);
+    mal_add_notification(context, (__bridge CFStringRef)AVAudioSessionRouteChangeNotification);
+    mal_add_notification(context, (__bridge CFStringRef)UIApplicationDidEnterBackgroundNotification);
+    mal_add_notification(context, (__bridge CFStringRef)UIApplicationWillEnterForegroundNotification);
 }
 
 static void mal_will_destory_context(mal_context *context) {
@@ -102,7 +110,7 @@ static void mal_did_set_active(mal_context *context, const bool active) {
         if (categoryError != nil) {
             NSLog(@"mal: Error setting audio session category. Error: %@", [categoryError localizedDescription]);
         }
-        check_routes(context);
+        mal_check_routes(context);
     }
     
     // NOTE: Setting the audio session to active should happen after setting the AL context
@@ -123,3 +131,5 @@ bool mal_context_is_route_enabled(const mal_context *context, const mal_route ro
         return false;
     }
 }
+
+#endif

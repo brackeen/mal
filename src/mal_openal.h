@@ -181,8 +181,10 @@ void mal_context_set_active(mal_context *context, const bool active) {
     if (context != NULL) {
         if (active) {
             alcMakeContextCurrent(context->al_context);
+            alcProcessContext(context->al_context);
         }
         else {
+            alcSuspendContext(context->al_context);
             alcMakeContextCurrent(NULL);
         }
         mal_did_set_active(context, active);
