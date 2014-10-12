@@ -3,15 +3,19 @@ LOCAL_PATH := $(call my-dir)
 # Modified by new_project.py
 GLFM_ROOT := ../../../glfm
 APP_ROOT := ../../..
+MAL_ROOT := ../../../..
 
 include $(CLEAR_VARS)
 
 LOCAL_MODULE := mal-example
 LOCAL_C_INCLUDES := $(LOCAL_PATH)/$(GLFM_ROOT)/include
+LOCAL_C_INCLUDES += $(LOCAL_PATH)/$(MAL_ROOT)/include
 LOCAL_SRC_FILES := $(GLFM_ROOT)/src/glfm_platform_android.c
 LOCAL_SRC_FILES += $(addprefix $(APP_ROOT)/, $(notdir $(wildcard $(LOCAL_PATH)/$(APP_ROOT)/*.c)))
+LOCAL_SRC_FILES += $(addprefix $(MAL_ROOT)/src/, $(notdir $(wildcard $(LOCAL_PATH)/$(MAL_ROOT)/src/*.c)))
 
-LOCAL_LDLIBS := -llog -landroid -lEGL -lGLESv2
+LOCAL_LDLIBS := -llog -landroid -lEGL -lGLESv2 -lOpenSLES
+LOCAL_CFLAGS += -std=c99
 LOCAL_STATIC_LIBRARIES := android_native_app_glue
 
 include $(BUILD_SHARED_LIBRARY)

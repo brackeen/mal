@@ -1,3 +1,24 @@
+/*
+ mal
+ Copyright (c) 2014 David Brackeen
+ 
+ This software is provided 'as-is', without any express or implied warranty.
+ In no event will the authors be held liable for any damages arising from the
+ use of this software. Permission is granted to anyone to use this software
+ for any purpose, including commercial applications, and to alter it and
+ redistribute it freely, subject to the following restrictions:
+ 
+ 1. The origin of this software must not be misrepresented; you must not
+    claim that you wrote the original software. If you use this software in a
+    product, an acknowledgment in the product documentation would be appreciated
+    but is not required.
+ 2. Altered source versions must be plainly marked as such, and must not be
+    misrepresented as being the original software.
+ 3. This notice may not be removed or altered from any source distribution.
+ */
+
+#ifndef _MAL_OPENAL_H_
+#define _MAL_OPENAL_H_
 
 #ifdef __APPLE__
 #include <OpenAL/al.h>
@@ -6,101 +27,10 @@
 #include <AL/al.h>
 #include <AL/alc.h>
 #endif
-#include <stdlib.h>
-#include <memory.h>
-
-#ifndef MIN
-#define MIN(a, b) ((a) < (b) ? (a) : (b))
-#endif
-#ifndef MAX
-#define MAX(a, b) ((a) > (b) ? (a) : (b))
-#endif
-
-// MARK: Vector
-
-typedef struct {
-    void **values;
-    unsigned int length;
-    unsigned int capacity;
-} mal_vector;
-
-static bool mal_vector_ensure_capacity(mal_vector *list, const unsigned int additional_values) {
-    if (list != NULL) {
-        if (list->values == NULL || list->length + additional_values > list->capacity) {
-            const unsigned int new_capacity = MAX(list->length + additional_values, list->capacity << 1);
-            void **new_data = realloc(list->values, sizeof(void*) * new_capacity);
-            if (new_data == NULL) {
-                return false;
-            }
-            list->values = new_data;
-            list->capacity = new_capacity;
-        }
-        return true;
-    }
-    return false;
-}
-
-static bool mal_vector_add(mal_vector *list, void *value) {
-    if (mal_vector_ensure_capacity(list, 1)) {
-        list->values[list->length++] = value;
-        return true;
-    }
-    else {
-        return false;
-    }
-}
-
-static bool mal_vector_add_all(mal_vector *list, unsigned int num_values, void **values) {
-    if (mal_vector_ensure_capacity(list, num_values)) {
-        memcpy(list->values + list->length, values, sizeof(void *) * num_values);
-        list->length += num_values;
-        return true;
-    }
-    else {
-        return false;
-    }
-}
-
-static bool mal_vector_contains(const mal_vector *list, void *value) {
-    if (list != NULL) {
-        for (unsigned int i = 0; i < list->length; i++) {
-            if (list->values[i] == value) {
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
-static bool mal_vector_remove(mal_vector *list, void *value) {
-    if (list != NULL) {
-        for (unsigned int i = 0; i < list->length; i++) {
-            if (list->values[i] == value) {
-                for (unsigned int j = i; j < list->length - 1; j++) {
-                    list->values[j] = list->values[j + 1];
-                }
-                list->length--;
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
-static void mal_vector_free(mal_vector *list) {
-    if (list != NULL && list->values != NULL) {
-        free(list->values);
-        list->values = NULL;
-        list->length = 0;
-        list->capacity = 0;
-    }
-}
-
-// MARK: Types
+#include "mal_vector.h"
 
 /**
- Engines using this class need to implement mal_did_create_context, mal_will_destory_context, mal_will_set_active,
- and mal_context_is_audio_route_enabled()
+ Engines using this class need to implement mal_did_create_context, mal_will_destory_context, and mal_will_set_active 
  */
 
 static void mal_did_create_context(mal_context *context);
@@ -112,33 +42,36 @@ typedef ALvoid AL_APIENTRY (*alBufferDataStaticProcPtr) (ALint bid, ALenum forma
                                                          ALsizei size, ALsizei freq);
 
 struct mal_context {
+    mal_vector players;
+    mal_vector buffers;
+    bool routes[NUM_MAL_ROUTES];
+    float gain;
+    bool mute;
+
     ALCcontext *al_context;
     alBufferDataStaticProcPtr alBufferDataStaticProc;
     alcMacOSXMixerOutputRateProcPtr alcMacOSXMixerOutputRateProc;
-    bool mute;
-    float gain;
-    void *internal_data;
-    mal_vector players;
-    mal_vector buffers;
 };
 
 struct mal_buffer {
     mal_context *context;
-    ALuint al_buffer;
     mal_format format;
     uint32_t num_frames;
     void *managed_data;
     mal_deallocator managed_data_deallocator;
+
+    ALuint al_buffer;
 };
 
 struct mal_player {
     mal_context *context;
-    ALuint al_source;
     mal_format format;
     mal_vector buffers;
-    bool looping;
-    bool mute;
     float gain;
+    bool mute;
+    bool looping;
+
+    ALuint al_source;
 };
 
 // Deletes OpenAL resources without deleting other info
@@ -219,6 +152,15 @@ bool mal_context_format_is_valid(const mal_context *context, const mal_format fo
     return ((format.bit_depth == 8 || format.bit_depth == 16) &&
             (format.num_channels == 1 || format.num_channels == 2) &&
             format.sample_rate > 0);
+}
+
+bool mal_context_is_route_enabled(const mal_context *context, const mal_route route) {
+    if (context != NULL && route < NUM_MAL_ROUTES) {
+        return context->routes[route];
+    }
+    else {
+        return false;
+    }
 }
 
 void mal_context_free(mal_context *context) {
@@ -426,6 +368,12 @@ mal_format mal_player_get_format(const mal_player *player) {
 
 bool mal_player_set_format(mal_player *player, const mal_format format) {
     if (player != NULL && mal_context_format_is_valid(player->context, format)) {
+        mal_player_set_state(player, MAL_PLAYER_STATE_STOPPED);
+        player->buffers.length = 0;
+        if (player->al_source != 0) {
+            alSourcei(player->al_source, AL_BUFFER, AL_NONE);
+            alGetError();
+        }
         player->format = format;
         return true;
     }
@@ -441,54 +389,52 @@ bool mal_player_set_buffer(mal_player *player, const mal_buffer *buffer) {
 
 bool mal_player_set_buffer_sequence(mal_player *player, const unsigned int num_buffers,
                                     const mal_buffer **buffers) {
-    if (player == NULL || player->al_source == 0) {
-        return false;
-    }
-    else if (num_buffers == 0) {
-        if (player->buffers.length > 0) {
-            mal_player_set_state(player, MAL_PLAYER_STATE_STOPPED);
-            player->buffers.length = 0;
-        }
-        alSourcei(player->al_source, AL_BUFFER, AL_NONE);
-        alGetError();
-        return true;
-    }
-    else if (buffers == NULL || buffers[0] == NULL) {
+    if (player == NULL) {
         return false;
     }
     else {
-        // Check if format valid
-        const mal_format format = buffers[0]->format;
-        if (!mal_context_format_is_valid(player->context, format) || buffers[0]->al_buffer == 0) {
-            return false;
-        }
-        
-        // Check if all buffers are non-NULL and have the same format
-        for (int i = 1; i < num_buffers; i++) {
-            if (buffers[i] == NULL || !mal_formats_equal(format, buffers[i]->format) || buffers[i]->al_buffer == 0) {
-                return false;
-            }
-        }
-        
         // Stop and clear
         if (player->buffers.length > 0) {
             mal_player_set_state(player, MAL_PLAYER_STATE_STOPPED);
             player->buffers.length = 0;
         }
-        alSourcei(player->al_source, AL_BUFFER, AL_NONE);
-        alGetError();
-        
-        // Add buffers to list
-        const bool success = mal_vector_add_all(&player->buffers, num_buffers, (void **)buffers);
-        if (!success) {
+        if (player->al_source == 0) {
             return false;
         }
-        for (int i = 0; i < num_buffers; i++) {
-            mal_buffer *buffer = player->buffers.values[i];
-            alSourceQueueBuffers(player->al_source, 1, &buffer->al_buffer);
-        }
+        alSourcei(player->al_source, AL_BUFFER, AL_NONE);
         alGetError();
-        return true;
+        if (num_buffers == 0) {
+            return true;
+        }
+        else if (buffers == NULL || buffers[0] == NULL) {
+            return false;
+        }
+        else {
+            // Check if format valid
+            const mal_format format = buffers[0]->format;
+            if (!mal_context_format_is_valid(player->context, format) || buffers[0]->al_buffer == 0) {
+                return false;
+            }
+            
+            // Check if all buffers are non-NULL and have the same format
+            for (int i = 1; i < num_buffers; i++) {
+                if (buffers[i] == NULL || !mal_formats_equal(format, buffers[i]->format) || buffers[i]->al_buffer == 0) {
+                    return false;
+                }
+            }
+            
+            // Add buffers to list
+            const bool success = mal_vector_add_all(&player->buffers, num_buffers, (void **)buffers);
+            if (!success) {
+                return false;
+            }
+            for (int i = 0; i < num_buffers; i++) {
+                mal_buffer *buffer = player->buffers.values[i];
+                alSourceQueueBuffers(player->al_source, 1, &buffer->al_buffer);
+            }
+            alGetError();
+            return true;
+        }
     }
 }
 
@@ -501,7 +447,7 @@ bool mal_player_get_mute(const mal_player *player) {
 }
 
 void mal_player_set_mute(mal_player *player, const bool mute) {
-    if (player != NULL) {
+    if (player != NULL && player->al_source != 0) {
         player->mute = mute;
         alSourcef(player->al_source, AL_GAIN, player->mute ? 0 : player->gain);
         alGetError();
@@ -513,7 +459,7 @@ float mal_player_get_gain(const mal_player *player) {
 }
 
 void mal_player_set_gain(mal_player *player, const float gain) {
-    if (player != NULL) {
+    if (player != NULL && player->al_source != 0) {
         player->gain = gain;
         alSourcef(player->al_source, AL_GAIN, player->mute ? 0 : player->gain);
         alGetError();
@@ -525,7 +471,7 @@ bool mal_player_is_looping(const mal_player *player) {
 }
 
 void mal_player_set_looping(mal_player *player, const bool looping) {
-    if (player != NULL) {
+    if (player != NULL && player->al_source != 0) {
         player->looping = looping;
         alSourcei(player->al_source, AL_LOOPING, looping ? AL_TRUE : AL_FALSE);
         alGetError();
@@ -533,7 +479,7 @@ void mal_player_set_looping(mal_player *player, const bool looping) {
 }
 
 bool mal_player_set_state(mal_player *player, const mal_player_state state) {
-    if (player != NULL && player->buffers.length > 0) {
+    if (player != NULL && player->al_source != 0 && player->buffers.length > 0) {
         if (state == MAL_PLAYER_STATE_PLAYING) {
             alSourcePlay(player->al_source);
         }
@@ -552,7 +498,7 @@ bool mal_player_set_state(mal_player *player, const mal_player_state state) {
 }
 
 mal_player_state mal_player_get_state(const mal_player *player) {
-    if (player == NULL) {
+    if (player == NULL || player->al_source == 0) {
         return MAL_PLAYER_STATE_STOPPED;
     }
     ALint state = AL_STOPPED;
@@ -570,14 +516,16 @@ mal_player_state mal_player_get_state(const mal_player *player) {
 }
 
 static void mal_player_cleanup(mal_player *player) {
-    if (player != NULL && player->al_source != 0) {
+    if (player != NULL) {
         mal_player_set_state(player, MAL_PLAYER_STATE_STOPPED);
         player->buffers.length = 0;
-        alSourcei(player->al_source, AL_BUFFER, AL_NONE);
-        alGetError();
-        alDeleteSources(1, &player->al_source);
-        alGetError();
-        player->al_source = 0;
+        if (player->al_source != 0) {
+            alSourcei(player->al_source, AL_BUFFER, AL_NONE);
+            alGetError();
+            alDeleteSources(1, &player->al_source);
+            alGetError();
+            player->al_source = 0;
+        }
     }
 }
 
@@ -592,3 +540,5 @@ void mal_player_free(mal_player *player) {
         free(player);
     }
 }
+
+#endif

@@ -1,41 +1,55 @@
+/*
+ mal
+ Copyright (c) 2014 David Brackeen
+ 
+ This software is provided 'as-is', without any express or implied warranty.
+ In no event will the authors be held liable for any damages arising from the
+ use of this software. Permission is granted to anyone to use this software
+ for any purpose, including commercial applications, and to alter it and
+ redistribute it freely, subject to the following restrictions:
+ 
+ 1. The origin of this software must not be misrepresented; you must not
+    claim that you wrote the original software. If you use this software in a
+    product, an acknowledgment in the product documentation would be appreciated
+    but is not required.
+ 2. Altered source versions must be plainly marked as such, and must not be
+    misrepresented as being the original software.
+ 3. This notice may not be removed or altered from any source distribution.
+ */
+
 #if defined(__APPLE__) && TARGET_OS_IPHONE
 
 #include "mal.h"
 #include "mal_openal.h"
 #include <AVFoundation/AVFoundation.h>
 
-typedef struct {
-    bool routes[NUM_MAL_ROUTES];
-} mal_context_internal;
-
 static void mal_check_routes(mal_context *context) {
-    if (context != NULL && context->internal_data != NULL) {
-        mal_context_internal *internal = (mal_context_internal *)context->internal_data;
-        memset(internal->routes, 0, sizeof(internal->routes));
+    if (context != NULL) {
+        memset(context->routes, 0, sizeof(context->routes));
         AVAudioSession *session = [AVAudioSession sharedInstance];
         NSArray *outputs = session.currentRoute.outputs;
         for (AVAudioSessionPortDescription *port in outputs) {
             // This covers all the ports up to iOS 8 but there could be more in the future.
             if ([port.portType isEqualToString:AVAudioSessionPortHeadphones]) {
-                internal->routes[MAL_ROUTE_HEADPHONES] = true;
+                context->routes[MAL_ROUTE_HEADPHONES] = true;
             }
             else if ([port.portType isEqualToString:AVAudioSessionPortBuiltInSpeaker]) {
-                internal->routes[MAL_ROUTE_SPEAKER] = true;
+                context->routes[MAL_ROUTE_SPEAKER] = true;
             }
             else if ([port.portType isEqualToString:AVAudioSessionPortBuiltInReceiver]) {
-                internal->routes[MAL_ROUTE_RECIEVER] = true;
+                context->routes[MAL_ROUTE_RECIEVER] = true;
             }
             else if ([port.portType isEqualToString:AVAudioSessionPortBluetoothA2DP] ||
                      [port.portType isEqualToString:AVAudioSessionPortBluetoothHFP] ||
                      [port.portType isEqualToString:AVAudioSessionPortBluetoothLE] ||
                      [port.portType isEqualToString:AVAudioSessionPortAirPlay]) {
-                internal->routes[MAL_ROUTE_WIRELESS] = true;
+                context->routes[MAL_ROUTE_WIRELESS] = true;
             }
             else if ([port.portType isEqualToString:AVAudioSessionPortLineOut] ||
                      [port.portType isEqualToString:AVAudioSessionPortHDMI] ||
                      [port.portType isEqualToString:AVAudioSessionPortUSBAudio] ||
                      [port.portType isEqualToString:AVAudioSessionPortCarAudio]) {
-                internal->routes[MAL_ROUTE_LINEOUT] = true;
+                context->routes[MAL_ROUTE_LINEOUT] = true;
             }
         }
     }
@@ -80,9 +94,6 @@ static void mal_add_notification(mal_context *context, CFStringRef name) {
 }
 
 static void mal_did_create_context(mal_context *context) {
-    if (context != NULL && context->internal_data == NULL) {
-        context->internal_data = calloc(1, sizeof(mal_context_internal));
-    }
     mal_add_notification(context, (__bridge CFStringRef)AVAudioSessionInterruptionNotification);
     mal_add_notification(context, (__bridge CFStringRef)AVAudioSessionRouteChangeNotification);
     mal_add_notification(context, (__bridge CFStringRef)UIApplicationDidEnterBackgroundNotification);
@@ -91,10 +102,6 @@ static void mal_did_create_context(mal_context *context) {
 
 static void mal_will_destory_context(mal_context *context) {
     CFNotificationCenterRemoveEveryObserver(CFNotificationCenterGetLocalCenter(), context);
-    if (context != NULL && context->internal_data != NULL) {
-        free(context->internal_data);
-        context->internal_data = NULL;
-    }
 }
 
 static void mal_did_set_active(mal_context *context, const bool active) {
@@ -119,16 +126,6 @@ static void mal_did_set_active(mal_context *context, const bool active) {
     if (activeError != nil) {
         NSLog(@"mal: Error setting audio session to active (%@). Error: %@", active?@"true":@"false",
               [activeError localizedDescription]);
-    }
-}
-
-bool mal_context_is_route_enabled(const mal_context *context, const mal_route route) {
-    if (context != NULL && context->internal_data != NULL && route < NUM_MAL_ROUTES) {
-        mal_context_internal *internal = (mal_context_internal *)context->internal_data;
-        return internal->routes[route];
-    }
-    else {
-        return false;
     }
 }
 

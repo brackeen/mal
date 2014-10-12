@@ -4,11 +4,12 @@
 #include "ok_wav.h"
 #include "mal.h"
 
-static const int MAX_PLAYERS = 16;
+#define kMaxPlayers 16
+
 typedef struct {
     mal_context *context;
     mal_buffer *buffer;
-    mal_player *players[MAX_PLAYERS];
+    mal_player *players[kMaxPlayers];
 } mal_app;
 
 static void play_sound(mal_app *app, mal_buffer *buffer) {
@@ -17,12 +18,12 @@ static void play_sound(mal_app *app, mal_buffer *buffer) {
 //        mal_buffer_free(app->buffer);
 //        app->buffer = NULL;
 //    }
-    for (int i = 0; i < MAX_PLAYERS; i++) {
+    for (int i = 0; i < kMaxPlayers; i++) {
         if (app->players[i] != NULL && mal_player_get_state(app->players[i]) == MAL_PLAYER_STATE_STOPPED) {
             mal_player_set_buffer(app->players[i], buffer);
             mal_player_set_gain(app->players[i], 0.25f);
             mal_player_set_state(app->players[i], MAL_PLAYER_STATE_PLAYING);
-            printf("PLAY %i\n", i);
+            glfmLog(GLFMLogLevelInfo, "PLAY %i\n", i);
             break;
         }
     }
@@ -52,7 +53,7 @@ void glfm_main(GLFMDisplay *display) {
                          GLFMColorFormatRGBA8888,
                          GLFMDepthFormatNone,
                          GLFMStencilFormatNone,
-                         GLFMUserInterfaceChromeFullscreen);
+                         GLFMUserInterfaceChromeNavigation);
     glfmSetUserData(display, app);
     glfmSetSurfaceCreatedFunc(display, onSurfaceCreated);
     glfmSetSurfaceResizedFunc(display, onSurfaceCreated);
@@ -65,12 +66,12 @@ void glfm_main(GLFMDisplay *display) {
     glfmAssetClose(asset);
 
     if (audio->data == NULL) {
-        printf("Error: %s\n", audio->error_message);
+        glfmLog(GLFMLogLevelError, "Error: %s\n", audio->error_message);
     }
     else {
         app->context = mal_context_create(44100);
         if (app->context == NULL) {
-            printf("Couldn't create audio context\n");
+            glfmLog(GLFMLogLevelError, "Couldn't create audio context\n");
         }
         mal_format format = {
             .sample_rate = audio->sample_rate,
@@ -78,16 +79,16 @@ void glfm_main(GLFMDisplay *display) {
             .bit_depth = audio->bit_depth
         };
         if (!mal_context_format_is_valid(app->context, format)) {
-            printf("Audio format is invalid\n");
+            glfmLog(GLFMLogLevelError, "Audio format is invalid\n");
         }
         app->buffer = mal_buffer_create_no_copy(app->context, format, (uint32_t)audio->num_frames, audio->data, free);
         if (app->buffer == NULL) {
-            printf("Couldn't create audio buffer\n");
+            glfmLog(GLFMLogLevelError, "Couldn't create audio buffer\n");
         }
         audio->data = NULL; // Audio buffer is now managed by mal, don't free it
         ok_audio_free(audio);
         
-        for (int i = 0; i < MAX_PLAYERS; i++) {
+        for (int i = 0; i < kMaxPlayers; i++) {
             app->players[i] = mal_player_create(app->context, format);
             //mal_player_set_gain(app->players[i], 0.25f);
         }
@@ -95,12 +96,12 @@ void glfm_main(GLFMDisplay *display) {
         //bool success = mal_player_set_buffer(player, buffer);
         bool success = mal_player_set_buffer_sequence(app->players[0], 3, buffers);
         if (!success) {
-            printf("Couldn't attach buffer to audio player\n");
+            glfmLog(GLFMLogLevelError, "Couldn't attach buffer to audio player\n");
         }
         mal_player_set_gain(app->players[0], 0.25f);
         success = mal_player_set_state(app->players[0], MAL_PLAYER_STATE_PLAYING);
         if (!success) {
-            printf("Couldn't play audio\n");
+            glfmLog(GLFMLogLevelError, "Couldn't play audio\n");
         }
     }
 }
