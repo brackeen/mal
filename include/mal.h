@@ -37,10 +37,10 @@ extern "C" {
     } mal_route;
     
     typedef enum {
-        MAL_SOURCE_STATE_STOPPED = 0,
-        MAL_SOURCE_STATE_PLAYING,
-        MAL_SOURCE_STATE_PAUSED,
-    } mal_source_state;
+        MAL_PLAYER_STATE_STOPPED = 0,
+        MAL_PLAYER_STATE_PLAYING,
+        MAL_PLAYER_STATE_PAUSED,
+    } mal_player_state;
     
     typedef struct {
         double sample_rate;
@@ -50,7 +50,7 @@ extern "C" {
 
     typedef struct mal_context mal_context;
     typedef struct mal_buffer mal_buffer;
-    typedef struct mal_source mal_source;
+    typedef struct mal_player mal_player;
     
     typedef void (*mal_deallocator)(void*);
     
@@ -71,10 +71,10 @@ extern "C" {
     void mal_context_set_gain(mal_context *context, const float gain);
     
     /// Returns true if the format can be played. For a particular format, if this function returns true, and
-    /// mal_source_create returns NULL, then the maximum number of sources has been reached.
+    /// mal_player_create returns NULL, then the maximum number of players has been reached.
     bool mal_context_format_is_valid(const mal_context *context, const mal_format format);
     
-    /// Frees the context. All buffers and sources created with this context will not longer be valid.
+    /// Frees the context. All buffers and players created with this context will not longer be valid.
     void mal_context_free(mal_context *context);
     
     bool mal_formats_equal(const mal_format format1, const mal_format format2);
@@ -123,68 +123,68 @@ extern "C" {
     void *mal_buffer_get_data(const mal_buffer *buffer);
     
     /**
-     Frees this buffer. Any mal_sources using this buffer are stopped.
+     Frees this buffer. Any mal_players using this buffer are stopped.
      */
     void mal_buffer_free(mal_buffer *buffer);
     
     //
-    // MARK: Sources
+    // MARK: Players
     //
     
     /**
-     Creates a new source with the specified format.
-     Usually only a limited number of sources may be created, typically 16.
-     Returns NULL if the source could not be created.
+     Creates a new player with the specified format.
+     Usually only a limited number of players may be created, typically 16.
+     Returns NULL if the player could not be created.
      */
-    mal_source *mal_source_create(mal_context *context, const mal_format format);
+    mal_player *mal_player_create(mal_context *context, const mal_format format);
     
     /**
-     Gets the format of this source.
+     Gets the format of this player.
      */
-    mal_format mal_source_get_format(const mal_source *source);
+    mal_format mal_player_get_format(const mal_player *player);
     
     /**
-     Sets the format of this source.
+     Sets the format of this player.
      Returns true if successfull.
      */
-    bool mal_source_set_format(mal_source *source, const mal_format format);
+    bool mal_player_set_format(mal_player *player, const mal_format format);
     
     /**
-     Binds a buffer to this source. If buffer is NULL, any existing binding is removed.
-     Note, a buffer may be bound to multiple sources. 
+     Binds a buffer to this player. If buffer is NULL, any existing binding is removed.
+     Note, a buffer may be bound to multiple players. 
      Returns true if successfull.
      */
-    bool mal_source_set_buffer(mal_source *source, const mal_buffer *buffer);
+    bool mal_player_set_buffer(mal_player *player, const mal_buffer *buffer);
     
     /**
-     Binds a sequence of buffers to this source. If num_buffers is 0, any existing binding is removed.
+     Binds a sequence of buffers to this player. If num_buffers is 0, any existing binding is removed.
      All buffers must be the same format and must be non-NULL.
      Returns true if successfull.
      */
-    bool mal_source_set_buffer_sequence(mal_source *source, const unsigned int num_buffers,
+    bool mal_player_set_buffer_sequence(mal_player *player, const unsigned int num_buffers,
                                         const mal_buffer **buffers);
     
     /**
-     Returns true if this source has a buffer bound to it.
+     Returns true if this player has a buffer bound to it.
      */
-    bool mal_source_has_buffer(const mal_source *source);
+    bool mal_player_has_buffer(const mal_player *player);
     
-    bool mal_source_get_mute(const mal_source *source);
-    void mal_source_set_mute(mal_source *source, const bool mute);
-    float mal_source_get_gain(const mal_source *source);
-    void mal_source_set_gain(mal_source *source, const float gain);
-    bool mal_source_is_looping(const mal_source *source);
-    void mal_source_set_looping(mal_source *source, const bool looping);
+    bool mal_player_get_mute(const mal_player *player);
+    void mal_player_set_mute(mal_player *player, const bool mute);
+    float mal_player_get_gain(const mal_player *player);
+    void mal_player_set_gain(mal_player *player, const float gain);
+    bool mal_player_is_looping(const mal_player *player);
+    void mal_player_set_looping(mal_player *player, const bool looping);
     
     /// Returns true if successfull.
-    bool mal_source_set_state(mal_source *source, const mal_source_state state);
+    bool mal_player_set_state(mal_player *player, const mal_player_state state);
     
-    mal_source_state mal_source_get_state(const mal_source *source);
+    mal_player_state mal_player_get_state(const mal_player *player);
     
     /**
-     Frees this source. 
+     Frees this player. 
      */
-    void mal_source_free(mal_source *source);
+    void mal_player_free(mal_player *player);
     
 #ifdef __cplusplus
 }

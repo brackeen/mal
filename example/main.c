@@ -4,11 +4,11 @@
 #include "ok_wav.h"
 #include "mal.h"
 
-static const int MAX_SOURCES = 16;
+static const int MAX_PLAYERS = 16;
 typedef struct {
     mal_context *context;
     mal_buffer *buffer;
-    mal_source *sources[MAX_SOURCES];
+    mal_player *players[MAX_PLAYERS];
 } mal_app;
 
 static void play_sound(mal_app *app, mal_buffer *buffer) {
@@ -17,11 +17,11 @@ static void play_sound(mal_app *app, mal_buffer *buffer) {
 //        mal_buffer_free(app->buffer);
 //        app->buffer = NULL;
 //    }
-    for (int i = 0; i < MAX_SOURCES; i++) {
-        if (app->sources[i] != NULL && mal_source_get_state(app->sources[i]) == MAL_SOURCE_STATE_STOPPED) {
-            mal_source_set_buffer(app->sources[i], buffer);
-            mal_source_set_gain(app->sources[i], 0.25f);
-            mal_source_set_state(app->sources[i], MAL_SOURCE_STATE_PLAYING);
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        if (app->players[i] != NULL && mal_player_get_state(app->players[i]) == MAL_PLAYER_STATE_STOPPED) {
+            mal_player_set_buffer(app->players[i], buffer);
+            mal_player_set_gain(app->players[i], 0.25f);
+            mal_player_set_state(app->players[i], MAL_PLAYER_STATE_PLAYING);
             printf("PLAY %i\n", i);
             break;
         }
@@ -87,18 +87,18 @@ void glfm_main(GLFMDisplay *display) {
         audio->data = NULL; // Audio buffer is now managed by mal, don't free it
         ok_audio_free(audio);
         
-        for (int i = 0; i < MAX_SOURCES; i++) {
-            app->sources[i] = mal_source_create(app->context, format);
-            //mal_source_set_gain(app->sources[i], 0.25f);
+        for (int i = 0; i < MAX_PLAYERS; i++) {
+            app->players[i] = mal_player_create(app->context, format);
+            //mal_player_set_gain(app->players[i], 0.25f);
         }
         const mal_buffer *buffers[3] = { app->buffer, app->buffer, app->buffer };
-        //bool success = mal_source_set_buffer(source, buffer);
-        bool success = mal_source_set_buffer_sequence(app->sources[0], 3, buffers);
+        //bool success = mal_player_set_buffer(player, buffer);
+        bool success = mal_player_set_buffer_sequence(app->players[0], 3, buffers);
         if (!success) {
-            printf("Couldn't attach buffer to audio source\n");
+            printf("Couldn't attach buffer to audio player\n");
         }
-        mal_source_set_gain(app->sources[0], 0.25f);
-        success = mal_source_set_state(app->sources[0], MAL_SOURCE_STATE_PLAYING);
+        mal_player_set_gain(app->players[0], 0.25f);
+        success = mal_player_set_state(app->players[0], MAL_PLAYER_STATE_PLAYING);
         if (!success) {
             printf("Couldn't play audio\n");
         }
