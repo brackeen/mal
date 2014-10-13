@@ -37,6 +37,7 @@ struct mal_context {
     bool routes[NUM_MAL_ROUTES];
     float gain;
     bool mute;
+    bool active;
     
     SLObjectItf sl_object;
     SLEngineItf sl_engine;
@@ -72,6 +73,7 @@ static void mal_player_cleanup(mal_player *player);
 static void mal_buffer_cleanup(mal_buffer *buffer);
 
 static void mal_player_update_gain(mal_player *player);
+static bool mal_player_reset(mal_player *player, const mal_format format);
 
 // MARK: Context
 
@@ -80,6 +82,7 @@ mal_context *mal_context_create(const double output_sample_rate) {
     if (context != NULL) {
         context->mute = false;
         context->gain = 1.0f;
+        context->active = true;
         
         // Create engine
         SLresult result = slCreateEngine(&context->sl_object, 0, NULL, 0, NULL, NULL);
@@ -121,11 +124,30 @@ mal_context *mal_context_create(const double output_sample_rate) {
 }
 
 void mal_context_set_active(mal_context *context, const bool active) {
-    if (context != NULL && !active) {
-        // TODO: destroy players?
+    if (context != NULL && context->active != active) {
+        context->active = active;
+        
         // From http://mobilepearls.com/labs/native-android-api/ndk/docs/opensles/
         // "Be sure to destroy your audio players when your activity is
         // paused, as they are a global resource shared with other apps."
+        for (unsigned int i = 0; i < context->players.length; i++) {
+            mal_player *player = context->players.values[i];
+            
+            if (active) {
+                if (player->sl_object == NULL) {
+                    mal_player_reset(player, player->format);
+                }
+            }
+            else {
+                mal_player_state state = mal_player_get_state(player);
+                if (state == MAL_PLAYER_STATE_PLAYING) {
+                    mal_player_set_state(player, MAL_PLAYER_STATE_STOPPED);
+                }
+                else if (state == MAL_PLAYER_STATE_STOPPED) {
+                    mal_player_cleanup(player);
+                }
+            }
+        }
     }
 }
 
@@ -276,7 +298,15 @@ void *mal_buffer_get_data(const mal_buffer *buffer) {
 }
 
 static void mal_buffer_cleanup(mal_buffer *buffer) {
-    // Nothing to do
+    // Stop all players that are using this buffer.
+    if (buffer->context != NULL) {
+        for (unsigned int i = 0; i < buffer->context->players.length; i++) {
+            mal_player *player = buffer->context->players.values[i];
+            if (mal_vector_contains(&player->buffers, buffer)) {
+                mal_player_set_buffer(player, NULL);
+            }
+        }
+    }
 }
 
 void mal_buffer_free(mal_buffer *buffer) {
@@ -384,7 +414,13 @@ static void mal_player_update_gain(mal_player *player) {
 
 static bool mal_player_reset(mal_player *player, const mal_format format) {
     if (player != NULL) {
-        mal_player_cleanup(player);
+        if (player->sl_object != NULL) {
+            (*player->sl_object)->Destroy(player->sl_object);
+            player->sl_object = NULL;
+            player->sl_buffer_queue = NULL;
+            player->sl_play = NULL;
+            player->sl_volume = NULL;
+        }
         
         const int n = 1;
         const bool system_is_little_endian = *(char *)&n == 1;
@@ -456,6 +492,7 @@ static bool mal_player_reset(mal_player *player, const mal_format format) {
         }
         
         player->format = format;
+        mal_player_update_gain(player);
         return true;
     }
     return false;
@@ -492,6 +529,7 @@ mal_format mal_player_get_format(const mal_player *player) {
 
 bool mal_player_set_format(mal_player *player, const mal_format format) {
     if (player != NULL && mal_context_format_is_valid(player->context, format)) {
+        mal_player_cleanup(player);
         return mal_player_reset(player, format);
     }
     else {
@@ -520,7 +558,10 @@ bool mal_player_set_buffer_sequence(mal_player *player, const unsigned int num_b
         }
         player->next_buffer = 0;
         if (player->sl_object == NULL) {
-            return false;
+            bool success = mal_player_reset(player, player->format);
+            if (!success) {
+                return false;
+            }
         }
         if (num_buffers == 0) {
             return true;

@@ -96,8 +96,10 @@ static void mal_add_notification(mal_context *context, CFStringRef name) {
 static void mal_did_create_context(mal_context *context) {
     mal_add_notification(context, (__bridge CFStringRef)AVAudioSessionInterruptionNotification);
     mal_add_notification(context, (__bridge CFStringRef)AVAudioSessionRouteChangeNotification);
-    mal_add_notification(context, (__bridge CFStringRef)UIApplicationDidEnterBackgroundNotification);
-    mal_add_notification(context, (__bridge CFStringRef)UIApplicationWillEnterForegroundNotification);
+    // Removed this because there is not an equivilent for Android.
+    // User must call mal_context_set_active manually.
+    //mal_add_notification(context, (__bridge CFStringRef)UIApplicationDidEnterBackgroundNotification);
+    //mal_add_notification(context, (__bridge CFStringRef)UIApplicationWillEnterForegroundNotification);
 }
 
 static void mal_will_destory_context(mal_context *context) {
