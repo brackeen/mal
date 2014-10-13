@@ -21,6 +21,7 @@
 #define _MAL_VECTOR_H_
 
 #include <stdlib.h>
+#include <stdbool.h>
 #include <memory.h>
 
 #ifndef MIN

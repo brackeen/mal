@@ -12,6 +12,7 @@
 		E31A9FA319C807030099CE76 /* ok_wav.c in Sources */ = {isa = PBXBuildFile; fileRef = E31A9FA019C807030099CE76 /* ok_wav.c */; };
 		E31FC6ED19EADCEF001266B2 /* mal_android.c in Sources */ = {isa = PBXBuildFile; fileRef = E31FC6EC19EADCEF001266B2 /* mal_android.c */; };
 		E31FC6F319EB37F1001266B2 /* sound.wav in Resources */ = {isa = PBXBuildFile; fileRef = E31FC6F219EB37F1001266B2 /* sound.wav */; };
+		E31FC6F519EB82CC001266B2 /* mal_emscripten.c in Sources */ = {isa = PBXBuildFile; fileRef = E31FC6F419EB82CC001266B2 /* mal_emscripten.c */; };
 		E34FCB6018FC807E00EC87DC /* glfm_platform_android.c in Sources */ = {isa = PBXBuildFile; fileRef = E34FCB5D18FC807E00EC87DC /* glfm_platform_android.c */; };
 		E34FCB6118FC807E00EC87DC /* glfm_platform_emscripten.c in Sources */ = {isa = PBXBuildFile; fileRef = E34FCB5E18FC807E00EC87DC /* glfm_platform_emscripten.c */; };
 		E34FCB6218FC807E00EC87DC /* glfm_platform_ios.m in Sources */ = {isa = PBXBuildFile; fileRef = E34FCB5F18FC807E00EC87DC /* glfm_platform_ios.m */; };
@@ -33,6 +34,7 @@
 		E31FC6EC19EADCEF001266B2 /* mal_android.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = mal_android.c; sourceTree = "<group>"; };
 		E31FC6EF19EAE279001266B2 /* mal_vector.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = mal_vector.h; sourceTree = "<group>"; };
 		E31FC6F219EB37F1001266B2 /* sound.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = sound.wav; path = ../../assets/sound.wav; sourceTree = "<group>"; };
+		E31FC6F419EB82CC001266B2 /* mal_emscripten.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = mal_emscripten.c; sourceTree = "<group>"; };
 		E34FCB5A18FC807E00EC87DC /* glfm.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = glfm.h; sourceTree = "<group>"; };
 		E34FCB5C18FC807E00EC87DC /* glfm_platform.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = glfm_platform.h; sourceTree = "<group>"; };
 		E34FCB5D18FC807E00EC87DC /* glfm_platform_android.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = glfm_platform_android.c; sourceTree = "<group>"; };
@@ -85,6 +87,7 @@
 			isa = PBXGroup;
 			children = (
 				E31FC6EC19EADCEF001266B2 /* mal_android.c */,
+				E31FC6F419EB82CC001266B2 /* mal_emscripten.c */,
 				E31A9F9C19C676780099CE76 /* mal_ios.m */,
 				E31A9F9E19C7F1E50099CE76 /* mal_openal.h */,
 				E31FC6EF19EAE279001266B2 /* mal_vector.h */,
@@ -244,6 +247,7 @@
 				E361BA1E18F340A200C25B35 /* main.c in Sources */,
 				E31A9FA319C807030099CE76 /* ok_wav.c in Sources */,
 				E34FCB6218FC807E00EC87DC /* glfm_platform_ios.m in Sources */,
+				E31FC6F519EB82CC001266B2 /* mal_emscripten.c in Sources */,
 				E31FC6ED19EADCEF001266B2 /* mal_android.c in Sources */,
 				E34FCB6118FC807E00EC87DC /* glfm_platform_emscripten.c in Sources */,
 				E31A9F9D19C676780099CE76 /* mal_ios.m in Sources */,

@@ -29,6 +29,10 @@
 #endif
 #include "mal_vector.h"
 
+#ifndef AL_APIENTRY
+#define AL_APIENTRY
+#endif
+
 /**
  Engines using this class need to implement mal_did_create_context, mal_will_destory_context, and mal_will_set_active 
  */

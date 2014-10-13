@@ -10,11 +10,13 @@ export SHELL := $(shell echo $$SHELL)
 # Modified by new_project.py
 GLFM_ROOT := ../../glfm
 APP_ROOT := ../..
+MAL_ROOT := ../../..
 
 OUT_NAME = index
 BIN = bin
-INCLUDES = -I $(GLFM_ROOT)/include
+INCLUDES = -I $(GLFM_ROOT)/include -I $(MAL_ROOT)/include
 SOURCES := $(GLFM_ROOT)/src/glfm_platform_emscripten.c \
+           $(wildcard $(MAL_ROOT)/src/*.c) \
            $(wildcard $(APP_ROOT)/*.c)
 
 build: init
