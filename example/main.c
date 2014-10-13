@@ -23,7 +23,7 @@ static void play_sound(mal_app *app, mal_buffer *buffer) {
             mal_player_set_buffer(app->players[i], buffer);
             mal_player_set_gain(app->players[i], 0.25f);
             mal_player_set_state(app->players[i], MAL_PLAYER_STATE_PLAYING);
-            glfmLog(GLFMLogLevelInfo, "PLAY %i\n", i);
+            glfmLog(GLFMLogLevelInfo, "PLAY %i", i);
             break;
         }
     }
@@ -32,7 +32,7 @@ static void play_sound(mal_app *app, mal_buffer *buffer) {
 static void mal_init(mal_app *app, ok_audio *audio) {
     app->context = mal_context_create(44100);
     if (app->context == NULL) {
-        glfmLog(GLFMLogLevelError, "Couldn't create audio context\n");
+        glfmLog(GLFMLogLevelError, "Couldn't create audio context");
     }
     mal_format format = {
         .sample_rate = audio->sample_rate,
@@ -40,11 +40,11 @@ static void mal_init(mal_app *app, ok_audio *audio) {
         .bit_depth = audio->bit_depth
     };
     if (!mal_context_format_is_valid(app->context, format)) {
-        glfmLog(GLFMLogLevelError, "Audio format is invalid\n");
+        glfmLog(GLFMLogLevelError, "Audio format is invalid");
     }
     app->buffer = mal_buffer_create_no_copy(app->context, format, (uint32_t)audio->num_frames, audio->data, free);
     if (app->buffer == NULL) {
-        glfmLog(GLFMLogLevelError, "Couldn't create audio buffer\n");
+        glfmLog(GLFMLogLevelError, "Couldn't create audio buffer");
     }
     audio->data = NULL; // Audio buffer is now managed by mal, don't free it
     ok_audio_free(audio);
@@ -55,12 +55,12 @@ static void mal_init(mal_app *app, ok_audio *audio) {
     const mal_buffer *buffers[3] = { app->buffer, app->buffer, app->buffer };
     bool success = mal_player_set_buffer_sequence(app->players[0], 3, buffers);
     if (!success) {
-        glfmLog(GLFMLogLevelError, "Couldn't attach buffer to audio player\n");
+        glfmLog(GLFMLogLevelError, "Couldn't attach buffer to audio player");
     }
     mal_player_set_gain(app->players[0], 0.25f);
     success = mal_player_set_state(app->players[0], MAL_PLAYER_STATE_PLAYING);
     if (!success) {
-        glfmLog(GLFMLogLevelError, "Couldn't play audio\n");
+        glfmLog(GLFMLogLevelError, "Couldn't play audio");
     }
 }
 
@@ -125,7 +125,7 @@ void glfm_main(GLFMDisplay *display) {
     glfmAssetClose(asset);
     
     if (audio->data == NULL) {
-        glfmLog(GLFMLogLevelError, "Error: %s\n", audio->error_message);
+        glfmLog(GLFMLogLevelError, "Error: %s", audio->error_message);
     }
     else {
         mal_init(app, audio);
