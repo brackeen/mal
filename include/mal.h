@@ -65,7 +65,7 @@ extern "C" {
     void mal_context_set_active(mal_context *context, const bool active);
     
     /// Checks if the audio is currently outputting through a specific route. If all routes return false,
-    /// the route could not be determined (currently the case on Android).
+    /// the route could not be determined. Currently only the iOS implementation reports routes.
     bool mal_context_is_route_enabled(const mal_context *context, const mal_route route);
     bool mal_context_get_mute(const mal_context *context);
     void mal_context_set_mute(mal_context *context, const bool mute);
