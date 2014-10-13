@@ -119,6 +119,16 @@ mal_context *mal_context_create(const double output_sample_rate) {
             mal_context_free(context);
             return NULL;
         }
+        
+        // NOTE: SLAudioIODeviceCapabilitiesItf isn't supported, so there's no way to get routing information.
+        // Also, GetDestinationOutputDeviceIDs only returns SL_DEFAULTDEVICEID_AUDIOOUTPUT.
+        //
+        // Potentially, if we have access to the ANativeActivity, we could get an instance of
+        // AudioManager and call the Java functions:
+        // if (isBluetoothA2dpOn() or isBluetoothScoOn()) then wireless
+        // else if (isSpeakerphoneOn()) then speaker
+        // else headset
+        //
     }
     return context;
 }
