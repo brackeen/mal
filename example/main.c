@@ -18,6 +18,15 @@ static void play_sound(mal_app *app, mal_buffer *buffer) {
 //        mal_buffer_free(app->buffer);
 //        app->buffer = NULL;
 //    }
+    // Stop any looping players
+    for (int i = 0; i < kMaxPlayers; i++) {
+        if (app->players[i] != NULL && mal_player_get_state(app->players[i]) == MAL_PLAYER_STATE_PLAYING &&
+            mal_player_is_looping(app->players[i])) {
+            mal_player_set_looping(app->players[i], false);
+            return;
+        }
+    }
+    // Play new sound
     for (int i = 0; i < kMaxPlayers; i++) {
         if (app->players[i] != NULL && mal_player_get_state(app->players[i]) == MAL_PLAYER_STATE_STOPPED) {
             mal_player_set_buffer(app->players[i], buffer);
@@ -52,12 +61,12 @@ static void mal_init(mal_app *app, ok_audio *audio) {
     for (int i = 0; i < kMaxPlayers; i++) {
         app->players[i] = mal_player_create(app->context, format);
     }
-    const mal_buffer *buffers[3] = { app->buffer, app->buffer, app->buffer };
-    bool success = mal_player_set_buffer_sequence(app->players[0], 3, buffers);
+    bool success = mal_player_set_buffer(app->players[0], app->buffer);
     if (!success) {
         glfmLog(GLFMLogLevelError, "Couldn't attach buffer to audio player");
     }
     mal_player_set_gain(app->players[0], 0.25f);
+    mal_player_set_looping(app->players[0], true);
     success = mal_player_set_state(app->players[0], MAL_PLAYER_STATE_PLAYING);
     if (!success) {
         glfmLog(GLFMLogLevelError, "Couldn't play audio");

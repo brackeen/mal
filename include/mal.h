@@ -152,24 +152,16 @@ extern "C" {
     bool mal_player_set_format(mal_player *player, const mal_format format);
     
     /**
-     Binds a buffer to this player. If buffer is NULL, any existing binding is removed.
-     Note, a buffer may be bound to multiple players. 
+     Attaches a buffer to this player. If buffer is NULL, any existing buffer is removed.
+     Note, a buffer may be attached to multiple players.
      Returns true if successfull.
      */
     bool mal_player_set_buffer(mal_player *player, const mal_buffer *buffer);
     
     /**
-     Binds a sequence of buffers to this player. If num_buffers is 0, any existing binding is removed.
-     All buffers must be the same format and must be non-NULL.
-     Returns true if successfull.
+     Gets the buffer attached to this node, or NULL.
      */
-    bool mal_player_set_buffer_sequence(mal_player *player, const unsigned int num_buffers,
-                                        const mal_buffer **buffers);
-    
-    /**
-     Returns true if this player has a buffer bound to it.
-     */
-    bool mal_player_has_buffer(const mal_player *player);
+    const mal_buffer *mal_player_get_buffer(const mal_player *player);
     
     bool mal_player_get_mute(const mal_player *player);
     void mal_player_set_mute(mal_player *player, const bool mute);

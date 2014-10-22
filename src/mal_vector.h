@@ -37,6 +37,9 @@ typedef struct {
     unsigned int capacity;
 } mal_vector;
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-function"
+
 static bool mal_vector_ensure_capacity(mal_vector *list, const unsigned int additional_values) {
     if (list != NULL) {
         if (list->values == NULL || list->length + additional_values > list->capacity) {
@@ -108,5 +111,7 @@ static void mal_vector_free(mal_vector *list) {
         list->capacity = 0;
     }
 }
+
+#pragma clang diagnostic pop
 
 #endif

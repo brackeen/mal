@@ -55,12 +55,10 @@ struct mal_buffer {
 struct mal_player {
     mal_context *context;
     mal_format format;
-    mal_vector buffers;
+    const mal_buffer *buffer;
     float gain;
     bool mute;
     bool looping;
-    
-    unsigned int next_buffer;
     
     SLObjectItf sl_object;
     SLPlayItf sl_play;
@@ -312,7 +310,7 @@ static void mal_buffer_cleanup(mal_buffer *buffer) {
     if (buffer->context != NULL) {
         for (unsigned int i = 0; i < buffer->context->players.length; i++) {
             mal_player *player = buffer->context->players.values[i];
-            if (mal_vector_contains(&player->buffers, buffer)) {
+            if (player->buffer == buffer) {
                 mal_player_set_buffer(player, NULL);
             }
         }
@@ -341,13 +339,12 @@ void mal_buffer_free(mal_buffer *buffer) {
 
 static void mal_player_cleanup(mal_player *player) {
     if (player != NULL) {
-        if (player->buffers.length > 0) {
+        if (player->buffer != NULL) {
             mal_player_set_state(player, MAL_PLAYER_STATE_STOPPED);
-            player->buffers.length = 0;
+            player->buffer = NULL;
             if (player->sl_buffer_queue != NULL) {
                 (*player->sl_buffer_queue)->Clear(player->sl_buffer_queue);
             }
-            player->next_buffer = 0;
         }
         if (player->sl_object != NULL) {
             (*player->sl_object)->Destroy(player->sl_object);
@@ -359,42 +356,17 @@ static void mal_player_cleanup(mal_player *player) {
     }
 }
 
-static void mal_buffer_queue_callback(SLAndroidSimpleBufferQueueItf bq, void *void_player) {
-    mal_player *player = void_player;
-    int buffer_count = 0;
-    int buffers_to_add = 1;
-
-    SLAndroidSimpleBufferQueueState state;
-    SLresult result = (*player->sl_buffer_queue)->GetState(player->sl_buffer_queue, &state);
-    if (result == SL_RESULT_SUCCESS) {
-        buffer_count = state.count;
-        buffers_to_add = kNumQueuedBuffers - buffer_count;
+// TODO: This callback happens on a different thread, and needs to be thread-safe.
+static void mal_buffer_queue_callback(SLAndroidSimpleBufferQueueItf queue, void *void_player) {
+    const mal_player *player = void_player;
+    if (player->looping && queue != NULL && player->buffer != NULL &&
+        player->buffer->managed_data != NULL && mal_player_get_state(player) == MAL_PLAYER_STATE_PLAYING) {
+        const mal_buffer *buffer = player->buffer;
+        const size_t len = buffer->num_frames * (buffer->format.bit_depth/8) * buffer->format.num_channels;
+        (*queue)->Enqueue(queue, buffer->managed_data, len);
     }
-    
-    for (int i = 0; i < buffers_to_add; i++) {
-        if (player->next_buffer >= player->buffers.length) {
-            if (player->buffers.length > 0 && player->looping) {
-                // Looping.
-                player->next_buffer = 0;
-            }
-            else {
-                // Nothing to enqueue. Stop if the buffer_count is 0
-                if (player->sl_play != NULL && buffer_count == 0) {
-                    (*player->sl_play)->SetPlayState(player->sl_play, SL_PLAYSTATE_STOPPED);
-                }
-                return;
-            }
-        }
-
-        // Enqueue
-        mal_buffer *buffer = player->buffers.values[player->next_buffer];
-        if (player->sl_buffer_queue != NULL && buffer->managed_data != NULL) {
-            const size_t len = buffer->num_frames * (buffer->format.bit_depth/8) * buffer->format.num_channels;
-            (*player->sl_buffer_queue)->Enqueue(player->sl_buffer_queue,
-                                                buffer->managed_data, len);
-        }
-        player->next_buffer++;
-        buffer_count++;
+    else if (player->sl_play != NULL) {
+        (*player->sl_play)->SetPlayState(player->sl_play, SL_PLAYSTATE_STOPPED);
     }
 }
 
@@ -548,63 +520,41 @@ bool mal_player_set_format(mal_player *player, const mal_format format) {
 }
 
 bool mal_player_set_buffer(mal_player *player, const mal_buffer *buffer) {
-    return buffer == NULL ? mal_player_set_buffer_sequence(player, 0, NULL) :
-    mal_player_set_buffer_sequence(player, 1, &buffer);
-}
-
-bool mal_player_set_buffer_sequence(mal_player *player, const unsigned int num_buffers,
-                                    const mal_buffer **buffers) {
     if (player == NULL) {
         return false;
     }
     else {
         // Stop and clear
-        if (player->buffers.length > 0) {
+        if (player->buffer != NULL) {
             mal_player_set_state(player, MAL_PLAYER_STATE_STOPPED);
-            player->buffers.length = 0;
+            player->buffer = NULL;
             if (player->sl_buffer_queue != NULL) {
                 (*player->sl_buffer_queue)->Clear(player->sl_buffer_queue);
             }
         }
-        player->next_buffer = 0;
         if (player->sl_object == NULL) {
             bool success = mal_player_reset(player, player->format);
             if (!success) {
                 return false;
             }
         }
-        if (num_buffers == 0) {
+        if (buffer == NULL) {
             return true;
-        }
-        else if (buffers == NULL || buffers[0] == NULL) {
-            return false;
         }
         else {
             // Check if format valid
-            const mal_format format = buffers[0]->format;
-            if (!mal_context_format_is_valid(player->context, format)) {
+            if (!mal_context_format_is_valid(player->context, buffer->format)) {
                 return false;
             }
-            
-            // Check if all buffers are non-NULL and have the same format
-            for (int i = 1; i < num_buffers; i++) {
-                if (buffers[i] == NULL || !mal_formats_equal(format, buffers[i]->format)) {
-                    return false;
-                }
-            }
-            
-            // Add buffers to list
-            const bool success = mal_vector_add_all(&player->buffers, num_buffers, (void **)buffers);
-            if (!success) {
-                return false;
-            }
+
+            player->buffer = buffer;
             return true;
         }
     }
 }
 
-bool mal_player_has_buffer(const mal_player *player) {
-    return player != NULL && player->buffers.length > 0;
+const mal_buffer *mal_player_get_buffer(const mal_player *player) {
+    return player == NULL ? NULL : player->buffer;
 }
 
 bool mal_player_get_mute(const mal_player *player) {
@@ -644,7 +594,7 @@ void mal_player_set_looping(mal_player *player, const bool looping) {
 }
 
 bool mal_player_set_state(mal_player *player, const mal_player_state state) {
-    if (player != NULL && player->sl_play != NULL && player->buffers.length > 0) {
+    if (player != NULL && player->sl_play != NULL && player->buffer != NULL) {
         SLuint32 sl_state;
         switch (state) {
             case MAL_PLAYER_STATE_STOPPED: default:
@@ -660,7 +610,11 @@ bool mal_player_set_state(mal_player *player, const mal_player_state state) {
 
         // Queue if needed
         if (sl_state == SL_PLAYSTATE_PLAYING && player->sl_buffer_queue != NULL) {
-            mal_buffer_queue_callback(player->sl_buffer_queue, player);
+            const mal_buffer *buffer = player->buffer;
+            if (buffer->managed_data != NULL) {
+                const size_t len = buffer->num_frames * (buffer->format.bit_depth/8) * buffer->format.num_channels;
+                (*player->sl_buffer_queue)->Enqueue(player->sl_buffer_queue, buffer->managed_data, len);
+            }
         }
         
         (*player->sl_play)->SetPlayState(player->sl_play, sl_state);
@@ -705,7 +659,6 @@ void mal_player_free(mal_player *player) {
             player->context = NULL;
         }
         mal_player_cleanup(player);
-        mal_vector_free(&player->buffers);
         free(player);
     }
 }
