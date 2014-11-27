@@ -111,7 +111,7 @@ static void mal_did_set_active(mal_context *context, const bool active) {
     
     if (active) {
         // Set Category
-        // TODO: allowBackgroundMusic might need to be an option
+        // allowBackgroundMusic might need to be an option
         bool allowBackgroundMusic = true;
         NSString *category = allowBackgroundMusic ? AVAudioSessionCategoryAmbient : AVAudioSessionCategorySoloAmbient;
         NSError *categoryError = nil;

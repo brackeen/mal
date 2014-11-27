@@ -385,7 +385,6 @@ static void mal_player_update_gain(mal_player *player) {
                 millibelVolume = SL_MILLIBEL_MIN;
             }
             else if (millibelVolume > 0) {
-                // TODO: GetMaxVolumeLevel. The max must be at least 0
                 millibelVolume = 0;
             }
             (*player->sl_volume)->SetVolumeLevel(player->sl_volume, millibelVolume);
