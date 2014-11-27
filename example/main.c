@@ -5,6 +5,7 @@
 #include "mal.h"
 
 #define kMaxPlayers 16
+#define kTestFreeBufferDuingPlayback 0
 
 typedef struct {
     mal_context *context;
@@ -14,16 +15,17 @@ typedef struct {
 
 static void play_sound(mal_app *app, mal_buffer *buffer) {
     // This is useful to test buffer freeing during playback
-//    if (app->buffer != NULL) {
-//        mal_buffer_free(app->buffer);
-//        app->buffer = NULL;
-//    }
+#if kTestFreeBufferDuingPlayback
+    if (app->buffer != NULL) {
+        mal_buffer_free(app->buffer);
+        app->buffer = NULL;
+    }
+#else
     // Stop any looping players
     for (int i = 0; i < kMaxPlayers; i++) {
         if (app->players[i] != NULL && mal_player_get_state(app->players[i]) == MAL_PLAYER_STATE_PLAYING &&
             mal_player_is_looping(app->players[i])) {
             mal_player_set_looping(app->players[i], false);
-            return;
         }
     }
     // Play new sound
@@ -36,6 +38,7 @@ static void play_sound(mal_app *app, mal_buffer *buffer) {
             break;
         }
     }
+#endif
 }
 
 static void mal_init(mal_app *app, ok_audio *audio) {
