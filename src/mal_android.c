@@ -22,6 +22,7 @@
 #include <android/log.h>
 #include <SLES/OpenSLES.h>
 #include <SLES/OpenSLES_Android.h>
+#include <pthread.h>
 #include <math.h>
 #include "mal.h"
 #include "mal_vector.h"
@@ -59,6 +60,8 @@ struct mal_player {
     float gain;
     bool mute;
     bool looping;
+    
+    pthread_mutex_t mutex;
     
     SLObjectItf sl_object;
     SLPlayItf sl_play;
@@ -337,15 +340,22 @@ void mal_buffer_free(mal_buffer *buffer) {
 
 // MARK: Player
 
+static void mal_player_clear_buffer(mal_player *player) {
+    if (player != NULL && player->buffer != NULL) {
+        if (player->sl_play != NULL) {
+            (*player->sl_play)->SetPlayState(player->sl_play, SL_PLAYSTATE_STOPPED);
+        }
+        if (player->sl_buffer_queue != NULL) {
+            (*player->sl_buffer_queue)->Clear(player->sl_buffer_queue);
+        }
+        player->buffer = NULL;
+    }
+}
+
 static void mal_player_cleanup(mal_player *player) {
     if (player != NULL) {
-        if (player->buffer != NULL) {
-            mal_player_set_state(player, MAL_PLAYER_STATE_STOPPED);
-            player->buffer = NULL;
-            if (player->sl_buffer_queue != NULL) {
-                (*player->sl_buffer_queue)->Clear(player->sl_buffer_queue);
-            }
-        }
+        pthread_mutex_lock(&player->mutex);
+        mal_player_clear_buffer(player);
         if (player->sl_object != NULL) {
             (*player->sl_object)->Destroy(player->sl_object);
             player->sl_object = NULL;
@@ -353,20 +363,31 @@ static void mal_player_cleanup(mal_player *player) {
             player->sl_play = NULL;
             player->sl_volume = NULL;
         }
+        pthread_mutex_unlock(&player->mutex);
     }
 }
 
-// TODO: This callback happens on a different thread, and needs to be thread-safe.
+// Buffer queue callback, which is called on a different thread.
+//
+// According to the Android team, "it is unspecified whether buffer queue callbacks are called upon transition to
+// SL_PLAYSTATE_STOPPED or by BufferQueue::Clear."
+//
+// The Android team recommends "non-blocking synchronization", but the lock will be uncontended in most cases.
+// Also, Chromium has locks in their OpenSLES-based audio implementation.
 static void mal_buffer_queue_callback(SLAndroidSimpleBufferQueueItf queue, void *void_player) {
-    const mal_player *player = void_player;
-    if (player->looping && queue != NULL && player->buffer != NULL &&
-        player->buffer->managed_data != NULL && mal_player_get_state(player) == MAL_PLAYER_STATE_PLAYING) {
-        const mal_buffer *buffer = player->buffer;
-        const size_t len = buffer->num_frames * (buffer->format.bit_depth/8) * buffer->format.num_channels;
-        (*queue)->Enqueue(queue, buffer->managed_data, len);
-    }
-    else if (player->sl_play != NULL) {
-        (*player->sl_play)->SetPlayState(player->sl_play, SL_PLAYSTATE_STOPPED);
+    mal_player *player = void_player;
+    if (player != NULL && queue != NULL) {
+        pthread_mutex_lock(&player->mutex);
+        if (player->looping && player->buffer != NULL &&
+            player->buffer->managed_data != NULL && mal_player_get_state(player) == MAL_PLAYER_STATE_PLAYING) {
+            const mal_buffer *buffer = player->buffer;
+            const size_t len = buffer->num_frames * (buffer->format.bit_depth/8) * buffer->format.num_channels;
+            (*queue)->Enqueue(queue, buffer->managed_data, len);
+        }
+        else if (player->sl_play != NULL) {
+            (*player->sl_play)->SetPlayState(player->sl_play, SL_PLAYSTATE_STOPPED);
+        }
+        pthread_mutex_unlock(&player->mutex);
     }
 }
 
@@ -393,7 +414,7 @@ static void mal_player_update_gain(mal_player *player) {
     }
 }
 
-static bool mal_player_reset(mal_player *player, const mal_format format) {
+static bool mal_player_reset_no_lock(mal_player *player, const mal_format format) {
     if (player != NULL) {
         if (player->sl_object != NULL) {
             (*player->sl_object)->Destroy(player->sl_object);
@@ -479,6 +500,16 @@ static bool mal_player_reset(mal_player *player, const mal_format format) {
     return false;
 }
 
+static bool mal_player_reset(mal_player *player, const mal_format format) {
+    bool success = false;
+    if (player != NULL) {
+        pthread_mutex_lock(&player->mutex);
+        success = mal_player_reset_no_lock(player, format);
+        pthread_mutex_unlock(&player->mutex);
+    }
+    return success;
+}
+
 mal_player *mal_player_create(mal_context *context, const mal_format format) {
     // Check params
     if (context == NULL || !mal_context_format_is_valid(context, format)) {
@@ -486,10 +517,11 @@ mal_player *mal_player_create(mal_context *context, const mal_format format) {
     }
     mal_player *player = calloc(1, sizeof(mal_player));
     if (player != NULL) {
+        pthread_mutex_init(&player->mutex, NULL);
         mal_vector_add(&context->players, player);
         player->context = context;
         
-        bool success = mal_player_reset(player, format);
+        bool success = mal_player_reset_no_lock(player, format);
         if (!success) {
             mal_player_free(player);
             return NULL;
@@ -518,21 +550,14 @@ bool mal_player_set_format(mal_player *player, const mal_format format) {
     }
 }
 
-bool mal_player_set_buffer(mal_player *player, const mal_buffer *buffer) {
+static bool mal_player_set_buffer_no_lock(mal_player *player, const mal_buffer *buffer) {
     if (player == NULL) {
         return false;
     }
     else {
-        // Stop and clear
-        if (player->buffer != NULL) {
-            mal_player_set_state(player, MAL_PLAYER_STATE_STOPPED);
-            player->buffer = NULL;
-            if (player->sl_buffer_queue != NULL) {
-                (*player->sl_buffer_queue)->Clear(player->sl_buffer_queue);
-            }
-        }
+        mal_player_clear_buffer(player);
         if (player->sl_object == NULL) {
-            bool success = mal_player_reset(player, player->format);
+            bool success = mal_player_reset_no_lock(player, player->format);
             if (!success) {
                 return false;
             }
@@ -550,6 +575,16 @@ bool mal_player_set_buffer(mal_player *player, const mal_buffer *buffer) {
             return true;
         }
     }
+}
+
+bool mal_player_set_buffer(mal_player *player, const mal_buffer *buffer) {
+    bool success = false;
+    if (player != NULL) {
+        pthread_mutex_lock(&player->mutex);
+        success = mal_player_set_buffer_no_lock(player, buffer);
+        pthread_mutex_unlock(&player->mutex);
+    }
+    return success;
 }
 
 const mal_buffer *mal_player_get_buffer(const mal_player *player) {
@@ -587,13 +622,15 @@ bool mal_player_is_looping(const mal_player *player) {
 }
 
 void mal_player_set_looping(mal_player *player, const bool looping) {
-    if (player != NULL) {
+    if (player != NULL && player->looping != looping) {
+        pthread_mutex_lock(&player->mutex);
         player->looping = looping;
+        pthread_mutex_unlock(&player->mutex);
     }
 }
 
 bool mal_player_set_state(mal_player *player, const mal_player_state state) {
-    if (player != NULL && player->sl_play != NULL && player->buffer != NULL) {
+    if (player != NULL && player->sl_play != NULL && player->buffer != NULL && state != mal_player_get_state(player)) {
         SLuint32 sl_state;
         switch (state) {
             case MAL_PLAYER_STATE_STOPPED: default:
@@ -606,6 +643,8 @@ bool mal_player_set_state(mal_player *player, const mal_player_state state) {
                 sl_state = SL_PLAYSTATE_PLAYING;
                 break;
         }
+        
+        pthread_mutex_lock(&player->mutex);
 
         // Queue if needed
         if (sl_state == SL_PLAYSTATE_PLAYING && player->sl_buffer_queue != NULL) {
@@ -622,6 +661,9 @@ bool mal_player_set_state(mal_player *player, const mal_player_state state) {
         if (sl_state == SL_PLAYSTATE_STOPPED && player->sl_buffer_queue != NULL) {
             (*player->sl_buffer_queue)->Clear(player->sl_buffer_queue);
         }
+        
+        pthread_mutex_unlock(&player->mutex);
+
         return true;
     }
     else {
@@ -658,6 +700,7 @@ void mal_player_free(mal_player *player) {
             player->context = NULL;
         }
         mal_player_cleanup(player);
+        pthread_mutex_destroy(&player->mutex);
         free(player);
     }
 }
