@@ -1,6 +1,7 @@
 
 #include "glfm.h"
 #include <stdlib.h>
+#include <stdio.h> // For SEEK_CUR
 #include "ok_wav.h"
 #include "mal.h"
 
@@ -41,25 +42,25 @@ static void play_sound(mal_app *app, mal_buffer *buffer) {
 #endif
 }
 
-static void mal_init(mal_app *app, ok_audio *audio) {
+static void mal_init(mal_app *app, ok_wav *wav) {
     app->context = mal_context_create(44100);
     if (app->context == NULL) {
         glfmLog(GLFMLogLevelError, "Couldn't create audio context");
     }
     mal_format format = {
-        .sample_rate = audio->sample_rate,
-        .num_channels = audio->num_channels,
-        .bit_depth = audio->bit_depth
+        .sample_rate = wav->sample_rate,
+        .num_channels = wav->num_channels,
+        .bit_depth = wav->bit_depth
     };
     if (!mal_context_format_is_valid(app->context, format)) {
         glfmLog(GLFMLogLevelError, "Audio format is invalid");
     }
-    app->buffer = mal_buffer_create_no_copy(app->context, format, (uint32_t)audio->num_frames, audio->data, free);
+    app->buffer = mal_buffer_create_no_copy(app->context, format, (uint32_t)wav->num_frames, wav->data, free);
     if (app->buffer == NULL) {
         glfmLog(GLFMLogLevelError, "Couldn't create audio buffer");
     }
-    audio->data = NULL; // Audio buffer is now managed by mal, don't free it
-    ok_audio_free(audio);
+    wav->data = NULL; // Audio buffer is now managed by mal, don't free it
+    ok_wav_free(wav);
     
     for (int i = 0; i < kMaxPlayers; i++) {
         app->players[i] = mal_player_create(app->context, format);
@@ -89,14 +90,17 @@ static void on_app_resume(GLFMDisplay *display) {
 
 // GLFM functions
 
-static size_t read_func(void *user_data, uint8_t *buffer, const size_t count) {
+static int glfm_asset_input_func(void *user_data, unsigned char *buffer, const int count) {
     GLFMAsset *asset = user_data;
-    return glfmAssetRead(asset, buffer, count);
-}
-
-static int seek_func(void *user_data, const int count) {
-    GLFMAsset *asset = user_data;
-    return glfmAssetSeek(asset, count, SEEK_CUR);
+    if (buffer && count > 0) {
+        return (int)glfmAssetRead(asset, buffer, count);
+    }
+    else if (glfmAssetSeek(asset, count, SEEK_CUR) == 0) {
+        return count;
+    }
+    else {
+        return 0;
+    }
 }
 
 static GLboolean on_touch(GLFMDisplay *display, const int touch, const GLFMTouchPhase phase, const int x, const int y) {
@@ -133,13 +137,13 @@ void glfm_main(GLFMDisplay *display) {
     glfmSetAppResumingFunc(display, on_app_resume);
     
     GLFMAsset *asset = glfmAssetOpen("sound.wav");
-    ok_audio *audio = ok_wav_read_from_callbacks(asset, read_func, seek_func, true);
+    ok_wav *wav = ok_wav_read(asset, glfm_asset_input_func, true);
     glfmAssetClose(asset);
     
-    if (audio->data == NULL) {
-        glfmLog(GLFMLogLevelError, "Error: %s", audio->error_message);
+    if (wav->data == NULL) {
+        glfmLog(GLFMLogLevelError, "Error: %s", wav->error_message);
     }
     else {
-        mal_init(app, audio);
+        mal_init(app, wav);
     }
 }
