@@ -1,5 +1,4 @@
-/bin
-/gen
-/obj
-/libs
-/assets
+/.gradle
+/.idea
+/build
+/local.properties
