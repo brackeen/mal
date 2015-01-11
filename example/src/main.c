@@ -35,7 +35,7 @@ static void play_sound(mal_app *app, mal_buffer *buffer) {
             mal_player_set_buffer(app->players[i], buffer);
             mal_player_set_gain(app->players[i], 0.25f);
             mal_player_set_state(app->players[i], MAL_PLAYER_STATE_PLAYING);
-            glfmLog(GLFMLogLevelInfo, "PLAY %i", i);
+            glfmLog("PLAY %i", i);
             break;
         }
     }
@@ -45,7 +45,7 @@ static void play_sound(mal_app *app, mal_buffer *buffer) {
 static void mal_init(mal_app *app, ok_wav *wav) {
     app->context = mal_context_create(44100);
     if (app->context == NULL) {
-        glfmLog(GLFMLogLevelError, "Couldn't create audio context");
+        glfmLog("Error: Couldn't create audio context");
     }
     mal_format format = {
         .sample_rate = wav->sample_rate,
@@ -53,11 +53,11 @@ static void mal_init(mal_app *app, ok_wav *wav) {
         .bit_depth = wav->bit_depth
     };
     if (!mal_context_format_is_valid(app->context, format)) {
-        glfmLog(GLFMLogLevelError, "Audio format is invalid");
+        glfmLog("Error: Audio format is invalid");
     }
     app->buffer = mal_buffer_create_no_copy(app->context, format, (uint32_t)wav->num_frames, wav->data, free);
     if (app->buffer == NULL) {
-        glfmLog(GLFMLogLevelError, "Couldn't create audio buffer");
+        glfmLog("Error: Couldn't create audio buffer");
     }
     wav->data = NULL; // Audio buffer is now managed by mal, don't free it
     ok_wav_free(wav);
@@ -67,13 +67,13 @@ static void mal_init(mal_app *app, ok_wav *wav) {
     }
     bool success = mal_player_set_buffer(app->players[0], app->buffer);
     if (!success) {
-        glfmLog(GLFMLogLevelError, "Couldn't attach buffer to audio player");
+        glfmLog("Error: Couldn't attach buffer to audio player");
     }
     mal_player_set_gain(app->players[0], 0.25f);
     mal_player_set_looping(app->players[0], true);
     success = mal_player_set_state(app->players[0], MAL_PLAYER_STATE_PLAYING);
     if (!success) {
-        glfmLog(GLFMLogLevelError, "Couldn't play audio");
+        glfmLog("Error: Couldn't play audio");
     }
 }
 
@@ -120,13 +120,14 @@ static void on_frame(GLFMDisplay *display, const double frameTime) {
     glClear(GL_COLOR_BUFFER_BIT);
 }
 
-void glfm_main(GLFMDisplay *display) {
+void glfmMain(GLFMDisplay *display) {
     mal_app *app = calloc(1, sizeof(mal_app));
 
     glfmSetDisplayConfig(display,
                          GLFMColorFormatRGBA8888,
                          GLFMDepthFormatNone,
                          GLFMStencilFormatNone,
+                         GLFMMultisampleNone,
                          GLFMUserInterfaceChromeNavigation);
     glfmSetUserData(display, app);
     glfmSetSurfaceCreatedFunc(display, on_surface_created);
@@ -141,7 +142,7 @@ void glfm_main(GLFMDisplay *display) {
     glfmAssetClose(asset);
     
     if (wav->data == NULL) {
-        glfmLog(GLFMLogLevelError, "Error: %s", wav->error_message);
+        glfmLog("Error: %s", wav->error_message);
     }
     else {
         mal_init(app, wav);

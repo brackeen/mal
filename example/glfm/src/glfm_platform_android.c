@@ -59,8 +59,6 @@ typedef struct {
     
     struct android_app *app;
     
-    GLFMUserInterfaceIdiom uiIdiom;
-    
     bool multitouchEnabled;
     
     struct timespec initTime;
@@ -102,7 +100,7 @@ static jobject getDefaultSharedPreferences() {
         jclass preferenceManagerClass = (*jni)->FindClass(jni, "android.preference.PreferenceManager");
         EXCEPTION_CHECK_FAIL()
         
-        if (preferenceManagerClass != NULL) {
+        if (preferenceManagerClass) {
             jmethodID getDefaultSharedPreferences = (*jni)->GetStaticMethodID(jni, preferenceManagerClass,
                                                                               "getDefaultSharedPreferences",
                                                                               "(Landroid/content/Context;)Landroid/content/SharedPreferences;");
@@ -114,7 +112,7 @@ static jobject getDefaultSharedPreferences() {
                                                                        engine->app->activity->clazz);
             EXCEPTION_CHECK_FAIL();
             
-            if (sharedPreferences != NULL) {
+            if (sharedPreferences) {
                 engine->sharedPreferences = (*jni)->NewGlobalRef(jni, sharedPreferences);
                 EXCEPTION_CHECK_FAIL();
             }
@@ -129,7 +127,7 @@ static jobject getSharedPreferencesEditor() {
     JNIEnv *jni = engine->jniEnv;
     if (engine->sharedPreferencesEditor == NULL) {
         jobject sharedPreferences = getDefaultSharedPreferences();
-        if (sharedPreferences != NULL) {
+        if (sharedPreferences) {
             jclass sharedPreferencesClass = (*jni)->GetObjectClass(jni, sharedPreferences);
             EXCEPTION_CHECK_FAIL()
             
@@ -140,7 +138,7 @@ static jobject getSharedPreferencesEditor() {
             jobject sharedPreferencesEditor = (*jni)->CallObjectMethod(jni, sharedPreferences, edit);
             EXCEPTION_CHECK_FAIL();
             
-            if (sharedPreferencesEditor != NULL) {
+            if (sharedPreferencesEditor) {
                 engine->sharedPreferencesEditor = (*jni)->NewGlobalRef(jni, sharedPreferencesEditor);
                 EXCEPTION_CHECK_FAIL();
             }
@@ -152,7 +150,7 @@ jnifail:
 
 static void applyPreferencesIfNeeded() {
     Engine *engine = engineGlobal;
-    if (engine->sharedPreferencesEditor != NULL) {
+    if (engine->sharedPreferencesEditor) {
         JNIEnv *jni = engine->jniEnv;
         
         if (!(*jni)->ExceptionCheck(jni)) {
@@ -179,60 +177,10 @@ static void deleteGlobalRefs() {
     
     Engine *engine = engineGlobal;
     JNIEnv *jni = engine->jniEnv;
-    if (engine->sharedPreferences != NULL) {
+    if (engine->sharedPreferences) {
         (*jni)->DeleteGlobalRef(jni, engine->sharedPreferences);
         engine->sharedPreferences = NULL;
     }
-}
-
-// Note, AConfiguration_getSmallestScreenWidthDp is only available on SDK 13 and newer.
-// So, call activity.getResources().getConfiguration().smallestScreenWidthDp
-static int getSmallestScreenWidthDp(struct android_app *app) {
-    int returnValue = 0;
-    if (app->activity->sdkVersion >= 13) {
-        Engine *engine = (Engine*)app->userData;
-        JavaVM *vm = app->activity->vm;
-        JNIEnv *jni = engine->jniEnv;
-        if ((*jni)->ExceptionCheck(jni)) {
-            return returnValue;
-        }
-        
-        jclass activityClass = (*jni)->GetObjectClass(jni, app->activity->clazz);
-        EXCEPTION_CHECK(returnValue)
-        
-        jmethodID getResources = (*jni)->GetMethodID(jni, activityClass, "getResources",
-                                                     "()Landroid/content/res/Resources;");
-        EXCEPTION_CHECK(returnValue)
-        
-        jobject res = (*jni)->CallObjectMethod(jni, app->activity->clazz, getResources);
-        EXCEPTION_CHECK(returnValue);
-        
-        if (res != NULL) {
-            jclass resClass = (*jni)->GetObjectClass(jni, res);
-            EXCEPTION_CHECK(returnValue)
-            
-            jmethodID getConfiguration = (*jni)->GetMethodID(jni, resClass, "getConfiguration",
-                                                             "()Landroid/content/res/Configuration;");
-            EXCEPTION_CHECK(returnValue)
-            jobject configuration = (*jni)->CallObjectMethod(jni, res, getConfiguration);
-            EXCEPTION_CHECK(returnValue);
-            
-            if (configuration != NULL) {
-                jclass configurationClass = (*jni)->GetObjectClass(jni, configuration);
-                EXCEPTION_CHECK(returnValue)
-                
-                jfieldID smallestScreenWidthDp = (*jni)->GetFieldID(jni, configurationClass,
-                                                                    "smallestScreenWidthDp", "I");
-                EXCEPTION_CHECK(returnValue)
-                
-                jint value = (*jni)->GetIntField(jni, configuration, smallestScreenWidthDp);
-                EXCEPTION_CHECK(returnValue)
-                
-                returnValue = value;
-            }
-        }
-    }
-    return returnValue;
 }
 
 #define ActivityInfo_SCREEN_ORIENTATION_SENSOR 0x00000004
@@ -310,7 +258,7 @@ static void setFullScreen(struct android_app *app, GLFMUserInterfaceChrome uiChr
     jobject window = (*jni)->CallObjectMethod(jni, app->activity->clazz, getWindow);
     EXCEPTION_CHECK();
     
-    if (window != NULL) {
+    if (window) {
         jclass windowClass = (*jni)->GetObjectClass(jni, window);
         EXCEPTION_CHECK()
         
@@ -320,7 +268,7 @@ static void setFullScreen(struct android_app *app, GLFMUserInterfaceChrome uiChr
         jobject decorView = (*jni)->CallObjectMethod(jni, window, getDecorView);
         EXCEPTION_CHECK()
         
-        if (decorView != NULL) {
+        if (decorView) {
             jclass decorViewClass = (*jni)->GetObjectClass(jni, decorView);
             EXCEPTION_CHECK()
             
@@ -373,9 +321,9 @@ static bool egl_init_context(Engine *engine) {
     else {
         if (!engine->eglContextCurrent) {
             engine->eglContextCurrent = true;
-            if (engine->display != NULL) {
+            if (engine->display) {
                 LOG_LIFECYCLE("GL Context made current");
-                if (engine->display->surfaceCreatedFunc != NULL) {
+                if (engine->display->surfaceCreatedFunc) {
                     engine->display->surfaceCreatedFunc(engine->display, engine->width, engine->height);
                 }
             }
@@ -416,6 +364,10 @@ static void egl_log_config(Engine *engine, EGLConfig config) {
     LOGI("  EGL_DEPTH_SIZE      %i", value);
     eglGetConfigAttrib(engine->eglDisplay, config, EGL_STENCIL_SIZE, &value);
     LOGI("  EGL_STENCIL_SIZE    %i", value);
+    eglGetConfigAttrib(engine->eglDisplay, config, EGL_SAMPLE_BUFFERS, &value);
+    LOGI("  EGL_SAMPLE_BUFFERS  %i", value);
+    eglGetConfigAttrib(engine->eglDisplay, config, EGL_SAMPLES, &value);
+    LOGI("  EGL_SAMPLES         %i", value);
 }
 
 static bool egl_init(Engine *engine) {
@@ -424,7 +376,7 @@ static bool egl_init(Engine *engine) {
         return egl_init_context(engine);
     }
     int rBits, gBits, bBits, aBits;
-    int depthBits, stencilBits;
+    int depthBits, stencilBits, samples;
     
     switch (engine->display->colorFormat) {
         case GLFMColorFormatRGB565:
@@ -459,34 +411,24 @@ static bool egl_init(Engine *engine) {
             break;
         case GLFMStencilFormat8:
             stencilBits = 8;
+            if (depthBits > 0) {
+                // Many implementations only allow 24-bit depth with 8-bit stencil.
+                depthBits = 24;
+            }
             break;
     }
-    
-    const EGLint attribs[] = {
-        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-        EGL_SURFACE_TYPE,    EGL_WINDOW_BIT,
-        EGL_RED_SIZE,        rBits,
-        EGL_GREEN_SIZE,      gBits,
-        EGL_BLUE_SIZE,       bBits,
-        EGL_ALPHA_SIZE,      aBits,
-        EGL_DEPTH_SIZE,      depthBits,
-        EGL_STENCIL_SIZE,    stencilBits,
-        EGL_NONE
-    };
-    
+
+    samples = engine->display->multisample == GLFMMultisample4X ? 4 : 0;
+
     EGLint majorVersion;
     EGLint minorVersion;
     EGLint format;
     EGLint numConfigs;
-    
+
     engine->eglDisplay = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     eglInitialize(engine->eglDisplay, &majorVersion, &minorVersion);
-    
-    eglChooseConfig(engine->eglDisplay, attribs, &engine->eglConfig, 1, &numConfigs);
-    
-    if (!numConfigs && depthBits == 24) {
-        // Try 16-bit depth if 24-bit fails
-        depthBits = 16;
+
+    while (true) {
         const EGLint attribs[] = {
             EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
             EGL_SURFACE_TYPE,    EGL_WINDOW_BIT,
@@ -496,40 +438,52 @@ static bool egl_init(Engine *engine) {
             EGL_ALPHA_SIZE,      aBits,
             EGL_DEPTH_SIZE,      depthBits,
             EGL_STENCIL_SIZE,    stencilBits,
+            EGL_SAMPLE_BUFFERS,  samples > 0 ? 1 : 0,
+            EGL_SAMPLES,         samples > 0 ? samples : 0,
             EGL_NONE
         };
+
         eglChooseConfig(engine->eglDisplay, attribs, &engine->eglConfig, 1, &numConfigs);
-    }
-    
-    if (!numConfigs) {
-        static bool printedConfigs = false;
-        if (!printedConfigs) {
-            printedConfigs = true;
-            LOGW("eglChooseConfig() failed");
-            EGLConfig configs[256];
-            EGLint numTotalConfigs;
-            if (eglGetConfigs(engine->eglDisplay, configs, 256, &numTotalConfigs)) {
-                LOGI("Num available configs: %i", numTotalConfigs);
-                int i;
-                for (i = 0; i < numTotalConfigs; i++) {
-                    egl_log_config(engine, configs[i]);
+        if (numConfigs) {
+            // Found!
+            //egl_log_config(engine, engine->eglConfig);
+            break;
+        }
+        else if (samples > 0) {
+            // Try 2x multisampling or no multisampling
+            samples -= 2;
+        }
+        else if (depthBits > 8) {
+            // Try 16-bit depth or 8-bit depth
+            depthBits -= 8;
+        }
+        else {
+            // Failure
+            static bool printedConfigs = false;
+            if (!printedConfigs) {
+                printedConfigs = true;
+                LOGW("eglChooseConfig() failed");
+                EGLConfig configs[256];
+                EGLint numTotalConfigs;
+                if (eglGetConfigs(engine->eglDisplay, configs, 256, &numTotalConfigs)) {
+                    LOGI("Num available configs: %i", numTotalConfigs);
+                    int i;
+                    for (i = 0; i < numTotalConfigs; i++) {
+                        egl_log_config(engine, configs[i]);
+                    }
+                }
+                else {
+                    LOGI("Couldn't get any EGL configs");
                 }
             }
-            else {
-                LOGI("Couldn't get any EGL configs");
-            }
+
+            reportSurfaceError(engine->eglDisplay, "eglChooseConfig() failed");
+            eglTerminate(engine->eglDisplay);
+            engine->eglDisplay = EGL_NO_DISPLAY;
+            return false;
         }
-        
-        reportSurfaceError(engine->eglDisplay, "eglChooseConfig() failed");
-        eglTerminate(engine->eglDisplay);
-        engine->eglDisplay = EGL_NO_DISPLAY;
-        return false;
     }
-    else {
-        //LOGI("Num matching configs: %i", numConfigs);
-        //egl_log_config(engine, engine->eglConfig);
-    }
-    
+
     egl_init_surface(engine);
     
     eglQuerySurface(engine->eglDisplay, engine->eglSurface, EGL_WIDTH, &engine->width);
@@ -555,9 +509,9 @@ static void egl_destroy(Engine *engine) {
         eglMakeCurrent(engine->eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
         if (engine->eglContext != EGL_NO_CONTEXT) {
             eglDestroyContext(engine->eglDisplay, engine->eglContext);
-            if (engine->display != NULL) {
+            if (engine->display) {
                 LOG_LIFECYCLE("GL Context destroyed");
-                if (engine->display->surfaceDestroyedFunc != NULL) {
+                if (engine->display->surfaceDestroyedFunc) {
                     engine->display->surfaceDestroyedFunc(engine->display);
                 }
             }
@@ -583,9 +537,9 @@ static void egl_check_error(Engine *engine) {
         if (engine->eglContext != EGL_NO_CONTEXT) {
             engine->eglContext = EGL_NO_CONTEXT;
             engine->eglContextCurrent = false;
-            if (engine->display != NULL) {
+            if (engine->display) {
                 LOG_LIFECYCLE("GL Context lost");
-                if (engine->display->surfaceDestroyedFunc != NULL) {
+                if (engine->display->surfaceDestroyedFunc) {
                     engine->display->surfaceDestroyedFunc(engine->display);
                 }
             }
@@ -613,13 +567,13 @@ static void engine_draw_frame(Engine *engine) {
         LOG_LIFECYCLE("Resize: %i x %i", width, height);
         engine->width = width;
         engine->height = height;
-        if (engine->display != NULL && engine->display->surfaceResizedFunc != NULL) {
+        if (engine->display && engine->display->surfaceResizedFunc) {
             engine->display->surfaceResizedFunc(engine->display, width, height);
         }
     }
     
     // Tick and draw
-    if (engine->display != NULL && engine->display->mainLoopFunc != NULL) {
+    if (engine->display && engine->display->mainLoopFunc) {
         const double frameTime = timespecToSeconds(timespecSubstract(now(), engine->initTime));
         engine->display->mainLoopFunc(engine->display, frameTime);
     }
@@ -645,11 +599,11 @@ static void set_animating(Engine *engine, bool animating) {
             sendAppEvent = false;
         }
         engine->animating = animating;
-        if (sendAppEvent && engine->display != NULL) {
-            if (animating && engine->display->resumingFunc != NULL) {
+        if (sendAppEvent && engine->display) {
+            if (animating && engine->display->resumingFunc) {
                 engine->display->resumingFunc(engine->display);
             }
-            else if (!animating && engine->display->pausingFunc != NULL) {
+            else if (!animating && engine->display->pausingFunc) {
                 engine->display->pausingFunc(engine->display);
             }
         }
@@ -710,7 +664,7 @@ static void app_cmd_callback(struct android_app *app, int32_t cmd) {
         case APP_CMD_LOW_MEMORY:
         {
             LOG_LIFECYCLE("APP_CMD_LOW_MEMORY");
-            if (engine->display != NULL && engine->display->lowMemoryFunc != NULL) {
+            if (engine->display && engine->display->lowMemoryFunc) {
                 engine->display->lowMemoryFunc(engine->display);
             }
             break;
@@ -755,7 +709,7 @@ static int32_t app_input_callback(struct android_app *app, AInputEvent *event) {
     Engine *engine = (Engine*)app->userData;
     const int32_t eventType = AInputEvent_getType(event);
     if (eventType == AINPUT_EVENT_TYPE_KEY) {
-        if (engine->display != NULL && engine->display->keyFunc != NULL) {
+        if (engine->display && engine->display->keyFunc) {
             int32_t aKeyCode = AKeyEvent_getKeyCode(event);
             int32_t aAction = AKeyEvent_getAction(event);
             if (aKeyCode != 0) {
@@ -823,7 +777,7 @@ static int32_t app_input_callback(struct android_app *app, AInputEvent *event) {
         }
     }
     else if (eventType == AINPUT_EVENT_TYPE_MOTION) {
-        if (engine->display != NULL && engine->display->touchFunc != NULL) {
+        if (engine->display && engine->display->touchFunc) {
             
             const int maxTouches = engine->multitouchEnabled ? MAX_SIMULTANEOUS_TOUCHES : 1;
             const int32_t action = AMotionEvent_getAction(event);
@@ -927,12 +881,12 @@ void android_main(struct android_app *app) {
     }
     
     if (engine->display == NULL) {
-        LOG_LIFECYCLE("glfm_main");
-        // Only call glfm_main() once per instance
+        LOG_LIFECYCLE("glfmMain");
+        // Only call glfmMain() once per instance
         // This should call glfmInit()
         engine->display = calloc(1, sizeof(GLFMDisplay));
         engine->display->platformData = engine;
-        glfm_main(engine->display);
+        glfmMain(engine->display);
     }
     
     // Setup window params
@@ -943,17 +897,6 @@ void android_main(struct android_app *app) {
                                    AWINDOW_FLAG_FULLSCREEN);
     setFullScreen(app, engine->display->uiChrome);
     
-    // Check if phone or tablet.
-    // Note, smallestScreenWidthDp requires sdk 13
-    if (AConfiguration_getScreenSize(app->config) >= ACONFIGURATION_SCREENSIZE_LARGE &&
-        (app->activity->sdkVersion < 13 ||
-         (app->activity->sdkVersion >= 13 && getSmallestScreenWidthDp(app) >= 600))) {
-            engine->uiIdiom = GLFMUserInterfaceIdiomTablet;
-        }
-    else {
-        engine->uiIdiom = GLFMUserInterfaceIdiomPhone;
-    }
-    
     // Run the main loop
     while (1) {
         int ident;
@@ -962,7 +905,7 @@ void android_main(struct android_app *app) {
         
         while ((ident = ALooper_pollAll(engine->animating ? 0 : -1, NULL, &events, (void**)&source)) >= 0) {
             
-            if (source != NULL) {
+            if (source) {
                 source->process(app, source);
             }
             
@@ -994,7 +937,7 @@ void android_main(struct android_app *app) {
         }
         
         applyPreferencesIfNeeded();
-        if (engine->animating && engine->display != NULL) {
+        if (engine->animating && engine->display) {
             engine_draw_frame(engine);
         }
     }
@@ -1008,11 +951,6 @@ void glfmSetUserInterfaceOrientation(GLFMDisplay *display, const GLFMUserInterfa
         Engine *engine = (Engine*)display->platformData;
         setOrientation(engine->app);
     }
-}
-
-GLFMUserInterfaceIdiom glfmGetUserInterfaceIdiom(GLFMDisplay *display) {
-    Engine *engine = (Engine*)display->platformData;
-    return engine->uiIdiom;
 }
 
 int glfmGetDisplayWidth(GLFMDisplay *display) {
@@ -1049,29 +987,10 @@ GLboolean glfmGetMultitouchEnabled(GLFMDisplay *display) {
     return engine->multitouchEnabled;
 }
 
-void glfmLog(const GLFMLogLevel logLevel, const char *format, ...) {
-    int level;
-    switch (logLevel) {
-        case GLFMLogLevelDebug:
-            level = ANDROID_LOG_DEBUG;
-            break;
-        case GLFMLogLevelInfo: default:
-            level = ANDROID_LOG_INFO;
-            break;
-        case GLFMLogLevelWarning:
-            level = ANDROID_LOG_WARN;
-            break;
-        case GLFMLogLevelError:
-            level = ANDROID_LOG_ERROR;
-            break;
-        case GLFMLogLevelCritical:
-            level = ANDROID_LOG_FATAL;
-            break;
-    }
-    
+void glfmLog(const char *format, ...) {    
     va_list args;
     va_start(args, format);
-    __android_log_vprint(level, "GLFM", format, args);
+    __android_log_vprint(ANDROID_LOG_INFO, "GLFM", format, args);
     va_end(args);
 }
 
@@ -1080,14 +999,14 @@ void glfmLog(const GLFMLogLevel logLevel, const char *format, ...) {
 // or if preferences are retrieved after an edit.
 
 void glfmSetPreference(const char *key, const char *value) {
-    if (key != NULL) {
+    if (key) {
         jobject sharedPreferencesEditor = getSharedPreferencesEditor();
-        if (sharedPreferencesEditor != NULL) {
+        if (sharedPreferencesEditor) {
             Engine *engine = engineGlobal;
             JNIEnv *jni = engine->jniEnv;
             
             jstring keyString = (*jni)->NewStringUTF(jni, key);
-            jstring valueString = value == NULL ? NULL : (*jni)->NewStringUTF(jni, value);
+            jstring valueString = value ? (*jni)->NewStringUTF(jni, value) : NULL;
             
             jclass sharedPreferencesEditorClass = (*jni)->GetObjectClass(jni, sharedPreferencesEditor);
             EXCEPTION_CHECK()
@@ -1104,12 +1023,12 @@ void glfmSetPreference(const char *key, const char *value) {
 
 char *glfmGetPreference(const char *key) {
     char *value = NULL;
-    if (key != NULL) {
+    if (key) {
         // Apply any edited prefernces
         applyPreferencesIfNeeded();
         
         jobject sharedPreferences = getDefaultSharedPreferences();
-        if (sharedPreferences != NULL) {
+        if (sharedPreferences) {
             Engine *engine = engineGlobal;
             JNIEnv *jni = engine->jniEnv;
             
@@ -1125,7 +1044,7 @@ char *glfmGetPreference(const char *key) {
             jstring valueString = (*jni)->CallObjectMethod(jni, sharedPreferences, getter, keyString, NULL);
             EXCEPTION_CHECK_FAIL()
             
-            if (valueString != NULL) {
+            if (valueString) {
                 const char *nativeString = (*jni)->GetStringUTFChars(jni, valueString, 0);
                 value = strdup(nativeString);
                 (*jni)->ReleaseStringUTFChars(jni, valueString, nativeString);
@@ -1159,7 +1078,7 @@ const char *glfmGetLanguageInternal() {
     jobject res = (*jni)->CallObjectMethod(jni, engine->app->activity->clazz, getResources);
     EXCEPTION_CHECK_FAIL()
     
-    if (res != NULL) {
+    if (res) {
         jclass resClass = (*jni)->GetObjectClass(jni, res);
         EXCEPTION_CHECK_FAIL()
         
@@ -1170,7 +1089,7 @@ const char *glfmGetLanguageInternal() {
         jobject configuration = (*jni)->CallObjectMethod(jni, res, getConfiguration);
         EXCEPTION_CHECK_FAIL()
         
-        if (configuration != NULL) {
+        if (configuration) {
             jclass configurationClass = (*jni)->GetObjectClass(jni, configuration);
             EXCEPTION_CHECK_FAIL()
             
@@ -1180,7 +1099,7 @@ const char *glfmGetLanguageInternal() {
             jobject locale = (*jni)->GetObjectField(jni, configuration, localeField);
             EXCEPTION_CHECK_FAIL()
             
-            if (locale != NULL) {
+            if (locale) {
                 jclass localeClass = (*jni)->GetObjectClass(jni, locale);
                 EXCEPTION_CHECK_FAIL()
                 
@@ -1190,10 +1109,10 @@ const char *glfmGetLanguageInternal() {
                 jstring valueString = (*jni)->CallObjectMethod(jni, locale, toString);
                 EXCEPTION_CHECK_FAIL()
                 
-                if (valueString != NULL) {
+                if (valueString) {
                     static char *prevValue = NULL;
                     
-                    if (prevValue != NULL) {
+                    if (prevValue) {
                         free(prevValue);
                         prevValue = NULL;
                     }
@@ -1219,71 +1138,60 @@ struct GLFMAsset {
 GLFMAsset *glfmAssetOpen(const char *name) {
     AAssetManager *assetManager = engineGlobal->app->activity->assetManager;
     GLFMAsset *asset = calloc(1, sizeof(GLFMAsset));
-    if (asset != NULL) {
+    if (asset) {
         asset->name = malloc(strlen(name) + 1);
         strcpy(asset->name, name);
         asset->asset = AAssetManager_open(assetManager, name, AASSET_MODE_UNKNOWN);
         if (asset->asset == NULL) {
             free(asset);
-            return NULL;
+            asset = NULL;
         }
     }
     return asset;
 }
 
 const char *glfmAssetGetName(GLFMAsset *asset) {
-    if (asset != NULL) {
-        return asset->name;
-    }
-    else {
-        return NULL;
-    }
+    return asset ? asset->name : NULL;
 }
 
 size_t glfmAssetGetLength(GLFMAsset *asset) {
-    if (asset == NULL || asset->asset == NULL) {
-        return 0;
-    }
-    else {
-        return AAsset_getLength(asset->asset);
-    }
+    return (asset && asset->asset) ? AAsset_getLength(asset->asset) : 0;
 }
 
 size_t glfmAssetRead(GLFMAsset *asset, void *buffer, size_t count) {
-    if (asset == NULL || asset->asset == NULL) {
-        return 0;
+    if (asset && asset->asset) {
+        int ret = AAsset_read(asset->asset, buffer, count);
+        return (ret <= 0) ? 0 : ret;
     }
     else {
-        int ret = AAsset_read(asset->asset, buffer, count);
-        if (ret <= 0) {
-            return 0;
-        }
-        return ret;
+        return 0;
     }
 }
 
-int glfmAssetSeek(GLFMAsset *asset, long offset, int whence) {
-    if (asset == NULL || asset->asset == NULL) {
-        return -1;
+int glfmAssetSeek(GLFMAsset *asset, long offset, GLFMAssetSeek whence) {
+    if (asset && asset->asset) {
+        int stdioWhence;
+        switch (whence) {
+            default:
+            case GLFMAssetSeekSet: stdioWhence = SEEK_SET; break;
+            case GLFMAssetSeekCur: stdioWhence = SEEK_CUR; break;
+            case GLFMAssetSeekEnd: stdioWhence = SEEK_END; break;
+        }
+        off_t ret = AAsset_seek(asset->asset, offset, stdioWhence);
+        return (ret == (off_t)-1) ? -1 : 0;
     }
     else {
-        off_t ret = AAsset_seek(asset->asset, offset, whence);
-        if (ret == (off_t)-1) {
-            return -1;
-        }
-        else {
-            return 0;
-        }
+        return -1;
     }
 }
 
 void glfmAssetClose(GLFMAsset *asset) {
-    if (asset != NULL) {
-        if (asset->name != NULL) {
+    if (asset) {
+        if (asset->name) {
             free(asset->name);
             asset->name = NULL;
         }
-        if (asset->asset != NULL) {
+        if (asset->asset) {
             AAsset_close(asset->asset);
             asset->asset = NULL;
         }
@@ -1292,12 +1200,7 @@ void glfmAssetClose(GLFMAsset *asset) {
 }
 
 const void *glfmAssetGetBuffer(GLFMAsset *asset) {
-    if (asset == NULL || asset->asset == NULL) {
-        return NULL;
-    }
-    else {
-        return AAsset_getBuffer(asset->asset);
-    }
+    return (asset && asset->asset) ? AAsset_getBuffer(asset->asset) : NULL;
 }
 
 #endif

@@ -82,6 +82,11 @@ extern "C" {
         GLFMStencilFormat8,
     } GLFMStencilFormat;
     
+    typedef enum {
+        GLFMMultisampleNone = 0,
+        GLFMMultisample4X,
+    } GLFMMultisample;
+    
     /// GLFMUserInterfaceChrome defines whether system UI chrome (status bar, navigation bar) is shown.
     /// This value is ignored on Emscripten.
     /// GLFMUserInterfaceChromeFullscreen
@@ -106,12 +111,6 @@ extern "C" {
         GLFMUserInterfaceOrientationPortrait,
         GLFMUserInterfaceOrientationLandscape,
     } GLFMUserInterfaceOrientation;
-    
-    typedef enum {
-        GLFMUserInterfaceIdiomPhone = 0,
-        GLFMUserInterfaceIdiomTablet,
-        GLFMUserInterfaceIdiomWeb,
-    } GLFMUserInterfaceIdiom;
     
     typedef enum {
         GLFMTouchPhaseHover = 0,
@@ -156,14 +155,12 @@ extern "C" {
         GLFMKeyActionRepeated,
         GLFMKeyActionReleased,
     } GLFMKeyAction;
-    
+
     typedef enum {
-        GLFMLogLevelDebug = 0,
-        GLFMLogLevelInfo,
-        GLFMLogLevelWarning,
-        GLFMLogLevelError,
-        GLFMLogLevelCritical,
-    } GLFMLogLevel;
+        GLFMAssetSeekSet,
+        GLFMAssetSeekCur,
+        GLFMAssetSeekEnd,
+    } GLFMAssetSeek;
     
     // MARK: Structs and function pointers
     
@@ -171,47 +168,48 @@ extern "C" {
     typedef struct GLFMAsset GLFMAsset;
     
     /// Main loop callback function. The frame time is in seconds, and is not related to wall time.
-    typedef void (*GLFMMainLoopFunc)(GLFMDisplay*, const double frameTime);
+    typedef void (*GLFMMainLoopFunc)(GLFMDisplay *display, const double frameTime);
     
     /// Callback function for mouse or touch events. The (x,y) values are in pixels.
     /// The function should return GL_TRUE if the event was handled, and false otherwise.
-    typedef GLboolean (*GLFMTouchFunc)(GLFMDisplay*, const int touch, const GLFMTouchPhase phase,
+    typedef GLboolean (*GLFMTouchFunc)(GLFMDisplay *display, const int touch, const GLFMTouchPhase phase,
                                        const int x, const int y);
     
     /// Callback function for key events.
     /// The function should return GL_TRUE if the event was handled, and false otherwise.
-    typedef GLboolean (*GLFMKeyFunc)(GLFMDisplay*, const GLFMKey keyCode, const GLFMKeyAction action,
+    typedef GLboolean (*GLFMKeyFunc)(GLFMDisplay *display, const GLFMKey keyCode, const GLFMKeyAction action,
                                      const int modifiers);
     
     /// Callback when the surface could not be created.
-    typedef void (*GLFMSurfaceErrorFunc)(GLFMDisplay*, const char *message);
+    typedef void (*GLFMSurfaceErrorFunc)(GLFMDisplay *display, const char *message);
     
     /// Callback function when the OpenGL surface is created
-    typedef void (*GLFMSurfaceCreatedFunc)(GLFMDisplay*, const int width, const int height);
+    typedef void (*GLFMSurfaceCreatedFunc)(GLFMDisplay *display, const int width, const int height);
     
     /// Callback function when the OpenGL surface is resized (or rotated).
-    typedef void (*GLFMSurfaceResizedFunc)(GLFMDisplay*, const int width, const int height);
+    typedef void (*GLFMSurfaceResizedFunc)(GLFMDisplay *display, const int width, const int height);
     
     /// Callback function when the OpenGL surface is destroyed.
-    typedef void (*GLFMSurfaceDestroyedFunc)(GLFMDisplay*);
+    typedef void (*GLFMSurfaceDestroyedFunc)(GLFMDisplay *display);
     
     /// Callback function when the system recieves a low memory warning.
-    typedef void (*GLFMMemoryWarningFunc)(GLFMDisplay*);
+    typedef void (*GLFMMemoryWarningFunc)(GLFMDisplay *display);
     
-    typedef void (*GLFMAppPausingFunc)(GLFMDisplay*);
+    typedef void (*GLFMAppPausingFunc)(GLFMDisplay *display);
     
-    typedef void (*GLFMAppResumingFunc)(GLFMDisplay*);
+    typedef void (*GLFMAppResumingFunc)(GLFMDisplay *display);
     
     // MARK: Functions
     
     /// Main entry point for the app, where the display can be initialized and the GLFMMainLoopFunc can be set.
-    extern void glfm_main(GLFMDisplay *display);
+    extern void glfmMain(GLFMDisplay *display);
     
-    /// Init the display condifuration. Should only be called in glfm_main.
+    /// Init the display condifuration. Should only be called in glfmMain.
     void glfmSetDisplayConfig(GLFMDisplay *display,
                               const GLFMColorFormat colorFormat,
                               const GLFMDepthFormat depthFormat,
                               const GLFMStencilFormat stencilFormat,
+                              const GLFMMultisample multisample,
                               const GLFMUserInterfaceChrome uiChrome);
     
     void glfmSetUserData(GLFMDisplay *display, void *userData);
@@ -240,9 +238,6 @@ extern "C" {
     
     /// Gets the display scale. On Apple devices, the value will be 1.0 for non-retina displays and 2.0 for retina.
     float glfmGetDisplayScale(GLFMDisplay *display);
-    
-    /// Gets the user interface idiom (phone, tablet, or web).
-    GLFMUserInterfaceIdiom glfmGetUserInterfaceIdiom(GLFMDisplay *display);
     
     /// Gets whether the display has touch capabilities.
     GLboolean glfmHasTouch(GLFMDisplay *display);
@@ -282,7 +277,7 @@ extern "C" {
     
     void glfmSetAppResumingFunc(GLFMDisplay *display, GLFMAppResumingFunc resumingFunc);
     
-    void glfmLog(const GLFMLogLevel logLevel, const char *format, ...) __attribute__((__format__ (__printf__, 2, 3)));
+    void glfmLog(const char *format, ...) __attribute__((__format__ (__printf__, 1, 2)));
     
     /// Sets the preference value of the specified key.
     /// If 'value' is NULL, any existing value for the key is cleared.
@@ -318,9 +313,9 @@ extern "C" {
     /// Reads 'count' bytes from the file. Returns number of bytes read.
     size_t glfmAssetRead(GLFMAsset *asset, void *buffer, size_t count);
     
-    /// Sets the position of the asset. 'whence' is the same as fseek: SEEK_SET, SEEK_CUR, or SEEK_END.
+    /// Sets the position of the asset.
     /// Returns 0 on success.
-    int glfmAssetSeek(GLFMAsset *asset, long offset, int whence);
+    int glfmAssetSeek(GLFMAsset *asset, long offset, GLFMAssetSeek whence);
     
     /// Closes the asset, releasing any resources.
     void glfmAssetClose(GLFMAsset *asset);
