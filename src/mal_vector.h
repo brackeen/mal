@@ -41,11 +41,11 @@ typedef struct {
 #pragma clang diagnostic ignored "-Wunused-function"
 
 static bool mal_vector_ensure_capacity(mal_vector *list, const unsigned int additional_values) {
-    if (list != NULL) {
-        if (list->values == NULL || list->length + additional_values > list->capacity) {
+    if (list) {
+        if (!list->values || list->length + additional_values > list->capacity) {
             const unsigned int new_capacity = MAX(list->length + additional_values, list->capacity << 1);
             void **new_data = realloc(list->values, sizeof(void*) * new_capacity);
-            if (new_data == NULL) {
+            if (!new_data) {
                 return false;
             }
             list->values = new_data;
@@ -78,7 +78,7 @@ static bool mal_vector_add_all(mal_vector *list, unsigned int num_values, void *
 }
 
 static bool mal_vector_contains(const mal_vector *list, void *value) {
-    if (list != NULL) {
+    if (list) {
         for (unsigned int i = 0; i < list->length; i++) {
             if (list->values[i] == value) {
                 return true;
@@ -89,7 +89,7 @@ static bool mal_vector_contains(const mal_vector *list, void *value) {
 }
 
 static bool mal_vector_remove(mal_vector *list, void *value) {
-    if (list != NULL) {
+    if (list) {
         for (unsigned int i = 0; i < list->length; i++) {
             if (list->values[i] == value) {
                 for (unsigned int j = i; j < list->length - 1; j++) {
@@ -104,7 +104,7 @@ static bool mal_vector_remove(mal_vector *list, void *value) {
 }
 
 static void mal_vector_free(mal_vector *list) {
-    if (list != NULL && list->values != NULL) {
+    if (list && list->values) {
         free(list->values);
         list->values = NULL;
         list->length = 0;

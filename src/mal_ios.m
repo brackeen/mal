@@ -24,7 +24,7 @@
 #include <AVFoundation/AVFoundation.h>
 
 static void mal_check_routes(mal_context *context) {
-    if (context != NULL) {
+    if (context) {
         memset(context->routes, 0, sizeof(context->routes));
         AVAudioSession *session = [AVAudioSession sharedInstance];
         NSArray *outputs = session.currentRoute.outputs;
@@ -64,7 +64,7 @@ static void mal_notification_handler(CFNotificationCenterRef center, void *obser
         // NOTE: Test interruption on iOS by activating Siri
         NSDictionary *dict = (__bridge NSDictionary*)userInfo;
         NSNumber *interruptionType = dict[AVAudioSessionInterruptionTypeKey];
-        if (interruptionType != nil) {
+        if (interruptionType) {
             if ([interruptionType integerValue] == AVAudioSessionInterruptionTypeBegan) {
                 mal_context_set_active(context, false);
             }
@@ -114,18 +114,18 @@ static void mal_did_set_active(mal_context *context, const bool active) {
         // allowBackgroundMusic might need to be an option
         bool allowBackgroundMusic = true;
         NSString *category = allowBackgroundMusic ? AVAudioSessionCategoryAmbient : AVAudioSessionCategorySoloAmbient;
-        NSError *categoryError = nil;
+        NSError *categoryError;
         [audioSession setCategory:category error:&categoryError];
-        if (categoryError != nil) {
+        if (categoryError) {
             NSLog(@"mal: Error setting audio session category. Error: %@", [categoryError localizedDescription]);
         }
         mal_check_routes(context);
     }
     
     // NOTE: Setting the audio session to active should happen after setting the AL context
-    NSError *activeError = nil;
+    NSError *activeError;
     [[AVAudioSession sharedInstance] setActive:active error:&activeError];
-    if (activeError != nil) {
+    if (activeError) {
         NSLog(@"mal: Error setting audio session to active (%@). Error: %@", active?@"true":@"false",
               [activeError localizedDescription]);
     }

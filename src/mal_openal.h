@@ -88,36 +88,40 @@ static void mal_buffer_cleanup(mal_buffer *buffer);
 
 mal_context *mal_context_create(const double output_sample_rate) {
     mal_context *context = calloc(1, sizeof(mal_context));
-    if (context != NULL) {
+    if (context) {
         context->mute = false;
         context->gain = 1.0f;
         ALCdevice *device = alcOpenDevice(NULL);
-        if (device == NULL) {
+        if (!device) {
             mal_context_free(context);
-            return NULL;
+            context = NULL;
         }
-        context->alBufferDataStaticProc = ((alBufferDataStaticProcPtr)
-                                           alcGetProcAddress(NULL, "alBufferDataStatic"));
-        context->alcMacOSXMixerOutputRateProc = ((alcMacOSXMixerOutputRateProcPtr)
-                                                 alcGetProcAddress(NULL, "alcMacOSXMixerOutputRate"));
-        
-        if (context->alcMacOSXMixerOutputRateProc != NULL) {
-            context->alcMacOSXMixerOutputRateProc(output_sample_rate);
+        else {
+            context->alBufferDataStaticProc = ((alBufferDataStaticProcPtr)
+                                               alcGetProcAddress(NULL, "alBufferDataStatic"));
+            context->alcMacOSXMixerOutputRateProc = ((alcMacOSXMixerOutputRateProcPtr)
+                                                     alcGetProcAddress(NULL, "alcMacOSXMixerOutputRate"));
+            
+            if (context->alcMacOSXMixerOutputRateProc) {
+                context->alcMacOSXMixerOutputRateProc(output_sample_rate);
+            }
+            
+            context->al_context = alcCreateContext(device, 0);
+            if (!context->al_context) {
+                mal_context_free(context);
+                context = NULL;
+            }
+            else {
+                mal_did_create_context(context);
+                mal_context_set_active(context, true);
+            }
         }
-        
-        context->al_context = alcCreateContext(device, 0);
-        if (context->al_context == NULL) {
-            mal_context_free(context);
-            return NULL;
-        }
-        mal_did_create_context(context);
-        mal_context_set_active(context, true);
     }
     return context;
 }
 
 void mal_context_set_active(mal_context *context, const bool active) {
-    if (context != NULL) {
+    if (context) {
         if (active) {
             alcMakeContextCurrent(context->al_context);
             alcProcessContext(context->al_context);
@@ -131,11 +135,11 @@ void mal_context_set_active(mal_context *context, const bool active) {
 }
 
 bool mal_context_get_mute(const mal_context *context) {
-    return (context == NULL) ? false : context->mute;
+    return context ? context->mute : false;
 }
 
 void mal_context_set_mute(mal_context *context, const bool mute) {
-    if (context != NULL) {
+    if (context) {
         context->mute = mute;
         alListenerf(AL_GAIN, context->mute ? 0 : context->gain);
         alGetError();
@@ -143,11 +147,11 @@ void mal_context_set_mute(mal_context *context, const bool mute) {
 }
 
 float mal_context_get_gain(const mal_context *context) {
-    return (context == NULL) ? 1.0f : context->gain;
+    return context ? context->gain : 1.0f;
 }
 
 void mal_context_set_gain(mal_context *context, const float gain) {
-    if (context != NULL) {
+    if (context) {
         context->gain = gain;
         alListenerf(AL_GAIN, context->mute ? 0 : context->gain);
         alGetError();
@@ -161,7 +165,7 @@ bool mal_context_format_is_valid(const mal_context *context, const mal_format fo
 }
 
 bool mal_context_is_route_enabled(const mal_context *context, const mal_route route) {
-    if (context != NULL && route < NUM_MAL_ROUTES) {
+    if (context && route < NUM_MAL_ROUTES) {
         return context->routes[route];
     }
     else {
@@ -170,7 +174,7 @@ bool mal_context_is_route_enabled(const mal_context *context, const mal_route ro
 }
 
 void mal_context_free(mal_context *context) {
-    if (context != NULL) {
+    if (context) {
         // Delete AL sources
         for (unsigned int i = 0; i < context->players.length; i++) {
             mal_player *player = context->players.values[i];
@@ -189,10 +193,10 @@ void mal_context_free(mal_context *context) {
         
         mal_will_destory_context(context);
         mal_context_set_active(context, false);
-        if (context->al_context != NULL) {
+        if (context->al_context) {
             ALCdevice *device = alcGetContextsDevice(context->al_context);
             alcDestroyContext(context->al_context);
-            if (device != NULL) {
+            if (device) {
                 alcCloseDevice(device);
             }
             alGetError();
@@ -215,11 +219,11 @@ static mal_buffer *mal_buffer_create_internal(mal_context *context, const mal_fo
                                               void *managed_data, const mal_deallocator data_deallocator) {
     // Check params
     const bool oneNonNullData = (copied_data == NULL) != (managed_data == NULL);
-    if (context == NULL || !mal_context_format_is_valid(context, format) || num_frames == 0 || !oneNonNullData) {
+    if (!context || !mal_context_format_is_valid(context, format) || num_frames == 0 || !oneNonNullData) {
         return NULL;
     }
     mal_buffer *buffer = calloc(1, sizeof(mal_buffer));
-    if (buffer != NULL) {
+    if (buffer) {
         mal_vector_add(&context->buffers, buffer);
         buffer->context = context;
         buffer->format = format;
@@ -237,7 +241,7 @@ static mal_buffer *mal_buffer_create_internal(mal_context *context, const mal_fo
                                       (format.num_channels == 2 ? AL_FORMAT_STEREO8 : AL_FORMAT_MONO8) :
                                       (format.num_channels == 2 ? AL_FORMAT_STEREO16 : AL_FORMAT_MONO16));
             const ALsizei freq = (ALsizei)format.sample_rate;
-            if (copied_data != NULL) {
+            if (copied_data) {
                 alBufferData(buffer->al_buffer, al_format, copied_data, data_length, freq);
                 if ((error = alGetError()) != AL_NO_ERROR) {
                     mal_buffer_free(buffer);
@@ -264,7 +268,7 @@ static mal_buffer *mal_buffer_create_internal(mal_context *context, const mal_fo
                     }
                     else {
                         // Managed data was copied because there is no alBufferDataStaticProc, so dealloc immediately.
-                        if (data_deallocator != NULL) {
+                        if (data_deallocator) {
                             data_deallocator(managed_data);
                         }
                     }
@@ -287,27 +291,27 @@ mal_buffer *mal_buffer_create_no_copy(mal_context *context, const mal_format for
 }
 
 mal_format mal_buffer_get_format(const mal_buffer *buffer) {
-    if (buffer == NULL) {
-        mal_format null_format = { 0, 0, 0 };
-        return null_format;
+    if (buffer) {
+        return buffer->format;
     }
     else {
-        return buffer->format;
+        mal_format null_format = { 0, 0, 0 };
+        return null_format;
     }
 }
 
 uint32_t mal_buffer_get_num_frames(const mal_buffer *buffer) {
-    return (buffer == NULL) ? 0 : buffer->num_frames;
+    return buffer ? buffer->num_frames : 0;
 }
 
 void *mal_buffer_get_data(const mal_buffer *buffer) {
-    return (buffer == NULL) ? NULL : buffer->managed_data;
+    return buffer ? buffer->managed_data : NULL;
 }
 
 static void mal_buffer_cleanup(mal_buffer *buffer) {
-    if (buffer != NULL && buffer->al_buffer_valid) {
+    if (buffer && buffer->al_buffer_valid) {
         // First, stop all players that are using this buffer.
-        if (buffer->context != NULL) {
+        if (buffer->context) {
             for (unsigned int i = 0; i < buffer->context->players.length; i++) {
                 mal_player *player = buffer->context->players.values[i];
                 if (player->buffer == buffer) {
@@ -324,14 +328,14 @@ static void mal_buffer_cleanup(mal_buffer *buffer) {
 }
 
 void mal_buffer_free(mal_buffer *buffer) {
-    if (buffer != NULL) {
+    if (buffer) {
         mal_buffer_cleanup(buffer);
-        if (buffer->context != NULL) {
+        if (buffer->context) {
             mal_vector_remove(&buffer->context->buffers, buffer);
             buffer->context = NULL;
         }
-        if (buffer->managed_data != NULL) {
-            if (buffer->managed_data_deallocator != NULL) {
+        if (buffer->managed_data) {
+            if (buffer->managed_data_deallocator) {
                 buffer->managed_data_deallocator(buffer->managed_data);
             }
             buffer->managed_data = NULL;
@@ -344,11 +348,11 @@ void mal_buffer_free(mal_buffer *buffer) {
 
 mal_player *mal_player_create(mal_context *context, const mal_format format) {
     // Check params
-    if (context == NULL || !mal_context_format_is_valid(context, format)) {
+    if (!context || !mal_context_format_is_valid(context, format)) {
         return NULL;
     }
     mal_player *player = calloc(1, sizeof(mal_player));
-    if (player != NULL) {
+    if (player) {
         mal_vector_add(&context->players, player);
         player->context = context;
         player->format = format;
@@ -365,17 +369,17 @@ mal_player *mal_player_create(mal_context *context, const mal_format format) {
 }
 
 mal_format mal_player_get_format(const mal_player *player) {
-    if (player == NULL) {
-        mal_format null_format = { 0, 0, 0 };
-        return null_format;
+    if (player) {
+        return player->format;
     }
     else {
-        return player->format;
+        mal_format null_format = { 0, 0, 0 };
+        return null_format;
     }
 }
 
 bool mal_player_set_format(mal_player *player, const mal_format format) {
-    if (player != NULL && mal_context_format_is_valid(player->context, format)) {
+    if (player && mal_context_format_is_valid(player->context, format)) {
         mal_player_set_state(player, MAL_PLAYER_STATE_STOPPED);
         player->buffer = NULL;
         if (player->al_source_valid) {
@@ -391,12 +395,12 @@ bool mal_player_set_format(mal_player *player, const mal_format format) {
 }
 
 bool mal_player_set_buffer(mal_player *player, const mal_buffer *buffer) {
-    if (player == NULL) {
+    if (!player) {
         return false;
     }
     else {
         // Stop and clear
-        if (player->buffer != NULL) {
+        if (player->buffer) {
             mal_player_set_state(player, MAL_PLAYER_STATE_STOPPED);
             player->buffer = NULL;
         }
@@ -405,7 +409,7 @@ bool mal_player_set_buffer(mal_player *player, const mal_buffer *buffer) {
         }
         alSourcei(player->al_source, AL_BUFFER, AL_NONE);
         alGetError();
-        if (buffer == NULL) {
+        if (!buffer) {
             return true;
         }
         else {
@@ -424,15 +428,15 @@ bool mal_player_set_buffer(mal_player *player, const mal_buffer *buffer) {
 }
 
 const mal_buffer *mal_player_get_buffer(const mal_player *player) {
-    return player == NULL ? NULL : player->buffer;
+    return player ? player->buffer : NULL;
 }
 
 bool mal_player_get_mute(const mal_player *player) {
-    return player != NULL && player->mute;
+    return player && player->mute;
 }
 
 void mal_player_set_mute(mal_player *player, const bool mute) {
-    if (player != NULL && player->al_source_valid) {
+    if (player && player->al_source_valid) {
         player->mute = mute;
         alSourcef(player->al_source, AL_GAIN, player->mute ? 0 : player->gain);
         alGetError();
@@ -440,11 +444,11 @@ void mal_player_set_mute(mal_player *player, const bool mute) {
 }
 
 float mal_player_get_gain(const mal_player *player) {
-    return (player == NULL) ? 1.0f : player->gain;
+    return player ? player->gain : 1.0f;
 }
 
 void mal_player_set_gain(mal_player *player, const float gain) {
-    if (player != NULL && player->al_source_valid) {
+    if (player && player->al_source_valid) {
         player->gain = gain;
         alSourcef(player->al_source, AL_GAIN, player->mute ? 0 : player->gain);
         alGetError();
@@ -452,11 +456,11 @@ void mal_player_set_gain(mal_player *player, const float gain) {
 }
 
 bool mal_player_is_looping(const mal_player *player) {
-    return (player == NULL) ? false : player->looping;
+    return player ? player->looping : false;
 }
 
 void mal_player_set_looping(mal_player *player, const bool looping) {
-    if (player != NULL && player->al_source_valid) {
+    if (player && player->al_source_valid) {
         player->looping = looping;
         alSourcei(player->al_source, AL_LOOPING, looping ? AL_TRUE : AL_FALSE);
         alGetError();
@@ -464,7 +468,7 @@ void mal_player_set_looping(mal_player *player, const bool looping) {
 }
 
 bool mal_player_set_state(mal_player *player, const mal_player_state state) {
-    if (player != NULL && player->al_source_valid && player->buffer != NULL) {
+    if (player && player->al_source_valid && player->buffer) {
         if (state == MAL_PLAYER_STATE_PLAYING) {
             alSourcePlay(player->al_source);
         }
@@ -483,7 +487,7 @@ bool mal_player_set_state(mal_player *player, const mal_player_state state) {
 }
 
 mal_player_state mal_player_get_state(const mal_player *player) {
-    if (player == NULL || !player->al_source_valid) {
+    if (!player || !player->al_source_valid) {
         return MAL_PLAYER_STATE_STOPPED;
     }
     ALint state = AL_STOPPED;
@@ -501,7 +505,7 @@ mal_player_state mal_player_get_state(const mal_player *player) {
 }
 
 static void mal_player_cleanup(mal_player *player) {
-    if (player != NULL) {
+    if (player) {
         mal_player_set_state(player, MAL_PLAYER_STATE_STOPPED);
         player->buffer = NULL;
         if (player->al_source_valid) {
@@ -515,8 +519,8 @@ static void mal_player_cleanup(mal_player *player) {
 }
 
 void mal_player_free(mal_player *player) {
-    if (player != NULL) {
-        if (player->context != NULL) {
+    if (player) {
+        if (player->context) {
             mal_vector_remove(&player->context->players, player);
             player->context = NULL;
         }

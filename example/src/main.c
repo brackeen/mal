@@ -17,21 +17,21 @@ typedef struct {
 static void play_sound(mal_app *app, mal_buffer *buffer) {
     // This is useful to test buffer freeing during playback
 #if kTestFreeBufferDuingPlayback
-    if (app->buffer != NULL) {
+    if (app->buffer) {
         mal_buffer_free(app->buffer);
         app->buffer = NULL;
     }
 #else
     // Stop any looping players
     for (int i = 0; i < kMaxPlayers; i++) {
-        if (app->players[i] != NULL && mal_player_get_state(app->players[i]) == MAL_PLAYER_STATE_PLAYING &&
+        if (app->players[i] && mal_player_get_state(app->players[i]) == MAL_PLAYER_STATE_PLAYING &&
             mal_player_is_looping(app->players[i])) {
             mal_player_set_looping(app->players[i], false);
         }
     }
     // Play new sound
     for (int i = 0; i < kMaxPlayers; i++) {
-        if (app->players[i] != NULL && mal_player_get_state(app->players[i]) == MAL_PLAYER_STATE_STOPPED) {
+        if (app->players[i] && mal_player_get_state(app->players[i]) == MAL_PLAYER_STATE_STOPPED) {
             mal_player_set_buffer(app->players[i], buffer);
             mal_player_set_gain(app->players[i], 0.25f);
             mal_player_set_state(app->players[i], MAL_PLAYER_STATE_PLAYING);
@@ -44,7 +44,7 @@ static void play_sound(mal_app *app, mal_buffer *buffer) {
 
 static void mal_init(mal_app *app, ok_wav *wav) {
     app->context = mal_context_create(44100);
-    if (app->context == NULL) {
+    if (!app->context) {
         glfmLog("Error: Couldn't create audio context");
     }
     mal_format format = {
@@ -56,7 +56,7 @@ static void mal_init(mal_app *app, ok_wav *wav) {
         glfmLog("Error: Audio format is invalid");
     }
     app->buffer = mal_buffer_create_no_copy(app->context, format, (uint32_t)wav->num_frames, wav->data, free);
-    if (app->buffer == NULL) {
+    if (!app->buffer) {
         glfmLog("Error: Couldn't create audio buffer");
     }
     wav->data = NULL; // Audio buffer is now managed by mal, don't free it
@@ -141,7 +141,7 @@ void glfmMain(GLFMDisplay *display) {
     ok_wav *wav = ok_wav_read(asset, glfm_asset_input_func, true);
     glfmAssetClose(asset);
     
-    if (wav->data == NULL) {
+    if (!wav->data) {
         glfmLog("Error: %s", wav->error_message);
     }
     else {

@@ -80,7 +80,7 @@ static bool mal_player_reset(mal_player *player, const mal_format format);
 
 mal_context *mal_context_create(const double output_sample_rate) {
     mal_context *context = calloc(1, sizeof(mal_context));
-    if (context != NULL) {
+    if (context) {
         context->mute = false;
         context->gain = 1.0f;
         context->active = true;
@@ -135,7 +135,7 @@ mal_context *mal_context_create(const double output_sample_rate) {
 }
 
 void mal_context_set_active(mal_context *context, const bool active) {
-    if (context != NULL && context->active != active) {
+    if (context && context->active != active) {
         context->active = active;
         
         // From http://mobilepearls.com/labs/native-android-api/ndk/docs/opensles/
@@ -145,7 +145,7 @@ void mal_context_set_active(mal_context *context, const bool active) {
             mal_player *player = context->players.values[i];
             
             if (active) {
-                if (player->sl_object == NULL) {
+                if (!player->sl_object) {
                     mal_player_reset(player, player->format);
                 }
             }
@@ -163,7 +163,7 @@ void mal_context_set_active(mal_context *context, const bool active) {
 }
 
 static void mal_context_update_gain(mal_context *context) {
-    if (context != NULL) {
+    if (context) {
         for (unsigned int i = 0; i < context->players.length; i++) {
             mal_player_update_gain(context->players.values[i]);
         }
@@ -171,28 +171,24 @@ static void mal_context_update_gain(mal_context *context) {
 }
 
 bool mal_context_get_mute(const mal_context *context) {
-    return (context == NULL) ? false : context->mute;
+    return context ? context->mute : false;
 }
 
 void mal_context_set_mute(mal_context *context, const bool mute) {
-    if (context != NULL) {
-        if (context->mute != mute) {
-            context->mute = mute;
-            mal_context_update_gain(context);
-        }
+    if (context && context->mute != mute) {
+        context->mute = mute;
+        mal_context_update_gain(context);
     }
 }
 
 float mal_context_get_gain(const mal_context *context) {
-    return (context == NULL) ? 1.0f : context->gain;
+    return context ? context->gain : 1.0f;
 }
 
 void mal_context_set_gain(mal_context *context, const float gain) {
-    if (context != NULL) {
-        if (context->gain != gain) {
-            context->gain = gain;
-            mal_context_update_gain(context);
-        }
+    if (context && context->gain != gain) {
+        context->gain = gain;
+        mal_context_update_gain(context);
     }
 }
 
@@ -203,7 +199,7 @@ bool mal_context_format_is_valid(const mal_context *context, const mal_format fo
 }
 
 bool mal_context_is_route_enabled(const mal_context *context, const mal_route route) {
-    if (context != NULL && route < NUM_MAL_ROUTES) {
+    if (context && route < NUM_MAL_ROUTES) {
         return context->routes[route];
     }
     else {
@@ -212,7 +208,7 @@ bool mal_context_is_route_enabled(const mal_context *context, const mal_route ro
 }
 
 void mal_context_free(mal_context *context) {
-    if (context != NULL) {
+    if (context) {
         // Delete players
         for (unsigned int i = 0; i < context->players.length; i++) {
             mal_player *player = context->players.values[i];
@@ -230,11 +226,11 @@ void mal_context_free(mal_context *context) {
         mal_vector_free(&context->buffers);
         
         // Delete OpenSL objects
-        if (context->sl_output_mix_object != NULL) {
+        if (context->sl_output_mix_object) {
             (*context->sl_output_mix_object)->Destroy(context->sl_output_mix_object);
             context->sl_output_mix_object = NULL;
         }
-        if (context->sl_object != NULL) {
+        if (context->sl_object) {
             (*context->sl_object)->Destroy(context->sl_object);
             context->sl_object = NULL;
             context->sl_engine = NULL;
@@ -254,18 +250,18 @@ bool mal_formats_equal(const mal_format format1, const mal_format format2) {
 mal_buffer *mal_buffer_create(mal_context *context, const mal_format format,
                               const uint32_t num_frames, const void *data) {
     // Check params
-    if (context == NULL || !mal_context_format_is_valid(context, format) || num_frames == 0 || data == NULL) {
+    if (!context || !mal_context_format_is_valid(context, format) || num_frames == 0 || !data) {
         return NULL;
     }
     // Copy data
     size_t len = num_frames * (format.bit_depth/8) * format.num_channels;
     void *managed_data = malloc(len);
-    if (managed_data == NULL) {
+    if (!managed_data) {
         return NULL;
     }
     memcpy(managed_data, data, len);
     mal_buffer *buffer = mal_buffer_create_no_copy(context, format, num_frames, managed_data, free);
-    if (buffer == NULL) {
+    if (!buffer) {
         free(managed_data);
     }
     return buffer;
@@ -275,11 +271,11 @@ mal_buffer *mal_buffer_create_no_copy(mal_context *context, const mal_format for
                                       const uint32_t num_frames, void *managed_data,
                                       const mal_deallocator data_deallocator) {
     // Check params
-    if (context == NULL || !mal_context_format_is_valid(context, format) || num_frames == 0 || managed_data == NULL) {
+    if (!context || !mal_context_format_is_valid(context, format) || num_frames == 0 || !managed_data) {
         return NULL;
     }
     mal_buffer *buffer = calloc(1, sizeof(mal_buffer));
-    if (buffer != NULL) {
+    if (buffer) {
         mal_vector_add(&context->buffers, buffer);
         buffer->context = context;
         buffer->format = format;
@@ -291,26 +287,26 @@ mal_buffer *mal_buffer_create_no_copy(mal_context *context, const mal_format for
 }
 
 mal_format mal_buffer_get_format(const mal_buffer *buffer) {
-    if (buffer == NULL) {
-        mal_format null_format = { 0, 0, 0 };
-        return null_format;
+    if (buffer) {
+        return buffer->format;
     }
     else {
-        return buffer->format;
+        mal_format null_format = { 0, 0, 0 };
+        return null_format;
     }
 }
 
 uint32_t mal_buffer_get_num_frames(const mal_buffer *buffer) {
-    return (buffer == NULL) ? 0 : buffer->num_frames;
+    return buffer ? buffer->num_frames : 0;
 }
 
 void *mal_buffer_get_data(const mal_buffer *buffer) {
-    return (buffer == NULL) ? NULL : buffer->managed_data;
+    return buffer ? buffer->managed_data : NULL;
 }
 
 static void mal_buffer_cleanup(mal_buffer *buffer) {
     // Stop all players that are using this buffer.
-    if (buffer->context != NULL) {
+    if (buffer->context) {
         for (unsigned int i = 0; i < buffer->context->players.length; i++) {
             mal_player *player = buffer->context->players.values[i];
             if (player->buffer == buffer) {
@@ -321,14 +317,14 @@ static void mal_buffer_cleanup(mal_buffer *buffer) {
 }
 
 void mal_buffer_free(mal_buffer *buffer) {
-    if (buffer != NULL) {
+    if (buffer) {
         mal_buffer_cleanup(buffer);
-        if (buffer->context != NULL) {
+        if (buffer->context) {
             mal_vector_remove(&buffer->context->buffers, buffer);
             buffer->context = NULL;
         }
-        if (buffer->managed_data != NULL) {
-            if (buffer->managed_data_deallocator != NULL) {
+        if (buffer->managed_data) {
+            if (buffer->managed_data_deallocator) {
                 buffer->managed_data_deallocator(buffer->managed_data);
             }
             buffer->managed_data = NULL;
@@ -341,11 +337,11 @@ void mal_buffer_free(mal_buffer *buffer) {
 // MARK: Player
 
 static void mal_player_clear_buffer(mal_player *player) {
-    if (player != NULL && player->buffer != NULL) {
-        if (player->sl_play != NULL) {
+    if (player && player->buffer) {
+        if (player->sl_play) {
             (*player->sl_play)->SetPlayState(player->sl_play, SL_PLAYSTATE_STOPPED);
         }
-        if (player->sl_buffer_queue != NULL) {
+        if (player->sl_buffer_queue) {
             (*player->sl_buffer_queue)->Clear(player->sl_buffer_queue);
         }
         player->buffer = NULL;
@@ -353,10 +349,10 @@ static void mal_player_clear_buffer(mal_player *player) {
 }
 
 static void mal_player_cleanup(mal_player *player) {
-    if (player != NULL) {
+    if (player) {
         pthread_mutex_lock(&player->mutex);
         mal_player_clear_buffer(player);
-        if (player->sl_object != NULL) {
+        if (player->sl_object) {
             (*player->sl_object)->Destroy(player->sl_object);
             player->sl_object = NULL;
             player->sl_buffer_queue = NULL;
@@ -376,15 +372,15 @@ static void mal_player_cleanup(mal_player *player) {
 // Also, Chromium has locks in their OpenSLES-based audio implementation.
 static void mal_buffer_queue_callback(SLAndroidSimpleBufferQueueItf queue, void *void_player) {
     mal_player *player = void_player;
-    if (player != NULL && queue != NULL) {
+    if (player && queue) {
         pthread_mutex_lock(&player->mutex);
-        if (player->looping && player->buffer != NULL &&
-            player->buffer->managed_data != NULL && mal_player_get_state(player) == MAL_PLAYER_STATE_PLAYING) {
+        if (player->looping && player->buffer &&
+            player->buffer->managed_data && mal_player_get_state(player) == MAL_PLAYER_STATE_PLAYING) {
             const mal_buffer *buffer = player->buffer;
             const size_t len = buffer->num_frames * (buffer->format.bit_depth/8) * buffer->format.num_channels;
             (*queue)->Enqueue(queue, buffer->managed_data, len);
         }
-        else if (player->sl_play != NULL) {
+        else if (player->sl_play) {
             (*player->sl_play)->SetPlayState(player->sl_play, SL_PLAYSTATE_STOPPED);
         }
         pthread_mutex_unlock(&player->mutex);
@@ -392,7 +388,7 @@ static void mal_buffer_queue_callback(SLAndroidSimpleBufferQueueItf queue, void 
 }
 
 static void mal_player_update_gain(mal_player *player) {
-    if (player != NULL && player->context != NULL && player->sl_volume != NULL) {
+    if (player && player->context && player->sl_volume) {
         float gain = 0;
         if (!player->context->mute && !player->mute) {
             gain = player->context->gain * player->gain;
@@ -415,8 +411,8 @@ static void mal_player_update_gain(mal_player *player) {
 }
 
 static bool mal_player_reset_no_lock(mal_player *player, const mal_format format) {
-    if (player != NULL) {
-        if (player->sl_object != NULL) {
+    if (player) {
+        if (player->sl_object) {
             (*player->sl_object)->Destroy(player->sl_object);
             player->sl_object = NULL;
             player->sl_buffer_queue = NULL;
@@ -502,7 +498,7 @@ static bool mal_player_reset_no_lock(mal_player *player, const mal_format format
 
 static bool mal_player_reset(mal_player *player, const mal_format format) {
     bool success = false;
-    if (player != NULL) {
+    if (player) {
         pthread_mutex_lock(&player->mutex);
         success = mal_player_reset_no_lock(player, format);
         pthread_mutex_unlock(&player->mutex);
@@ -512,11 +508,11 @@ static bool mal_player_reset(mal_player *player, const mal_format format) {
 
 mal_player *mal_player_create(mal_context *context, const mal_format format) {
     // Check params
-    if (context == NULL || !mal_context_format_is_valid(context, format)) {
+    if (!context || !mal_context_format_is_valid(context, format)) {
         return NULL;
     }
     mal_player *player = calloc(1, sizeof(mal_player));
-    if (player != NULL) {
+    if (player) {
         pthread_mutex_init(&player->mutex, NULL);
         mal_vector_add(&context->players, player);
         player->context = context;
@@ -531,17 +527,17 @@ mal_player *mal_player_create(mal_context *context, const mal_format format) {
 }
 
 mal_format mal_player_get_format(const mal_player *player) {
-    if (player == NULL) {
-        mal_format null_format = { 0, 0, 0 };
-        return null_format;
+    if (player) {
+        return player->format;
     }
     else {
-        return player->format;
+        mal_format null_format = { 0, 0, 0 };
+        return null_format;
     }
 }
 
 bool mal_player_set_format(mal_player *player, const mal_format format) {
-    if (player != NULL && mal_context_format_is_valid(player->context, format)) {
+    if (player && mal_context_format_is_valid(player->context, format)) {
         mal_player_cleanup(player);
         return mal_player_reset(player, format);
     }
@@ -551,18 +547,18 @@ bool mal_player_set_format(mal_player *player, const mal_format format) {
 }
 
 static bool mal_player_set_buffer_no_lock(mal_player *player, const mal_buffer *buffer) {
-    if (player == NULL) {
+    if (!player) {
         return false;
     }
     else {
         mal_player_clear_buffer(player);
-        if (player->sl_object == NULL) {
+        if (!player->sl_object) {
             bool success = mal_player_reset_no_lock(player, player->format);
             if (!success) {
                 return false;
             }
         }
-        if (buffer == NULL) {
+        if (!buffer) {
             return true;
         }
         else {
@@ -579,7 +575,7 @@ static bool mal_player_set_buffer_no_lock(mal_player *player, const mal_buffer *
 
 bool mal_player_set_buffer(mal_player *player, const mal_buffer *buffer) {
     bool success = false;
-    if (player != NULL) {
+    if (player) {
         pthread_mutex_lock(&player->mutex);
         success = mal_player_set_buffer_no_lock(player, buffer);
         pthread_mutex_unlock(&player->mutex);
@@ -588,41 +584,37 @@ bool mal_player_set_buffer(mal_player *player, const mal_buffer *buffer) {
 }
 
 const mal_buffer *mal_player_get_buffer(const mal_player *player) {
-    return player == NULL ? NULL : player->buffer;
+    return player ? player->buffer : NULL;
 }
 
 bool mal_player_get_mute(const mal_player *player) {
-    return player != NULL && player->mute;
+    return player && player->mute;
 }
 
 void mal_player_set_mute(mal_player *player, const bool mute) {
-    if (player != NULL) {
-        if (player->mute != mute) {
-            player->mute = mute;
-            mal_player_update_gain(player);
-        }
+    if (player && player->mute != mute) {
+        player->mute = mute;
+        mal_player_update_gain(player);
     }
 }
 
 float mal_player_get_gain(const mal_player *player) {
-    return (player == NULL) ? 1.0f : player->gain;
+    return player ? player->gain : 1.0f;
 }
 
 void mal_player_set_gain(mal_player *player, const float gain) {
-    if (player != NULL) {
-        if (player->gain != gain) {
-            player->gain = gain;
-            mal_player_update_gain(player);
-        }
+    if (player && player->gain != gain) {
+        player->gain = gain;
+        mal_player_update_gain(player);
     }
 }
 
 bool mal_player_is_looping(const mal_player *player) {
-    return (player == NULL) ? false : player->looping;
+    return player ? player->looping : false;
 }
 
 void mal_player_set_looping(mal_player *player, const bool looping) {
-    if (player != NULL && player->looping != looping) {
+    if (player && player->looping != looping) {
         pthread_mutex_lock(&player->mutex);
         player->looping = looping;
         pthread_mutex_unlock(&player->mutex);
@@ -630,7 +622,7 @@ void mal_player_set_looping(mal_player *player, const bool looping) {
 }
 
 bool mal_player_set_state(mal_player *player, const mal_player_state state) {
-    if (player != NULL && player->sl_play != NULL && player->buffer != NULL && state != mal_player_get_state(player)) {
+    if (player && player->sl_play && player->buffer && state != mal_player_get_state(player)) {
         SLuint32 sl_state;
         switch (state) {
             case MAL_PLAYER_STATE_STOPPED: default:
@@ -647,9 +639,9 @@ bool mal_player_set_state(mal_player *player, const mal_player_state state) {
         pthread_mutex_lock(&player->mutex);
 
         // Queue if needed
-        if (sl_state == SL_PLAYSTATE_PLAYING && player->sl_buffer_queue != NULL) {
+        if (sl_state == SL_PLAYSTATE_PLAYING && player->sl_buffer_queue) {
             const mal_buffer *buffer = player->buffer;
-            if (buffer->managed_data != NULL) {
+            if (buffer->managed_data) {
                 const size_t len = buffer->num_frames * (buffer->format.bit_depth/8) * buffer->format.num_channels;
                 (*player->sl_buffer_queue)->Enqueue(player->sl_buffer_queue, buffer->managed_data, len);
             }
@@ -658,7 +650,7 @@ bool mal_player_set_state(mal_player *player, const mal_player_state state) {
         (*player->sl_play)->SetPlayState(player->sl_play, sl_state);
         
         // Clear buffer queue
-        if (sl_state == SL_PLAYSTATE_STOPPED && player->sl_buffer_queue != NULL) {
+        if (sl_state == SL_PLAYSTATE_STOPPED && player->sl_buffer_queue) {
             (*player->sl_buffer_queue)->Clear(player->sl_buffer_queue);
         }
         
@@ -672,7 +664,7 @@ bool mal_player_set_state(mal_player *player, const mal_player_state state) {
 }
 
 mal_player_state mal_player_get_state(const mal_player *player) {
-    if (player == NULL || player->sl_play == NULL) {
+    if (!player || !player->sl_play) {
         return MAL_PLAYER_STATE_STOPPED;
     }
     else {
@@ -694,8 +686,8 @@ mal_player_state mal_player_get_state(const mal_player *player) {
 }
 
 void mal_player_free(mal_player *player) {
-    if (player != NULL) {
-        if (player->context != NULL) {
+    if (player) {
+        if (player->context) {
             mal_vector_remove(&player->context->players, player);
             player->context = NULL;
         }
