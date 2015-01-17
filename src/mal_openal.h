@@ -468,7 +468,7 @@ void mal_player_set_looping(mal_player *player, const bool looping) {
 }
 
 bool mal_player_set_state(mal_player *player, const mal_player_state state) {
-    if (player && player->al_source_valid && player->buffer) {
+    if (player && player->al_source_valid && player->buffer && state != mal_player_get_state(player)) {
         if (state == MAL_PLAYER_STATE_PLAYING) {
             alSourcePlay(player->al_source);
         }
