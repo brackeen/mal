@@ -17,11 +17,15 @@
  3. This notice may not be removed or altered from any source distribution.
  */
 
-#if defined(__APPLE__) && TARGET_OS_IPHONE
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
+#if TARGET_OS_IPHONE
 
 #include "mal.h"
 #include "mal_openal.h"
 #include <AVFoundation/AVFoundation.h>
+#include <UIKit/UIKit.h> // For notifications
 
 static void mal_check_routes(mal_context *context) {
     if (context) {
