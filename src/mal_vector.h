@@ -20,9 +20,9 @@
 #ifndef _MAL_VECTOR_H_
 #define _MAL_VECTOR_H_
 
-#include <stdlib.h>
-#include <stdbool.h>
 #include <memory.h>
+#include <stdbool.h>
+#include <stdlib.h>
 
 #ifndef MIN
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
@@ -43,8 +43,9 @@ typedef struct {
 static bool mal_vector_ensure_capacity(mal_vector *list, const unsigned int additional_values) {
     if (list) {
         if (!list->values || list->length + additional_values > list->capacity) {
-            const unsigned int new_capacity = MAX(list->length + additional_values, list->capacity << 1);
-            void **new_data = realloc(list->values, sizeof(void*) * new_capacity);
+            const unsigned int new_capacity = MAX(list->length + additional_values,
+                                                  list->capacity << 1);
+            void **new_data = realloc(list->values, sizeof(void *) * new_capacity);
             if (!new_data) {
                 return false;
             }
@@ -60,8 +61,7 @@ static bool mal_vector_add(mal_vector *list, void *value) {
     if (mal_vector_ensure_capacity(list, 1)) {
         list->values[list->length++] = value;
         return true;
-    }
-    else {
+    } else {
         return false;
     }
 }
@@ -71,8 +71,7 @@ static bool mal_vector_add_all(mal_vector *list, unsigned int num_values, void *
         memcpy(list->values + list->length, values, sizeof(void *) * num_values);
         list->length += num_values;
         return true;
-    }
-    else {
+    } else {
         return false;
     }
 }

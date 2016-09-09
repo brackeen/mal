@@ -17,7 +17,7 @@
  3. This notice may not be removed or altered from any source distribution.
  */
 
-#if defined(__EMSCRIPTEN__) 
+#if defined(__EMSCRIPTEN__)
 
 // Using OpenAL for now, might make more sense to use WebAudio directly.
 #include "mal.h"

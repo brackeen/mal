@@ -1,13 +1,13 @@
 /*
  mal
  Copyright (c) 2014 David Brackeen
- 
+
  This software is provided 'as-is', without any express or implied warranty.
  In no event will the authors be held liable for any damages arising from the
  use of this software. Permission is granted to anyone to use this software
  for any purpose, including commercial applications, and to alter it and
  redistribute it freely, subject to the following restrictions:
- 
+
  1. The origin of this software must not be misrepresented; you must not
     claim that you wrote the original software. If you use this software in a
     product, an acknowledgment in the product documentation would be appreciated
@@ -19,13 +19,13 @@
 
 #if defined(ANDROID)
 
-#include <android/log.h>
-#include <SLES/OpenSLES.h>
-#include <SLES/OpenSLES_Android.h>
-#include <pthread.h>
-#include <math.h>
 #include "mal.h"
 #include "mal_vector.h"
+#include <SLES/OpenSLES.h>
+#include <SLES/OpenSLES_Android.h>
+#include <android/log.h>
+#include <math.h>
+#include <pthread.h>
 
 #define LOGI(...) ((void)__android_log_print(ANDROID_LOG_INFO, "MAL", __VA_ARGS__))
 #define LOGW(...) ((void)__android_log_print(ANDROID_LOG_WARN, "MAL", __VA_ARGS__))
@@ -39,7 +39,7 @@ struct mal_context {
     float gain;
     bool mute;
     bool active;
-    
+
     SLObjectItf sl_object;
     SLEngineItf sl_engine;
     SLObjectItf sl_output_mix_object;
@@ -60,9 +60,9 @@ struct mal_player {
     float gain;
     bool mute;
     bool looping;
-    
+
     pthread_mutex_t mutex;
-    
+
     SLObjectItf sl_object;
     SLPlayItf sl_play;
     SLVolumeItf sl_volume;
@@ -84,44 +84,48 @@ mal_context *mal_context_create(const double output_sample_rate) {
         context->mute = false;
         context->gain = 1.0f;
         context->active = true;
-        
+
         // Create engine
         SLresult result = slCreateEngine(&context->sl_object, 0, NULL, 0, NULL, NULL);
         if (result != SL_RESULT_SUCCESS) {
             mal_context_free(context);
             return NULL;
         }
-        
+
         // Realize engine
         result = (*context->sl_object)->Realize(context->sl_object, SL_BOOLEAN_FALSE);
         if (result != SL_RESULT_SUCCESS) {
             mal_context_free(context);
             return NULL;
         }
-        
+
         // Get engine interface
-        result = (*context->sl_object)->GetInterface(context->sl_object, SL_IID_ENGINE, &context->sl_engine);
+        result = (*context->sl_object)->GetInterface(context->sl_object, SL_IID_ENGINE,
+                                                     &context->sl_engine);
         if (result != SL_RESULT_SUCCESS) {
             mal_context_free(context);
             return NULL;
         }
-        
+
         // Get output mix
         result = (*context->sl_engine)->CreateOutputMix(context->sl_engine,
-                                                        &context->sl_output_mix_object, 0, NULL, NULL);
+                                                        &context->sl_output_mix_object, 0, NULL,
+                                                        NULL);
         if (result != SL_RESULT_SUCCESS) {
             mal_context_free(context);
             return NULL;
         }
-        
+
         // Realize the output mix
-        result = (*context->sl_output_mix_object)->Realize(context->sl_output_mix_object, SL_BOOLEAN_FALSE);
+        result = (*context->sl_output_mix_object)->Realize(context->sl_output_mix_object,
+                                                           SL_BOOLEAN_FALSE);
         if (result != SL_RESULT_SUCCESS) {
             mal_context_free(context);
             return NULL;
         }
-        
-        // NOTE: SLAudioIODeviceCapabilitiesItf isn't supported, so there's no way to get routing information.
+
+        // NOTE: SLAudioIODeviceCapabilitiesItf isn't supported, so there's no way to get routing
+        // information.
         // Also, GetDestinationOutputDeviceIDs only returns SL_DEFAULTDEVICEID_AUDIOOUTPUT.
         //
         // Potentially, if we have access to the ANativeActivity, we could get an instance of
@@ -137,24 +141,22 @@ mal_context *mal_context_create(const double output_sample_rate) {
 void mal_context_set_active(mal_context *context, const bool active) {
     if (context && context->active != active) {
         context->active = active;
-        
+
         // From http://mobilepearls.com/labs/native-android-api/ndk/docs/opensles/
         // "Be sure to destroy your audio players when your activity is
         // paused, as they are a global resource shared with other apps."
         for (unsigned int i = 0; i < context->players.length; i++) {
             mal_player *player = context->players.values[i];
-            
+
             if (active) {
                 if (!player->sl_object) {
                     mal_player_reset(player, player->format);
                 }
-            }
-            else {
+            } else {
                 mal_player_state state = mal_player_get_state(player);
                 if (state == MAL_PLAYER_STATE_PLAYING) {
                     mal_player_set_state(player, MAL_PLAYER_STATE_STOPPED);
-                }
-                else if (state == MAL_PLAYER_STATE_STOPPED) {
+                } else if (state == MAL_PLAYER_STATE_STOPPED) {
                     mal_player_cleanup(player);
                 }
             }
@@ -201,8 +203,7 @@ bool mal_context_format_is_valid(const mal_context *context, const mal_format fo
 bool mal_context_is_route_enabled(const mal_context *context, const mal_route route) {
     if (context && route < NUM_MAL_ROUTES) {
         return context->routes[route];
-    }
-    else {
+    } else {
         return false;
     }
 }
@@ -216,7 +217,7 @@ void mal_context_free(mal_context *context) {
             player->context = NULL;
         }
         mal_vector_free(&context->players);
-        
+
         // Delete buffers
         for (unsigned int i = 0; i < context->buffers.length; i++) {
             mal_buffer *buffer = context->buffers.values[i];
@@ -224,7 +225,7 @@ void mal_context_free(mal_context *context) {
             buffer->context = NULL;
         }
         mal_vector_free(&context->buffers);
-        
+
         // Delete OpenSL objects
         if (context->sl_output_mix_object) {
             (*context->sl_output_mix_object)->Destroy(context->sl_output_mix_object);
@@ -254,7 +255,7 @@ mal_buffer *mal_buffer_create(mal_context *context, const mal_format format,
         return NULL;
     }
     // Copy data
-    size_t len = num_frames * (format.bit_depth/8) * format.num_channels;
+    size_t len = num_frames * (format.bit_depth / 8) * format.num_channels;
     void *managed_data = malloc(len);
     if (!managed_data) {
         return NULL;
@@ -271,7 +272,8 @@ mal_buffer *mal_buffer_create_no_copy(mal_context *context, const mal_format for
                                       const uint32_t num_frames, void *managed_data,
                                       const mal_deallocator data_deallocator) {
     // Check params
-    if (!context || !mal_context_format_is_valid(context, format) || num_frames == 0 || !managed_data) {
+    if (!context || !mal_context_format_is_valid(context, format) || num_frames == 0 ||
+        !managed_data) {
         return NULL;
     }
     mal_buffer *buffer = calloc(1, sizeof(mal_buffer));
@@ -289,9 +291,8 @@ mal_buffer *mal_buffer_create_no_copy(mal_context *context, const mal_format for
 mal_format mal_buffer_get_format(const mal_buffer *buffer) {
     if (buffer) {
         return buffer->format;
-    }
-    else {
-        mal_format null_format = { 0, 0, 0 };
+    } else {
+        mal_format null_format = {0, 0, 0};
         return null_format;
     }
 }
@@ -333,7 +334,6 @@ void mal_buffer_free(mal_buffer *buffer) {
     }
 }
 
-
 // MARK: Player
 
 static void mal_player_clear_buffer(mal_player *player) {
@@ -365,22 +365,24 @@ static void mal_player_cleanup(mal_player *player) {
 
 // Buffer queue callback, which is called on a different thread.
 //
-// According to the Android team, "it is unspecified whether buffer queue callbacks are called upon transition to
-// SL_PLAYSTATE_STOPPED or by BufferQueue::Clear."
+// According to the Android team, "it is unspecified whether buffer queue callbacks are called upon
+// transition to SL_PLAYSTATE_STOPPED or by BufferQueue::Clear."
 //
-// The Android team recommends "non-blocking synchronization", but the lock will be uncontended in most cases.
+// The Android team recommends "non-blocking synchronization", but the lock will be uncontended in
+// most cases.
 // Also, Chromium has locks in their OpenSLES-based audio implementation.
 static void mal_buffer_queue_callback(SLAndroidSimpleBufferQueueItf queue, void *void_player) {
     mal_player *player = void_player;
     if (player && queue) {
         pthread_mutex_lock(&player->mutex);
         if (player->looping && player->buffer &&
-            player->buffer->managed_data && mal_player_get_state(player) == MAL_PLAYER_STATE_PLAYING) {
+            player->buffer->managed_data &&
+            mal_player_get_state(player) == MAL_PLAYER_STATE_PLAYING) {
             const mal_buffer *buffer = player->buffer;
-            const size_t len = buffer->num_frames * (buffer->format.bit_depth/8) * buffer->format.num_channels;
+            const size_t len = (buffer->num_frames * (buffer->format.bit_depth / 8) *
+                                buffer->format.num_channels);
             (*queue)->Enqueue(queue, buffer->managed_data, len);
-        }
-        else if (player->sl_play) {
+        } else if (player->sl_play) {
             (*player->sl_play)->SetPlayState(player->sl_play, SL_PLAYSTATE_STOPPED);
         }
         pthread_mutex_unlock(&player->mutex);
@@ -395,13 +397,11 @@ static void mal_player_update_gain(mal_player *player) {
         }
         if (gain <= 0) {
             (*player->sl_volume)->SetMute(player->sl_volume, SL_BOOLEAN_TRUE);
-        }
-        else {
+        } else {
             SLmillibel millibelVolume = roundf(2000 * log10f(gain));
             if (millibelVolume < SL_MILLIBEL_MIN) {
                 millibelVolume = SL_MILLIBEL_MIN;
-            }
-            else if (millibelVolume > 0) {
+            } else if (millibelVolume > 0) {
                 millibelVolume = 0;
             }
             (*player->sl_volume)->SetVolumeLevel(player->sl_volume, millibelVolume);
@@ -419,62 +419,67 @@ static bool mal_player_reset_no_lock(mal_player *player, const mal_format format
             player->sl_play = NULL;
             player->sl_volume = NULL;
         }
-        
+
         const int n = 1;
         const bool system_is_little_endian = *(char *)&n == 1;
-        
+
         SLDataLocator_AndroidSimpleBufferQueue sl_buffer_queue;
         sl_buffer_queue.locatorType = SL_DATALOCATOR_ANDROIDSIMPLEBUFFERQUEUE;
         sl_buffer_queue.numBuffers = kNumQueuedBuffers;
-        
+
         SLDataFormat_PCM sl_format;
         sl_format.formatType = SL_DATAFORMAT_PCM;
         sl_format.numChannels = format.num_channels;
         sl_format.samplesPerSec = (format.sample_rate * 1000);
-        sl_format.bitsPerSample = format.bit_depth == 8 ?  SL_PCMSAMPLEFORMAT_FIXED_8 : SL_PCMSAMPLEFORMAT_FIXED_16;
-        sl_format.containerSize = format.bit_depth == 8 ?  SL_PCMSAMPLEFORMAT_FIXED_8 : SL_PCMSAMPLEFORMAT_FIXED_16;
-        sl_format.channelMask = (format.num_channels == 2 ? (SL_SPEAKER_FRONT_LEFT | SL_SPEAKER_FRONT_RIGHT) :
+        sl_format.bitsPerSample = (format.bit_depth == 8 ? SL_PCMSAMPLEFORMAT_FIXED_8 :
+                                   SL_PCMSAMPLEFORMAT_FIXED_16);
+        sl_format.containerSize = (format.bit_depth == 8 ? SL_PCMSAMPLEFORMAT_FIXED_8 :
+                                   SL_PCMSAMPLEFORMAT_FIXED_16);
+        sl_format.channelMask = (format.num_channels == 2 ?
+                                 (SL_SPEAKER_FRONT_LEFT | SL_SPEAKER_FRONT_RIGHT) :
                                  SL_SPEAKER_FRONT_CENTER);
-        sl_format.endianness = system_is_little_endian ? SL_BYTEORDER_LITTLEENDIAN : SL_BYTEORDER_BIGENDIAN;
-        
-        SLDataSource sl_data_source = { &sl_buffer_queue, &sl_format };
-        SLDataLocator_OutputMix sl_output_mix = { SL_DATALOCATOR_OUTPUTMIX, player->context->sl_output_mix_object };
-        SLDataSink sl_audio_sink = { &sl_output_mix, NULL };
-        
+        sl_format.endianness = (system_is_little_endian ? SL_BYTEORDER_LITTLEENDIAN :
+                                SL_BYTEORDER_BIGENDIAN);
+
+        SLDataSource sl_data_source = {&sl_buffer_queue, &sl_format};
+        SLDataLocator_OutputMix sl_output_mix = {SL_DATALOCATOR_OUTPUTMIX, player->context->sl_output_mix_object};
+        SLDataSink sl_audio_sink = {&sl_output_mix, NULL};
+
         // Create the player
-        const SLInterfaceID ids[2] = { SL_IID_BUFFERQUEUE, SL_IID_VOLUME };
-        const SLboolean req[2] = { SL_BOOLEAN_TRUE, SL_BOOLEAN_TRUE };
-        SLresult result = (*player->context->sl_engine)->CreateAudioPlayer(player->context->sl_engine,
-                                                                           &player->sl_object,
-                                                                           &sl_data_source, &sl_audio_sink,
-                                                                           2, ids, req);
+        const SLInterfaceID ids[2] = {SL_IID_BUFFERQUEUE, SL_IID_VOLUME};
+        const SLboolean req[2] = {SL_BOOLEAN_TRUE, SL_BOOLEAN_TRUE};
+        SLresult result =
+            (*player->context->sl_engine)->CreateAudioPlayer(player->context->sl_engine,
+                                                             &player->sl_object, &sl_data_source,
+                                                             &sl_audio_sink, 2, ids, req);
         if (result != SL_RESULT_SUCCESS) {
             player->sl_object = NULL;
             return false;
         }
-        
+
         // Realize the player
         result = (*player->sl_object)->Realize(player->sl_object, SL_BOOLEAN_FALSE);
         if (result != SL_RESULT_SUCCESS) {
             mal_player_cleanup(player);
             return false;
         }
-        
-        // Get the play interface
-        result = (*player->sl_object)->GetInterface(player->sl_object, SL_IID_PLAY, &player->sl_play);
-        if (result != SL_RESULT_SUCCESS) {
-            mal_player_cleanup(player);
-            return false;
 
-        }
-        
-        // Get buffer queue interface
-        result = (*player->sl_object)->GetInterface(player->sl_object, SL_IID_BUFFERQUEUE, &player->sl_buffer_queue);
+        // Get the play interface
+        result = (*player->sl_object)->GetInterface(player->sl_object, SL_IID_PLAY,
+                                                    &player->sl_play);
         if (result != SL_RESULT_SUCCESS) {
             mal_player_cleanup(player);
             return false;
         }
-        
+
+        // Get buffer queue interface
+        result = (*player->sl_object)->GetInterface(player->sl_object, SL_IID_BUFFERQUEUE,
+                                                    &player->sl_buffer_queue);
+        if (result != SL_RESULT_SUCCESS) {
+            mal_player_cleanup(player);
+            return false;
+        }
+
         // Register buffer queue callback
         result = (*player->sl_buffer_queue)->RegisterCallback(player->sl_buffer_queue,
                                                               mal_buffer_queue_callback, player);
@@ -482,13 +487,14 @@ static bool mal_player_reset_no_lock(mal_player *player, const mal_format format
             mal_player_cleanup(player);
             return false;
         }
-        
+
         // Get the volume interface (optional)
-        result = (*player->sl_object)->GetInterface(player->sl_object, SL_IID_VOLUME, &player->sl_volume);
+        result = (*player->sl_object)->GetInterface(player->sl_object, SL_IID_VOLUME,
+                                                    &player->sl_volume);
         if (result != SL_RESULT_SUCCESS) {
             player->sl_volume = NULL;
         }
-        
+
         player->format = format;
         mal_player_update_gain(player);
         return true;
@@ -516,7 +522,7 @@ mal_player *mal_player_create(mal_context *context, const mal_format format) {
         pthread_mutex_init(&player->mutex, NULL);
         mal_vector_add(&context->players, player);
         player->context = context;
-        
+
         bool success = mal_player_reset_no_lock(player, format);
         if (!success) {
             mal_player_free(player);
@@ -529,9 +535,8 @@ mal_player *mal_player_create(mal_context *context, const mal_format format) {
 mal_format mal_player_get_format(const mal_player *player) {
     if (player) {
         return player->format;
-    }
-    else {
-        mal_format null_format = { 0, 0, 0 };
+    } else {
+        mal_format null_format = {0, 0, 0};
         return null_format;
     }
 }
@@ -540,8 +545,7 @@ bool mal_player_set_format(mal_player *player, const mal_format format) {
     if (player && mal_context_format_is_valid(player->context, format)) {
         mal_player_cleanup(player);
         return mal_player_reset(player, format);
-    }
-    else {
+    } else {
         return false;
     }
 }
@@ -549,8 +553,7 @@ bool mal_player_set_format(mal_player *player, const mal_format format) {
 static bool mal_player_set_buffer_no_lock(mal_player *player, const mal_buffer *buffer) {
     if (!player) {
         return false;
-    }
-    else {
+    } else {
         mal_player_clear_buffer(player);
         if (!player->sl_object) {
             bool success = mal_player_reset_no_lock(player, player->format);
@@ -560,8 +563,7 @@ static bool mal_player_set_buffer_no_lock(mal_player *player, const mal_buffer *
         }
         if (!buffer) {
             return true;
-        }
-        else {
+        } else {
             // Check if format valid
             if (!mal_context_format_is_valid(player->context, buffer->format)) {
                 return false;
@@ -625,7 +627,8 @@ bool mal_player_set_state(mal_player *player, const mal_player_state state) {
     if (player && player->sl_play && player->buffer && state != mal_player_get_state(player)) {
         SLuint32 sl_state;
         switch (state) {
-            case MAL_PLAYER_STATE_STOPPED: default:
+            case MAL_PLAYER_STATE_STOPPED:
+            default:
                 sl_state = SL_PLAYSTATE_STOPPED;
                 break;
             case MAL_PLAYER_STATE_PAUSED:
@@ -635,30 +638,31 @@ bool mal_player_set_state(mal_player *player, const mal_player_state state) {
                 sl_state = SL_PLAYSTATE_PLAYING;
                 break;
         }
-        
+
         pthread_mutex_lock(&player->mutex);
 
         // Queue if needed
         if (sl_state == SL_PLAYSTATE_PLAYING && player->sl_buffer_queue) {
             const mal_buffer *buffer = player->buffer;
             if (buffer->managed_data) {
-                const size_t len = buffer->num_frames * (buffer->format.bit_depth/8) * buffer->format.num_channels;
-                (*player->sl_buffer_queue)->Enqueue(player->sl_buffer_queue, buffer->managed_data, len);
+                const size_t len = (buffer->num_frames * (buffer->format.bit_depth / 8) *
+                                    buffer->format.num_channels);
+                (*player->sl_buffer_queue)->Enqueue(player->sl_buffer_queue, buffer->managed_data,
+                                                    len);
             }
         }
-        
+
         (*player->sl_play)->SetPlayState(player->sl_play, sl_state);
-        
+
         // Clear buffer queue
         if (sl_state == SL_PLAYSTATE_STOPPED && player->sl_buffer_queue) {
             (*player->sl_buffer_queue)->Clear(player->sl_buffer_queue);
         }
-        
+
         pthread_mutex_unlock(&player->mutex);
 
         return true;
-    }
-    else {
+    } else {
         return false;
     }
 }
@@ -666,20 +670,16 @@ bool mal_player_set_state(mal_player *player, const mal_player_state state) {
 mal_player_state mal_player_get_state(const mal_player *player) {
     if (!player || !player->sl_play) {
         return MAL_PLAYER_STATE_STOPPED;
-    }
-    else {
+    } else {
         SLuint32 state;
         SLresult result = (*player->sl_play)->GetPlayState(player->sl_play, &state);
         if (result != SL_RESULT_SUCCESS) {
             return MAL_PLAYER_STATE_STOPPED;
-        }
-        else if (state == SL_PLAYSTATE_PAUSED) {
+        } else if (state == SL_PLAYSTATE_PAUSED) {
             return MAL_PLAYER_STATE_PAUSED;
-        }
-        else if (state == SL_PLAYSTATE_PLAYING) {
+        } else if (state == SL_PLAYSTATE_PLAYING) {
             return MAL_PLAYER_STATE_PLAYING;
-        }
-        else {
+        } else {
             return MAL_PLAYER_STATE_STOPPED;
         }
     }
