@@ -159,6 +159,9 @@ void mal_context_free(mal_context *context);
 /**
  * Creates a new audio buffer from the provided data. The data buffer is copied.
  *
+ * The data must be in signed linear PCM format. The byte order must be the same as the native
+ * byte order (usually little endian). If stereo, the data must be interleaved.
+ *
  * The buffer should be freed with #mal_buffer_free().
  *
  * @param context The audio context. If `NULL`, this function returns `NULL`.
@@ -174,6 +177,9 @@ mal_buffer *mal_buffer_create(mal_context *context, mal_format format, uint32_t 
 
 /**
  * Creates a new audio buffer from the provided data.
+ *
+ * The data must be in signed linear PCM format. The byte order must be the same as the native
+ * byte order (usually little endian). If stereo, the data must be interleaved.
  *
  * If possible, the data is used directly without copying. When the original data is no longer
  * needed, the `data_deallocator` function is called. If the underlying implementation must copy
