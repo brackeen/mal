@@ -24,17 +24,17 @@
 #if TARGET_OS_IPHONE
 
 #include "mal.h"
-#include "mal_openal.h"
+#include "mal_audio_openal.h"
 #include <AVFoundation/AVFoundation.h>
 #include <UIKit/UIKit.h> // For notifications
 
-static void mal_check_routes(mal_context *context) {
+static void _mal_check_routes(mal_context *context) {
     if (context) {
         memset(context->routes, 0, sizeof(context->routes));
         AVAudioSession *session = [AVAudioSession sharedInstance];
         NSArray *outputs = session.currentRoute.outputs;
         for (AVAudioSessionPortDescription *port in outputs) {
-            // This covers all the ports up to iOS 8 but there could be more in the future.
+            // This covers all the ports up to iOS 10
             if ([port.portType isEqualToString:AVAudioSessionPortHeadphones]) {
                 context->routes[MAL_ROUTE_HEADPHONES] = true;
             } else if ([port.portType isEqualToString:AVAudioSessionPortBuiltInSpeaker]) {
@@ -56,9 +56,9 @@ static void mal_check_routes(mal_context *context) {
     }
 }
 
-static void mal_notification_handler(CFNotificationCenterRef center, void *observer,
-                                     CFStringRef name, const void *object,
-                                     CFDictionaryRef userInfo) {
+static void _mal_notification_handler(CFNotificationCenterRef center, void *observer,
+                                      CFStringRef name, const void *object,
+                                      CFDictionaryRef userInfo) {
     NSString *nsName = (__bridge NSString *)name;
     mal_context *context = (mal_context *)observer;
     if ([AVAudioSessionInterruptionNotification isEqualToString:nsName]) {
@@ -73,7 +73,7 @@ static void mal_notification_handler(CFNotificationCenterRef center, void *obser
             }
         }
     } else if ([AVAudioSessionRouteChangeNotification isEqualToString:nsName]) {
-        mal_check_routes(context);
+        _mal_check_routes(context);
     } else if ([UIApplicationDidEnterBackgroundNotification isEqualToString:nsName]) {
         mal_context_set_active(context, false);
     } else if ([UIApplicationWillEnterForegroundNotification isEqualToString:nsName]) {
@@ -81,31 +81,31 @@ static void mal_notification_handler(CFNotificationCenterRef center, void *obser
     }
 }
 
-static void mal_add_notification(mal_context *context, CFStringRef name) {
+static void _mal_add_notification(mal_context *context, CFStringRef name) {
     CFNotificationCenterAddObserver(CFNotificationCenterGetLocalCenter(),
                                     context,
-                                    &mal_notification_handler,
+                                    &_mal_notification_handler,
                                     name,
                                     NULL,
                                     CFNotificationSuspensionBehaviorDeliverImmediately);
 }
 
-static void mal_did_create_context(mal_context *context) {
-    mal_add_notification(context, (__bridge CFStringRef)AVAudioSessionInterruptionNotification);
-    mal_add_notification(context, (__bridge CFStringRef)AVAudioSessionRouteChangeNotification);
+static void _mal_context_did_create(mal_context *context) {
+    _mal_add_notification(context, (__bridge CFStringRef)AVAudioSessionInterruptionNotification);
+    _mal_add_notification(context, (__bridge CFStringRef)AVAudioSessionRouteChangeNotification);
     // Removed this because there is not an equivilent for Android.
     // User must call mal_context_set_active manually.
-    //mal_add_notification(context,
+    //_mal_add_notification(context,
     //                     (__bridge CFStringRef)UIApplicationDidEnterBackgroundNotification);
-    //mal_add_notification(context,
+    //_mal_add_notification(context,
     //                     (__bridge CFStringRef)UIApplicationWillEnterForegroundNotification);
 }
 
-static void mal_will_destory_context(mal_context *context) {
+static void _mal_context_will_dispose(mal_context *context) {
     CFNotificationCenterRemoveEveryObserver(CFNotificationCenterGetLocalCenter(), context);
 }
 
-static void mal_did_set_active(mal_context *context, const bool active) {
+static void _mal_context_did_set_active(mal_context *context, const bool active) {
     AVAudioSession *audioSession = [AVAudioSession sharedInstance];
 
     if (active) {
@@ -119,7 +119,7 @@ static void mal_did_set_active(mal_context *context, const bool active) {
             NSLog(@"mal: Error setting audio session category. Error: %@",
                   [categoryError localizedDescription]);
         }
-        mal_check_routes(context);
+        _mal_check_routes(context);
     }
 
     // NOTE: Setting the audio session to active should happen after setting the AL context
