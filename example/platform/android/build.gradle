@@ -1,41 +1,23 @@
+// Top-level build file where you can add configuration options common to all sub-projects/modules.
+
 buildscript {
     repositories {
         jcenter()
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:1.0.0'
+        classpath 'com.android.tools.build:gradle:2.2.0'
+
+        // NOTE: Do not place your application dependencies here; they belong
+        // in the individual module build.gradle files
     }
 }
-
-apply plugin: 'com.android.application'
-
-android {
-    compileSdkVersion 21
-    buildToolsVersion "21.1.1"
-
-    defaultConfig {
-        applicationId "com.brackeen.mal_example"
-        minSdkVersion 10
-        targetSdkVersion 21
-
-        ndk {
-            moduleName "mal_example"
-            cFlags "-std=c99"
-            ldLibs "log", "android", "EGL", "GLESv2", "OpenSLES"
-        }
-    }
-
-    sourceSets.main {
-        jni.srcDirs = ["../../src", "src/main/jni", "../../glfm/include", "../../glfm/src", "../../../include", "../../../src"]
-        assets.srcDirs = ["../../assets"]
-    }
-
-    //buildTypes.debug.jniDebugBuild true
-}
-
 
 allprojects {
     repositories {
         jcenter()
     }
+}
+
+task clean(type: Delete) {
+    delete rootProject.buildDir
 }
