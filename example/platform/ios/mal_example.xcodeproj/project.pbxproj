@@ -18,9 +18,9 @@
 		E361B9F718F33F8800C25B35 /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E361B9F618F33F8800C25B35 /* Images.xcassets */; };
 		E3AB9C5C1A321C3E006090FF /* ok_wav.c in Sources */ = {isa = PBXBuildFile; fileRef = E3AB9C5A1A321C3E006090FF /* ok_wav.c */; };
 		E3AB9C5E1A321C46006090FF /* sound.wav in Resources */ = {isa = PBXBuildFile; fileRef = E3AB9C5D1A321C46006090FF /* sound.wav */; };
-		E3AB9C681A321CB5006090FF /* mal_android.c in Sources */ = {isa = PBXBuildFile; fileRef = E3AB9C631A321CB5006090FF /* mal_android.c */; };
-		E3AB9C691A321CB5006090FF /* mal_emscripten.c in Sources */ = {isa = PBXBuildFile; fileRef = E3AB9C641A321CB5006090FF /* mal_emscripten.c */; };
-		E3AB9C6A1A321CB5006090FF /* mal_ios.m in Sources */ = {isa = PBXBuildFile; fileRef = E3AB9C651A321CB5006090FF /* mal_ios.m */; };
+		E3AB9C681A321CB5006090FF /* mal_platform_android.c in Sources */ = {isa = PBXBuildFile; fileRef = E3AB9C631A321CB5006090FF /* mal_platform_android.c */; };
+		E3AB9C691A321CB5006090FF /* mal_platform_emscripten.c in Sources */ = {isa = PBXBuildFile; fileRef = E3AB9C641A321CB5006090FF /* mal_platform_emscripten.c */; };
+		E3AB9C6A1A321CB5006090FF /* mal_platform_ios.m in Sources */ = {isa = PBXBuildFile; fileRef = E3AB9C651A321CB5006090FF /* mal_platform_ios.m */; };
 		E3E664111A2C1A9800105FF6 /* main.c in Sources */ = {isa = PBXBuildFile; fileRef = E3E664101A2C1A9800105FF6 /* main.c */; };
 /* End PBXBuildFile section */
 
@@ -45,9 +45,9 @@
 		E3AB9C5B1A321C3E006090FF /* ok_wav.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ok_wav.h; sourceTree = "<group>"; };
 		E3AB9C5D1A321C46006090FF /* sound.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = sound.wav; sourceTree = "<group>"; };
 		E3AB9C611A321CB5006090FF /* mal.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = mal.h; sourceTree = "<group>"; };
-		E3AB9C631A321CB5006090FF /* mal_android.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = mal_android.c; sourceTree = "<group>"; };
-		E3AB9C641A321CB5006090FF /* mal_emscripten.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = mal_emscripten.c; sourceTree = "<group>"; };
-		E3AB9C651A321CB5006090FF /* mal_ios.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = mal_ios.m; sourceTree = "<group>"; };
+		E3AB9C631A321CB5006090FF /* mal_platform_android.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = mal_platform_android.c; sourceTree = "<group>"; };
+		E3AB9C641A321CB5006090FF /* mal_platform_emscripten.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = mal_platform_emscripten.c; sourceTree = "<group>"; };
+		E3AB9C651A321CB5006090FF /* mal_platform_ios.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = mal_platform_ios.m; sourceTree = "<group>"; };
 		E3AB9C671A321CB5006090FF /* mal_vector.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = mal_vector.h; sourceTree = "<group>"; };
 		E3C807A51D947E5A0001781F /* mal_audio_opensl.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = mal_audio_opensl.h; sourceTree = "<group>"; };
 		E3E664101A2C1A9800105FF6 /* main.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = main.c; sourceTree = "<group>"; };
@@ -168,9 +168,9 @@
 		E3AB9C621A321CB5006090FF /* src */ = {
 			isa = PBXGroup;
 			children = (
-				E3AB9C631A321CB5006090FF /* mal_android.c */,
-				E3AB9C641A321CB5006090FF /* mal_emscripten.c */,
-				E3AB9C651A321CB5006090FF /* mal_ios.m */,
+				E3AB9C631A321CB5006090FF /* mal_platform_android.c */,
+				E3AB9C641A321CB5006090FF /* mal_platform_emscripten.c */,
+				E3AB9C651A321CB5006090FF /* mal_platform_ios.m */,
 				E32ED1171D8C6996001C1F5A /* mal_audio_abstract.h */,
 				E32ED1181D8C6B2D001C1F5A /* mal_audio_openal.h */,
 				E3C807A51D947E5A0001781F /* mal_audio_opensl.h */,
@@ -264,14 +264,14 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				E3AB9C6A1A321CB5006090FF /* mal_ios.m in Sources */,
+				E3AB9C6A1A321CB5006090FF /* mal_platform_ios.m in Sources */,
 				E3E664111A2C1A9800105FF6 /* main.c in Sources */,
 				E3AB9C5C1A321C3E006090FF /* ok_wav.c in Sources */,
-				E3AB9C681A321CB5006090FF /* mal_android.c in Sources */,
+				E3AB9C681A321CB5006090FF /* mal_platform_android.c in Sources */,
 				E34FCB6018FC807E00EC87DC /* glfm_platform_android.c in Sources */,
 				E34FCB6218FC807E00EC87DC /* glfm_platform_ios.m in Sources */,
 				E34FCB6118FC807E00EC87DC /* glfm_platform_emscripten.c in Sources */,
-				E3AB9C691A321CB5006090FF /* mal_emscripten.c in Sources */,
+				E3AB9C691A321CB5006090FF /* mal_platform_emscripten.c in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

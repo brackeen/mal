@@ -11,7 +11,7 @@ ADD_LIBRARY( glfm STATIC ../../../glfm/src/glfm_platform_android.c
 # MAL
 
 INCLUDE_DIRECTORIES( ../../../../../mal/include/ )
-ADD_LIBRARY( mal STATIC ../../../../../mal/src/mal_android.c )
+ADD_LIBRARY( mal STATIC ../../../../../mal/src/mal_platform_android.c )
 
 # Example code
 
