@@ -253,7 +253,7 @@ void mal_buffer_free(mal_buffer *buffer);
 mal_player *mal_player_create(mal_context *context, mal_format format);
 
 /**
- * Gets the format of the player.
+ * Gets the playback format of the player.
  *
  * @param player The audio player. If `NULL`, this function returns a format with a sample rate of 
  * 0.
@@ -262,7 +262,11 @@ mal_player *mal_player_create(mal_context *context, mal_format format);
 mal_format mal_player_get_format(const mal_player *player);
 
 /**
- * Sets the format of the player.
+ * Sets the playback format of the player.
+ *
+ * If playing, the player is stopped. The attached buffer, if any, is not changed.
+ *
+ * On OpenAL implementations, the format of the player is always the same as the buffer.
  *
  * @param player The audio player. If `NULL`, this function does nothing.
  * @param format The audio format to set the player to.
@@ -274,6 +278,12 @@ bool mal_player_set_format(mal_player *player, mal_format format);
  * Attaches a buffer to the player. Any existing buffer is removed.
  *
  * A buffer may be attached to multiple players.
+ *
+ * On OpenAL implementations, the player's playback format is set to the buffer's format.
+ *
+ * On other implementations, the player's playback format is not changed. To set the player's 
+ * playback format to the buffer's format, call 
+ * `mal_player_set_format(player, mal_buffer_get_format(buffer));`.
  *
  * @param player The audio player. If `NULL`, this function does nothing.
  * @param buffer The audio buffer. May be `NULL`.
@@ -357,7 +367,9 @@ bool mal_player_set_state(mal_player *player, mal_player_state state);
 mal_player_state mal_player_get_state(const mal_player *player);
 
 /**
- Frees the player.
+ * Frees the player.
+ *
+ * @param player The player. If `NULL`, this function does nothing.
  */
 void mal_player_free(mal_player *player);
 
