@@ -6,7 +6,7 @@
 #include <stdlib.h>
 
 #define kMaxPlayers 16
-#define kTestFreeBufferDuingPlayback 0
+#define kTestFreeBufferDuringPlayback 0
 
 typedef struct {
     mal_context *context;
@@ -14,8 +14,8 @@ typedef struct {
     mal_player *players[kMaxPlayers];
 } mal_app;
 
-static void play_sound(mal_app *app, mal_buffer *buffer) {
-#if kTestFreeBufferDuingPlayback
+static void play_sound(mal_app *app, mal_buffer *buffer, float gain) {
+#if kTestFreeBufferDuringPlayback
     // This is useful to test buffer freeing during playback
     if (app->buffer) {
         mal_buffer_free(app->buffer);
@@ -33,9 +33,9 @@ static void play_sound(mal_app *app, mal_buffer *buffer) {
     for (int i = 0; i < kMaxPlayers; i++) {
         if (app->players[i] && mal_player_get_state(app->players[i]) == MAL_PLAYER_STATE_STOPPED) {
             mal_player_set_buffer(app->players[i], buffer);
-            mal_player_set_gain(app->players[i], 0.25f);
+            mal_player_set_gain(app->players[i], gain);
             mal_player_set_state(app->players[i], MAL_PLAYER_STATE_PLAYING);
-            glfmLog("PLAY %i", i);
+            glfmLog("PLAY %i gain=%.2f", i, gain);
             break;
         }
     }
@@ -104,8 +104,9 @@ static int glfm_asset_input_func(void *user_data, unsigned char *buffer, const i
 static GLboolean on_touch(GLFMDisplay *display, const int touch, const GLFMTouchPhase phase,
                           const int x, const int y) {
     if (phase == GLFMTouchPhaseBegan) {
+        int height = glfmGetDisplayHeight(display);
         mal_app *app = glfmGetUserData(display);
-        play_sound(app, app->buffer);
+        play_sound(app, app->buffer, 0.05f + 0.60f * (height - y) / height);
     }
     return GL_TRUE;
 }
