@@ -21,9 +21,22 @@
 #ifndef _MAL_AUDIO_ABSTRACT_H_
 #define _MAL_AUDIO_ABSTRACT_H_
 
+#include "mal.h"
 #include "mal_vector.h"
 
-// Audio sybsystems need to implement these structs and functions.
+// If MAL_USE_MUTEX is defined, modifications to mal_player objects are locked.
+// Define MAL_USE_MUTEX if a player's buffer data is read on a different thread than the main
+// thread.
+#ifdef MAL_USE_MUTEX
+#include <pthread.h>
+#define MAL_LOCK(player) pthread_mutex_lock(&player->mutex);
+#define MAL_UNLOCK(player) pthread_mutex_unlock(&player->mutex);
+#else
+#define MAL_LOCK(player) do { } while(0)
+#define MAL_UNLOCK(player) do { } while(0)
+#endif
+
+// Audio subsystems need to implement these structs and functions.
 // All mal_*init() functions should return `true` on success, `false` otherwise.
 
 struct _mal_context;
@@ -40,6 +53,11 @@ static void _mal_context_set_active(mal_context *context, const bool active);
 static void _mal_context_set_mute(mal_context *context, const bool mute);
 static void _mal_context_set_gain(mal_context *context, const float gain);
 
+/**
+ Either `copied_data` or `managed_data` will be non-null, but not both. If `copied_data` is set,
+ the data must be copied (don't keep a reference to `copied_data`).
+ If successful, the buffer's #managed_data and #managed_data_deallocator fields must be set.
+ */
 static bool _mal_buffer_init(mal_context *context, mal_buffer *buffer,
                              const void *copied_data, void *managed_data,
                              mal_deallocator data_deallocator);
@@ -47,7 +65,7 @@ static void _mal_buffer_dispose(mal_buffer *buffer);
 
 static bool _mal_player_init(mal_player *player);
 static void _mal_player_dispose(mal_player *player);
-static void _mal_player_set_format(mal_player *player, mal_format format);
+static bool _mal_player_set_format(mal_player *player, mal_format format);
 static bool _mal_player_set_buffer(mal_player *player, const mal_buffer *buffer);
 static void _mal_player_set_mute(mal_player *player, bool mute);
 static void _mal_player_set_gain(mal_player *player, float gain);
@@ -63,6 +81,7 @@ struct mal_context {
     bool routes[NUM_MAL_ROUTES];
     float gain;
     bool mute;
+    bool active;
 
     struct _mal_context data;
 };
@@ -84,6 +103,10 @@ struct mal_player {
     float gain;
     bool mute;
     bool looping;
+
+#ifdef MAL_USE_MUTEX
+    pthread_mutex_t mutex;
+#endif
 
     struct _mal_player data;
 };
@@ -110,6 +133,7 @@ mal_context *mal_context_create(double output_sample_rate) {
 void mal_context_set_active(mal_context *context, const bool active) {
     if (context) {
         _mal_context_set_active(context, active);
+        context->active = active;
         _mal_context_did_set_active(context, active);
     }
 }
@@ -156,10 +180,11 @@ void mal_context_free(mal_context *context) {
         // Delete players
         for (unsigned int i = 0; i < context->players.length; i++) {
             mal_player *player = context->players.values[i];
-            mal_player_set_state(player, MAL_PLAYER_STATE_STOPPED);
-            player->buffer = NULL;
+            mal_player_set_buffer(player, NULL);
+            MAL_LOCK(player);
             _mal_player_dispose(player);
             player->context = NULL;
+            MAL_UNLOCK(player);
         }
         mal_vector_free(&context->players);
 
@@ -274,11 +299,17 @@ mal_player *mal_player_create(mal_context *context, const mal_format format) {
     }
     mal_player *player = calloc(1, sizeof(mal_player));
     if (player) {
+#ifdef MAL_USE_MUTEX
+        pthread_mutex_init(&player->mutex, NULL);
+#endif
         mal_vector_add(&context->players, player);
         player->context = context;
         player->format = format;
 
         bool success = _mal_player_init(player);
+        if (success) {
+            success = _mal_player_set_format(player, format);
+        }
         if (!success) {
             mal_player_free(player);
             player = NULL;
@@ -298,31 +329,32 @@ mal_format mal_player_get_format(const mal_player *player) {
 
 bool mal_player_set_format(mal_player *player, mal_format format) {
     if (player && mal_context_format_is_valid(player->context, format)) {
-        mal_player_set_buffer(player, NULL);
-        _mal_player_set_format(player, format);
-        player->format = format;
-        return true;
-    } else {
-        return false;
+        mal_player_set_state(player, MAL_PLAYER_STATE_STOPPED);
+        MAL_LOCK(player);
+        bool success = _mal_player_set_format(player, format);
+        if (success) {
+            player->format = format;
+        }
+        MAL_UNLOCK(player);
+        return success;
     }
+    return false;
 }
 
 bool mal_player_set_buffer(mal_player *player, const mal_buffer *buffer) {
     if (!player) {
         return false;
     } else {
-        // Stop and clear
-        if (player->buffer) {
-            mal_player_set_state(player, MAL_PLAYER_STATE_STOPPED);
-            player->buffer = NULL;
-        }
+        mal_player_set_state(player, MAL_PLAYER_STATE_STOPPED);
+        MAL_LOCK(player);
         bool success = _mal_player_set_buffer(player, buffer);
         if (success) {
             player->buffer = buffer;
-            return true;
         } else {
-            return false;
+            player->buffer = NULL;
         }
+        MAL_UNLOCK(player);
+        return success;
     }
 }
 
@@ -358,16 +390,23 @@ bool mal_player_is_looping(const mal_player *player) {
 
 void mal_player_set_looping(mal_player *player, bool looping) {
     if (player) {
+        MAL_LOCK(player);
         player->looping = looping;
         _mal_player_set_looping(player, looping);
+        MAL_UNLOCK(player);
     }
 }
 
 bool mal_player_set_state(mal_player *player, mal_player_state state) {
-    if (player && player->buffer && state != mal_player_get_state(player)) {
-        return _mal_player_set_state(player, state);
-    } else {
+    if (!player || !player->buffer) {
         return false;
+    } else if (state == mal_player_get_state(player)) {
+        return true;
+    } else {
+        MAL_LOCK(player);
+        bool success = _mal_player_set_state(player, state);
+        MAL_UNLOCK(player);
+        return success;
     }
 }
 
@@ -377,13 +416,17 @@ mal_player_state mal_player_get_state(const mal_player *player) {
 
 void mal_player_free(mal_player *player) {
     if (player) {
-        mal_player_set_state(player, MAL_PLAYER_STATE_STOPPED);
-        player->buffer = NULL;
+        mal_player_set_buffer(player, NULL);
+        MAL_LOCK(player);
         if (player->context) {
             mal_vector_remove(&player->context->players, player);
             player->context = NULL;
         }
         _mal_player_dispose(player);
+        MAL_UNLOCK(player);
+#ifdef MAL_USE_MUTEX
+        pthread_mutex_destroy(&player->mutex);
+#endif
         free(player);
     }
 }

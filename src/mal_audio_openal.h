@@ -186,8 +186,9 @@ static void _mal_player_dispose(mal_player *player) {
     }
 }
 
-static void _mal_player_set_format(mal_player *player, mal_format format) {
+static bool _mal_player_set_format(mal_player *player, mal_format format) {
     // Do nothing
+    return true;
 }
 
 static bool _mal_player_set_buffer(mal_player *player, const mal_buffer *buffer) {

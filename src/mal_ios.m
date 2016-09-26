@@ -23,7 +23,6 @@
 #endif
 #if TARGET_OS_IPHONE
 
-#include "mal.h"
 #include "mal_audio_openal.h"
 #include <AVFoundation/AVFoundation.h>
 #include <UIKit/UIKit.h> // For notifications
