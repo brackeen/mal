@@ -23,8 +23,11 @@
 
 /**
  * @file
- * Low-level audio playback API.
+ * Audio playback API.
  * Provides functions to play raw PCM audio on iOS, Android, and Emscripten.
+ *
+ * Uses the platform's audio system (Core Audio, OpenSL ES, etc.). 
+ * No sofware audio rendering, no software mixing, no extra buffering.
  *
  * Caveats:
  * - No audio file format decoding. Bring your own WAV decoder.
@@ -364,7 +367,7 @@ bool mal_player_set_state(mal_player *player, mal_player_state state);
  * @param player The audio player. If `NULL`, this function returns #MAL_PLAYER_STATE_STOPPED.
  * @return The current state of the player.
  */
-mal_player_state mal_player_get_state(const mal_player *player);
+mal_player_state mal_player_get_state(mal_player *player);
 
 /**
  * Frees the player.

@@ -23,7 +23,7 @@
 #endif
 #if TARGET_OS_IPHONE
 
-#include "mal_audio_openal.h"
+#include "mal_audio_coreaudio.h"
 #include <AVFoundation/AVFoundation.h>
 #include <UIKit/UIKit.h> // For notifications
 
@@ -89,7 +89,11 @@ static void _mal_add_notification(mal_context *context, CFStringRef name) {
                                     CFNotificationSuspensionBehaviorDeliverImmediately);
 }
 
-static void _mal_context_did_create(mal_context *context) {
+static void _mal_context_did_create(mal_context *context, double output_sample_rate) {
+    if (output_sample_rate > 0) {
+        AVAudioSession *audioSession = [AVAudioSession sharedInstance];
+        [audioSession setPreferredSampleRate:output_sample_rate error:NULL];
+    }
     _mal_add_notification(context, (__bridge CFStringRef)AVAudioSessionInterruptionNotification);
     _mal_add_notification(context, (__bridge CFStringRef)AVAudioSessionRouteChangeNotification);
     // Removed this because there is not an equivilent for Android.
