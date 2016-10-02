@@ -7,6 +7,7 @@
 
 #define kMaxPlayers 16
 #define kTestFreeBufferDuringPlayback 0
+#define kTestAudioPause 0
 
 typedef struct {
     mal_context *context;
@@ -20,6 +21,17 @@ static void play_sound(mal_app *app, mal_buffer *buffer, float gain) {
     if (app->buffer) {
         mal_buffer_free(app->buffer);
         app->buffer = NULL;
+    }
+#elif kTestAudioPause
+    for (int i = 0; i < kMaxPlayers; i++) {
+        if (app->players[i]) {
+            mal_player_state state = mal_player_get_state(app->players[i]);
+            if (state == MAL_PLAYER_STATE_PLAYING) {
+                mal_player_set_state(app->players[i], MAL_PLAYER_STATE_PAUSED);
+            } else if (state == MAL_PLAYER_STATE_PAUSED) {
+                mal_player_set_state(app->players[i], MAL_PLAYER_STATE_PLAYING);
+            }
+        }
     }
 #else
     // Stop any looping players
