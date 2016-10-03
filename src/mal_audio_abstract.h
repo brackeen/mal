@@ -28,12 +28,24 @@
 // Define MAL_USE_MUTEX if a player's buffer data is read on a different thread than the main
 // thread.
 #ifdef MAL_USE_MUTEX
-#include <pthread.h>
-#define MAL_LOCK(player) pthread_mutex_lock(&player->mutex)
-#define MAL_UNLOCK(player) pthread_mutex_unlock(&player->mutex)
+#  include <pthread.h>
+#    define MAL_LOCK(player) pthread_mutex_lock(&player->mutex)
+#    define MAL_UNLOCK(player) pthread_mutex_unlock(&player->mutex)
+#  else
+#    define MAL_LOCK(player) do { } while(0)
+#    define MAL_UNLOCK(player) do { } while(0)
+#endif
+
+//#define MAL_DEBUG_LOG
+#ifdef MAL_DEBUG_LOG
+#  ifdef ANDROID
+#    include <android/log.h>
+#    define MAL_LOG(...) __android_log_print(ANDROID_LOG_INFO, "mal", __VA_ARGS__)
+#  else
+#    define MAL_LOG(...) do { printf("mal: " __VA_ARGS__); printf("\n"); } while(0)
+#  endif
 #else
-#define MAL_LOCK(player) do { } while(0)
-#define MAL_UNLOCK(player) do { } while(0)
+#  define MAL_LOG(...) do { } while(0)
 #endif
 
 // Audio subsystems need to implement these structs and functions.

@@ -62,13 +62,6 @@ struct _mal_player {
 #define MAL_USE_MUTEX
 #include "mal_audio_abstract.h"
 
-//#define MAL_DEBUG_LOG
-#ifdef MAL_DEBUG_LOG
-#define MAL_LOG(...) printf("mal coreaudio: " __VA_ARGS__)
-#else
-#define MAL_LOG(...) do { } while(0)
-#endif
-
 // MARK: Context
 
 static OSStatus render_notification(void *user_data, AudioUnitRenderActionFlags *flags,
@@ -84,7 +77,7 @@ static bool _mal_context_init(mal_context *context) {
     // Create audio graph
     OSStatus status = NewAUGraph(&context->data.graph);
     if (status != noErr) {
-        MAL_LOG("Couldn't create audio graph (err %i)\n", (int)status);
+        MAL_LOG("Couldn't create audio graph (err %i)", (int)status);
         return false;
     }
 
@@ -99,7 +92,7 @@ static bool _mal_context_init(mal_context *context) {
     };
     status = AUGraphAddNode(context->data.graph, &output_desc, &output_node);
     if (status != noErr) {
-        MAL_LOG("Couldn't create output node (err %i)\n", (int)status);
+        MAL_LOG("Couldn't create output node (err %i)", (int)status);
         return false;
     }
 
@@ -113,7 +106,7 @@ static bool _mal_context_init(mal_context *context) {
     };
     status = AUGraphAddNode(context->data.graph, &mixer_desc, &context->data.mixer_node);
     if (status != noErr) {
-        MAL_LOG("Couldn't create mixer node (err %i)\n", (int)status);
+        MAL_LOG("Couldn't create mixer node (err %i)", (int)status);
         return false;
     }
 
@@ -121,14 +114,14 @@ static bool _mal_context_init(mal_context *context) {
     status = AUGraphConnectNodeInput(context->data.graph, context->data.mixer_node, 0,
                                      output_node, 0);
     if (status != noErr) {
-        MAL_LOG("Couldn't connect nodes (err %i)\n", (int)status);
+        MAL_LOG("Couldn't connect nodes (err %i)", (int)status);
         return false;
     }
 
     // Open graph
     status = AUGraphOpen(context->data.graph);
     if (status != noErr) {
-        MAL_LOG("Couldn't open graph (err %i)\n", (int)status);
+        MAL_LOG("Couldn't open graph (err %i)", (int)status);
         return false;
     }
 
@@ -136,7 +129,7 @@ static bool _mal_context_init(mal_context *context) {
     status = AUGraphNodeInfo(context->data.graph, context->data.mixer_node, NULL,
                              &context->data.mixer_unit);
     if (status != noErr) {
-        MAL_LOG("Couldn't get mixer unit (err %i)\n", (int)status);
+        MAL_LOG("Couldn't get mixer unit (err %i)", (int)status);
         return false;
     }
 
@@ -149,7 +142,7 @@ static bool _mal_context_init(mal_context *context) {
                                       &context->sample_rate,
                                       sizeof(context->sample_rate));
         if (status != noErr) {
-            MAL_LOG("Ignoring: Couldn't set output sample rate (err %i)\n", (int)status);
+            MAL_LOG("Ignoring: Couldn't set output sample rate (err %i)", (int)status);
         }
     }
 
@@ -192,7 +185,7 @@ static bool _mal_context_init(mal_context *context) {
                                   &context->data.num_buses,
                                   &bus_size);
     if (status != noErr) {
-        MAL_LOG("Couldn't get mixer unit (err %i)\n", (int)status);
+        MAL_LOG("Couldn't get mixer unit (err %i)", (int)status);
         return false;
     }
 
@@ -202,7 +195,7 @@ static bool _mal_context_init(mal_context *context) {
     // Init
     status = AUGraphInitialize(context->data.graph);
     if (status != noErr) {
-        MAL_LOG("Couldn't init graph (err %i)\n", (int)status);
+        MAL_LOG("Couldn't init graph (err %i)", (int)status);
         return false;
     }
 
@@ -290,7 +283,7 @@ static void _mal_context_set_active(mal_context *context, bool active) {
         }
         pthread_mutex_unlock(&context->data.mutex);
         if (status != noErr) {
-            MAL_LOG("Couldn't %s graph (err %i)\n", (active ? "start" : "stop"), (int)status);
+            MAL_LOG("Couldn't %s graph (err %i)", (active ? "start" : "stop"), (int)status);
         }
     }
 }
@@ -307,7 +300,7 @@ static void _mal_context_set_gain(mal_context *context, float gain) {
                                             0, total_gain, 0);
 
     if (status != noErr) {
-        MAL_LOG("Couldn't set volume (err %i)\n", (int)status);
+        MAL_LOG("Couldn't set volume (err %i)", (int)status);
     }
 }
 
@@ -559,7 +552,7 @@ static bool _mal_player_set_format(mal_player *player, mal_format format) {
                                            &stream_desc,
                                            sizeof(stream_desc));
     if (status != noErr) {
-        MAL_LOG("Couldn't set stream format (err %i)\n", (int)status);
+        MAL_LOG("Couldn't set stream format (err %i)", (int)status);
         return false;
     }
 
@@ -583,7 +576,7 @@ static void _mal_player_set_gain(mal_player *player, float gain) {
                                                 kAudioUnitScope_Input,
                                                 player->data.input_bus, total_gain, 0);
         if (status != noErr) {
-            MAL_LOG("Couldn't set volume (err %i)\n", (int)status);
+            MAL_LOG("Couldn't set volume (err %i)", (int)status);
         }
     }
 }

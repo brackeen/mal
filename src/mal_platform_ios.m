@@ -109,31 +109,39 @@ static void _mal_context_will_dispose(mal_context *context) {
 
 static void _mal_context_did_set_active(mal_context *context, const bool active) {
     AVAudioSession *audioSession = [AVAudioSession sharedInstance];
+    NSError *error;
 
     if (active) {
         // Set sample rate
         if (context->sample_rate > 0) {
-            [audioSession setPreferredSampleRate:context->sample_rate error:NULL];
+            [audioSession setPreferredSampleRate:context->sample_rate error:&error];
+            if (error) {
+                MAL_LOG("Couldn't set sample rate to %f. %s", context->sample_rate,
+                        error.localizedDescription.UTF8String);
+                error = nil;
+            }
         }
         // Set Category
         // allowBackgroundMusic might need to be an option
         bool allowBackgroundMusic = true;
-        NSString *category = allowBackgroundMusic ? AVAudioSessionCategoryAmbient : AVAudioSessionCategorySoloAmbient;
-        NSError *categoryError;
-        [audioSession setCategory:category error:&categoryError];
-        if (categoryError) {
-            NSLog(@"mal: Error setting audio session category. Error: %@",
-                  [categoryError localizedDescription]);
+        NSString *category = (allowBackgroundMusic ? AVAudioSessionCategoryAmbient :
+                              AVAudioSessionCategorySoloAmbient);
+
+        [audioSession setCategory:category error:&error];
+        if (error) {
+            MAL_LOG("Couldn't set audio session category. %s",
+                    error.localizedDescription.UTF8String);
+            error = nil;
         }
         _mal_check_routes(context);
     }
 
-    // NOTE: Setting the audio session to active should happen after setting the AL context
-    NSError *activeError;
-    [[AVAudioSession sharedInstance] setActive:active error:&activeError];
-    if (activeError) {
-        NSLog(@"mal: Error setting audio session to active (%@). Error: %@",
-              active ? @"true" : @"false", [activeError localizedDescription]);
+    // NOTE: Setting the audio session to active should happen last
+    [[AVAudioSession sharedInstance] setActive:active error:&error];
+    if (error) {
+        MAL_LOG("Couldn't set audio session to active (%s). %s", (active ? "true" : "false"),
+                error.localizedDescription.UTF8String);
+        error = nil;
     }
 }
 
