@@ -22,7 +22,7 @@
 
 #include "mal_audio_opensl.h"
 
-static void _mal_context_did_create(mal_context *context, double output_sample_rate) {
+static void _mal_context_did_create(mal_context *context) {
     // Do nothing
 }
 

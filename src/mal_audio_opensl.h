@@ -59,7 +59,7 @@ static void _mal_player_update_gain(mal_player *player);
 
 // MARK: Context
 
-static bool _mal_context_init(mal_context *context, double output_sample_rate) {
+static bool _mal_context_init(mal_context *context) {
     // Create engine
     SLresult result = slCreateEngine(&context->data.sl_object, 0, NULL, 0, NULL, NULL);
     if (result != SL_RESULT_SUCCESS) {
@@ -199,7 +199,7 @@ static void _mal_buffer_queue_callback(SLBufferQueueItf queue, void *void_player
         MAL_LOCK(player);
         if (player->looping && player->buffer &&
             player->buffer->managed_data &&
-            mal_player_get_state(player) == MAL_PLAYER_STATE_PLAYING) {
+            _mal_player_get_state(player) == MAL_PLAYER_STATE_PLAYING) {
             const mal_buffer *buffer = player->buffer;
             const size_t len = (buffer->num_frames * (buffer->format.bit_depth / 8) *
                                 buffer->format.num_channels);
