@@ -38,7 +38,7 @@ struct _mal_context {
 
     pthread_mutex_t mutex;
 
-    bool has_started;
+    bool first_time;
 
     uint32_t num_buses;
     bool can_ramp_input_gain;
@@ -75,8 +75,11 @@ static OSStatus render_notification(void *user_data, AudioUnitRenderActionFlags 
                                     const AudioTimeStamp *timestamp, UInt32 bus,
                                     UInt32 in_frames, AudioBufferList *data);
 
-static bool _mal_context_init(mal_context *context, double output_sample_rate) {
+static bool _mal_context_init(mal_context *context) {
     pthread_mutex_init(&context->data.mutex, NULL);
+
+    context->data.first_time = true;
+    context->active = false;
 
     // Create audio graph
     OSStatus status = NewAUGraph(&context->data.graph);
@@ -138,13 +141,13 @@ static bool _mal_context_init(mal_context *context, double output_sample_rate) {
     }
 
     // Set output sample rate
-    if (output_sample_rate > 0) {
+    if (context->sample_rate > 0) {
         status = AudioUnitSetProperty(context->data.mixer_unit,
                                       kAudioUnitProperty_SampleRate,
                                       kAudioUnitScope_Output,
                                       0,
-                                      &output_sample_rate,
-                                      sizeof(output_sample_rate));
+                                      &context->sample_rate,
+                                      sizeof(context->sample_rate));
         if (status != noErr) {
             MAL_LOG("Ignoring: Couldn't set output sample rate (err %i)\n", (int)status);
         }
@@ -159,6 +162,8 @@ static bool _mal_context_init(mal_context *context, double output_sample_rate) {
     if (status == noErr) {
         context->data.can_ramp_input_gain =
         (parameter_info.flags & kAudioUnitParameterFlag_CanRamp) != 0;
+    } else {
+        context->data.can_ramp_input_gain = false;
     }
 
     // Check if output gain can ramp
@@ -168,6 +173,8 @@ static bool _mal_context_init(mal_context *context, double output_sample_rate) {
     if (status == noErr) {
         context->data.can_ramp_output_gain =
         (parameter_info.flags & kAudioUnitParameterFlag_CanRamp) != 0;
+    } else {
+        context->data.can_ramp_output_gain = false;
     }
     if (context->data.can_ramp_output_gain) {
         status = AudioUnitAddRenderNotify(context->data.mixer_unit, render_notification, context);
@@ -200,7 +207,6 @@ static bool _mal_context_init(mal_context *context, double output_sample_rate) {
     }
 
 #ifdef MAL_DEBUG_LOG
-    MAL_LOG("---\n");
     CAShow(context->data.graph);
 #endif
 
@@ -209,7 +215,7 @@ static bool _mal_context_init(mal_context *context, double output_sample_rate) {
 
 static void _mal_context_dispose(mal_context *context) {
     pthread_mutex_lock(&context->data.mutex);
-    context->data.ramp.value = 0;
+    context->active = false;
     if (context->data.graph) {
         AUGraphStop(context->data.graph);
         AUGraphUninitialize(context->data.graph);
@@ -219,6 +225,34 @@ static void _mal_context_dispose(mal_context *context) {
     }
     pthread_mutex_unlock(&context->data.mutex);
     pthread_mutex_destroy(&context->data.mutex);
+}
+
+static void _mal_context_reset(mal_context *context) {
+    bool active = context->active;
+    for (int i = 0; i < context->players.length; i++) {
+        mal_player *player = context->players.values[i];
+        _mal_player_dispose(player);
+    }
+    _mal_context_dispose(context);
+    _mal_context_init(context);
+    _mal_context_set_mute(context, context->mute);
+    _mal_context_set_gain(context, context->gain);
+    mal_context_set_active(context, active);
+    for (int i = 0; i < context->players.length; i++) {
+        mal_player *player = context->players.values[i];
+        bool success = _mal_player_init(player);
+        if (!success) {
+            MAL_LOG("Couldn't reset player %i", i);
+        } else {
+            _mal_player_set_mute(player, player->mute);
+            _mal_player_set_gain(player, player->gain);
+            _mal_player_set_format(player, player->format);
+            if (player->data.state == MAL_PLAYER_STATE_PLAYING) {
+                player->data.state = MAL_PLAYER_STATE_STOPPED;
+                mal_player_set_state(player, MAL_PLAYER_STATE_PLAYING);
+            }
+        }
+    }
 }
 
 static void _mal_context_set_active(mal_context *context, bool active) {
@@ -234,14 +268,14 @@ static void _mal_context_set_active(mal_context *context, bool active) {
                 context->data.ramp.value = 0;
                 status = noErr;
             } else {
-                if (context->data.has_started && context->data.can_ramp_output_gain) {
+                if (!context->data.first_time && context->data.can_ramp_output_gain) {
                     // Fade in
                     context->data.ramp.value = 1;
                     context->data.ramp.frames = 4096;
                     context->data.ramp.frames_position = 0;
                 }
                 status = AUGraphStart(context->data.graph);
-                context->data.has_started = true;
+                context->data.first_time = false;
             }
         } else {
             if (context->data.can_ramp_output_gain) {
@@ -323,7 +357,11 @@ static OSStatus render_notification(void *user_data, AudioUnitRenderActionFlags 
                 bool done = _mal_ramp(context, kAudioUnitScope_Output, bus,
                                       in_frames, context->gain, &context->data.ramp);
                 if (done && context->active == false && context->data.graph) {
-                    AUGraphStop(context->data.graph);
+                    Boolean running = false;
+                    AUGraphIsRunning(context->data.graph, &running);
+                    if (running) {
+                        AUGraphStop(context->data.graph);
+                    }
                 }
             }
             pthread_mutex_unlock(&context->data.mutex);
@@ -446,13 +484,14 @@ static OSStatus audio_render_callback(void *user_data, AudioUnitRenderActionFlag
 }
 
 static bool _mal_player_init(mal_player *player) {
+    player->data.input_bus = UINT32_MAX;
+
     mal_context *context = player->context;
     if (!context || context->data.num_buses == 0) {
         return false;
     }
-    
+
     // Find a free bus
-    bool found = false;
     int num_buses = context->data.num_buses;
     bool *taken_buses = calloc(num_buses, sizeof(bool));
     if (!taken_buses) {
@@ -467,12 +506,11 @@ static bool _mal_player_init(mal_player *player) {
     for (int i = 0; i < num_buses; i++) {
         if (!taken_buses[i]) {
             player->data.input_bus = i;
-            found = true;
             break;
         }
     }
     free(taken_buses);
-    if (found) {
+    if (player->data.input_bus != UINT32_MAX) {
         return true;
     }
 

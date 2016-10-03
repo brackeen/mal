@@ -43,8 +43,8 @@ struct _mal_context;
 struct _mal_buffer;
 struct _mal_player;
 
-static bool _mal_context_init(mal_context *context, double output_sample_rate);
-static void _mal_context_did_create(mal_context *context, double output_sample_rate);
+static bool _mal_context_init(mal_context *context);
+static void _mal_context_did_create(mal_context *context);
 static void _mal_context_will_dispose(mal_context *context);
 static void _mal_context_dispose(mal_context *context);
 static void _mal_context_did_set_active(mal_context *context, const bool active);
@@ -82,6 +82,7 @@ struct mal_context {
     float gain;
     bool mute;
     bool active;
+    double sample_rate;
 
     struct _mal_context data;
 };
@@ -118,9 +119,10 @@ mal_context *mal_context_create(double output_sample_rate) {
     if (context) {
         context->mute = false;
         context->gain = 1.0f;
-        bool success = _mal_context_init(context, output_sample_rate);
+        context->sample_rate = output_sample_rate;
+        bool success = _mal_context_init(context);
         if (success) {
-            _mal_context_did_create(context, output_sample_rate);
+            _mal_context_did_create(context);
             mal_context_set_active(context, true);
         } else {
             mal_context_free(context);

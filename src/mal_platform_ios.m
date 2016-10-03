@@ -73,6 +73,8 @@ static void _mal_notification_handler(CFNotificationCenterRef center, void *obse
         }
     } else if ([AVAudioSessionRouteChangeNotification isEqualToString:nsName]) {
         _mal_check_routes(context);
+    } else if ([AVAudioSessionMediaServicesWereResetNotification isEqualToString:nsName]) {
+        _mal_context_reset(context);
     } else if ([UIApplicationDidEnterBackgroundNotification isEqualToString:nsName]) {
         mal_context_set_active(context, false);
     } else if ([UIApplicationWillEnterForegroundNotification isEqualToString:nsName]) {
@@ -89,13 +91,10 @@ static void _mal_add_notification(mal_context *context, CFStringRef name) {
                                     CFNotificationSuspensionBehaviorDeliverImmediately);
 }
 
-static void _mal_context_did_create(mal_context *context, double output_sample_rate) {
-    if (output_sample_rate > 0) {
-        AVAudioSession *audioSession = [AVAudioSession sharedInstance];
-        [audioSession setPreferredSampleRate:output_sample_rate error:NULL];
-    }
+static void _mal_context_did_create(mal_context *context) {
     _mal_add_notification(context, (__bridge CFStringRef)AVAudioSessionInterruptionNotification);
     _mal_add_notification(context, (__bridge CFStringRef)AVAudioSessionRouteChangeNotification);
+    _mal_add_notification(context, (__bridge CFStringRef)AVAudioSessionMediaServicesWereResetNotification);
     // Removed this because there is not an equivilent for Android.
     // User must call mal_context_set_active manually.
     //_mal_add_notification(context,
@@ -112,6 +111,10 @@ static void _mal_context_did_set_active(mal_context *context, const bool active)
     AVAudioSession *audioSession = [AVAudioSession sharedInstance];
 
     if (active) {
+        // Set sample rate
+        if (context->sample_rate > 0) {
+            [audioSession setPreferredSampleRate:context->sample_rate error:NULL];
+        }
         // Set Category
         // allowBackgroundMusic might need to be an option
         bool allowBackgroundMusic = true;
