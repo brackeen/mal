@@ -21,9 +21,9 @@
 #ifndef _MAL_AUDIO_COREAUDIO_H_
 #define _MAL_AUDIO_COREAUDIO_H_
 
+#include "mal.h"
 #include <AudioToolbox/AudioToolbox.h>
 #include <pthread.h>
-#include "mal.h"
 
 struct _ramp {
     int value; // -1 for fade out, 1 for fade in, 0 for no fade
@@ -154,7 +154,7 @@ static bool _mal_context_init(mal_context *context) {
                                   &parameter_info, &parameter_info_size);
     if (status == noErr) {
         context->data.can_ramp_input_gain =
-        (parameter_info.flags & kAudioUnitParameterFlag_CanRamp) != 0;
+            (parameter_info.flags & kAudioUnitParameterFlag_CanRamp) != 0;
     } else {
         context->data.can_ramp_input_gain = false;
     }
@@ -165,7 +165,7 @@ static bool _mal_context_init(mal_context *context) {
                                   &parameter_info, &parameter_info_size);
     if (status == noErr) {
         context->data.can_ramp_output_gain =
-        (parameter_info.flags & kAudioUnitParameterFlag_CanRamp) != 0;
+            (parameter_info.flags & kAudioUnitParameterFlag_CanRamp) != 0;
     } else {
         context->data.can_ramp_output_gain = false;
     }
@@ -297,7 +297,9 @@ static void _mal_context_set_gain(mal_context *context, float gain) {
     OSStatus status = AudioUnitSetParameter(context->data.mixer_unit,
                                             kMultiChannelMixerParam_Volume,
                                             kAudioUnitScope_Output,
-                                            0, total_gain, 0);
+                                            0,
+                                            total_gain,
+                                            0);
 
     if (status != noErr) {
         MAL_LOG("Couldn't set volume (err %i)", (int)status);
@@ -362,7 +364,6 @@ static OSStatus render_notification(void *user_data, AudioUnitRenderActionFlags 
     }
     return noErr;
 };
-
 
 // MARK: Buffer
 
@@ -574,7 +575,9 @@ static void _mal_player_set_gain(mal_player *player, float gain) {
         OSStatus status = AudioUnitSetParameter(player->context->data.mixer_unit,
                                                 kMultiChannelMixerParam_Volume,
                                                 kAudioUnitScope_Input,
-                                                player->data.input_bus, total_gain, 0);
+                                                player->data.input_bus,
+                                                total_gain,
+                                                0);
         if (status != noErr) {
             MAL_LOG("Couldn't set volume (err %i)", (int)status);
         }
