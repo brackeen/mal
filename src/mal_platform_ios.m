@@ -25,7 +25,6 @@
 
 #include "mal_audio_coreaudio.h"
 #include <AVFoundation/AVFoundation.h>
-#include <UIKit/UIKit.h> // For notifications
 
 static void _mal_check_routes(mal_context *context) {
     if (context) {
@@ -75,10 +74,6 @@ static void _mal_notification_handler(CFNotificationCenterRef center, void *obse
         _mal_check_routes(context);
     } else if ([AVAudioSessionMediaServicesWereResetNotification isEqualToString:nsName]) {
         _mal_context_reset(context);
-    } else if ([UIApplicationDidEnterBackgroundNotification isEqualToString:nsName]) {
-        mal_context_set_active(context, false);
-    } else if ([UIApplicationWillEnterForegroundNotification isEqualToString:nsName]) {
-        mal_context_set_active(context, true);
     }
 }
 
@@ -94,13 +89,8 @@ static void _mal_add_notification(mal_context *context, CFStringRef name) {
 static void _mal_context_did_create(mal_context *context) {
     _mal_add_notification(context, (__bridge CFStringRef)AVAudioSessionInterruptionNotification);
     _mal_add_notification(context, (__bridge CFStringRef)AVAudioSessionRouteChangeNotification);
-    _mal_add_notification(context, (__bridge CFStringRef)AVAudioSessionMediaServicesWereResetNotification);
-    // Removed this because there is not an equivilent for Android.
-    // User must call mal_context_set_active manually.
-    //_mal_add_notification(context,
-    //                     (__bridge CFStringRef)UIApplicationDidEnterBackgroundNotification);
-    //_mal_add_notification(context,
-    //                     (__bridge CFStringRef)UIApplicationWillEnterForegroundNotification);
+    _mal_add_notification(context,
+                          (__bridge CFStringRef)AVAudioSessionMediaServicesWereResetNotification);
 }
 
 static void _mal_context_will_dispose(mal_context *context) {
