@@ -22,17 +22,17 @@
 
 // Using OpenAL for now, might make more sense to use WebAudio directly.
 #include "mal.h"
-#include "mal_openal.h"
+#include "mal_audio_openal.h"
 
-static void mal_did_create_context(mal_context *context) {
+static void _mal_context_did_create(mal_context *context) {
     // Do nothing
 }
 
-static void mal_will_destory_context(mal_context *context) {
+static void _mal_context_will_dispose(mal_context *context) {
     // Do nothing
 }
 
-static void mal_did_set_active(mal_context *context, const bool active) {
+static void _mal_context_did_set_active(mal_context *context, bool active) {
     // Do nothing
 }
 

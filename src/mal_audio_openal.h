@@ -58,7 +58,7 @@ struct _mal_player {
 
 // MARK: Context
 
-static bool _mal_context_init(mal_context *context, double output_sample_rate) {
+static bool _mal_context_init(mal_context *context) {
     ALCdevice *device = alcOpenDevice(NULL);
     if (!device) {
         return false;
@@ -68,8 +68,8 @@ static bool _mal_context_init(mal_context *context, double output_sample_rate) {
         context->data.alcMacOSXMixerOutputRateProc =
             ((alcMacOSXMixerOutputRateProcPtr)alcGetProcAddress(NULL, "alcMacOSXMixerOutputRate"));
 
-        if (context->data.alcMacOSXMixerOutputRateProc) {
-            context->data.alcMacOSXMixerOutputRateProc(output_sample_rate);
+        if (context->data.alcMacOSXMixerOutputRateProc && context->sample_rate > 0) {
+            context->data.alcMacOSXMixerOutputRateProc(context->sample_rate);
         }
 
         context->data.al_context = alcCreateContext(device, 0);
