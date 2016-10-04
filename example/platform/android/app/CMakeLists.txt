@@ -3,6 +3,9 @@ cmake_minimum_required(VERSION 3.4.1)
 
 # GLFM
 
+# Set NDEBUG for android_native_app_glue to remove some superfluous logging
+SET_SOURCE_FILES_PROPERTIES( ${ANDROID_NDK}/sources/android/native_app_glue/android_native_app_glue.c
+                              PROPERTIES COMPILE_FLAGS "-DNDEBUG" )
 INCLUDE_DIRECTORIES( ../../../glfm/include/
                     ${ANDROID_NDK}/sources/android/native_app_glue/ )
 ADD_LIBRARY( glfm STATIC ../../../glfm/src/glfm_platform_android.c
