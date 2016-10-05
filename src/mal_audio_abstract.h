@@ -96,6 +96,10 @@ struct mal_context {
     bool active;
     double sample_rate;
 
+#ifdef MAL_USE_MUTEX
+    pthread_mutex_t mutex;
+#endif
+
     struct _mal_context data;
 };
 
@@ -129,6 +133,9 @@ struct mal_player {
 mal_context *mal_context_create(double output_sample_rate) {
     mal_context *context = calloc(1, sizeof(mal_context));
     if (context) {
+#ifdef MAL_USE_MUTEX
+        pthread_mutex_init(&context->mutex, NULL);
+#endif
         context->mute = false;
         context->gain = 1.0f;
         context->sample_rate = output_sample_rate;
@@ -146,8 +153,10 @@ mal_context *mal_context_create(double output_sample_rate) {
 
 void mal_context_set_active(mal_context *context, const bool active) {
     if (context) {
+        MAL_LOCK(context);
         _mal_context_set_active(context, active);
         context->active = active;
+        MAL_UNLOCK(context);
         _mal_context_did_set_active(context, active);
     }
 }
@@ -213,7 +222,13 @@ void mal_context_free(mal_context *context) {
         // Dispose and free
         _mal_context_will_dispose(context);
         mal_context_set_active(context, false);
+        MAL_LOCK(context);
         _mal_context_dispose(context);
+        MAL_UNLOCK(context);
+
+#ifdef MAL_USE_MUTEX
+        pthread_mutex_destroy(&context->mutex);
+#endif
         free(context);
     }
 }

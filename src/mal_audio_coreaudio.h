@@ -23,7 +23,6 @@
 
 #include "mal.h"
 #include <AudioToolbox/AudioToolbox.h>
-#include <pthread.h>
 
 struct _ramp {
     int value; // -1 for fade out, 1 for fade in, 0 for no fade
@@ -35,8 +34,6 @@ struct _mal_context {
     AUGraph graph;
     AudioUnit mixer_unit;
     AUNode mixer_node;
-
-    pthread_mutex_t mutex;
 
     bool first_time;
 
@@ -69,8 +66,6 @@ static OSStatus render_notification(void *user_data, AudioUnitRenderActionFlags 
                                     UInt32 in_frames, AudioBufferList *data);
 
 static bool _mal_context_init(mal_context *context) {
-    pthread_mutex_init(&context->data.mutex, NULL);
-
     context->data.first_time = true;
     context->active = false;
 
@@ -207,7 +202,6 @@ static bool _mal_context_init(mal_context *context) {
 }
 
 static void _mal_context_dispose(mal_context *context) {
-    pthread_mutex_lock(&context->data.mutex);
     context->active = false;
     if (context->data.graph) {
         AUGraphStop(context->data.graph);
@@ -216,8 +210,6 @@ static void _mal_context_dispose(mal_context *context) {
         context->data.graph = NULL;
         context->data.mixer_unit = NULL;
     }
-    pthread_mutex_unlock(&context->data.mutex);
-    pthread_mutex_destroy(&context->data.mutex);
 }
 
 static void _mal_context_reset(mal_context *context) {
@@ -226,10 +218,12 @@ static void _mal_context_reset(mal_context *context) {
         mal_player *player = context->players.values[i];
         _mal_player_dispose(player);
     }
+    MAL_LOCK(context);
     _mal_context_dispose(context);
     _mal_context_init(context);
     _mal_context_set_mute(context, context->mute);
     _mal_context_set_gain(context, context->gain);
+    MAL_UNLOCK(context);
     mal_context_set_active(context, active);
     for (int i = 0; i < context->players.length; i++) {
         mal_player *player = context->players.values[i];
@@ -251,7 +245,6 @@ static void _mal_context_reset(mal_context *context) {
 static void _mal_context_set_active(mal_context *context, bool active) {
     if (context->active != active) {
         OSStatus status;
-        pthread_mutex_lock(&context->data.mutex);
         context->active = active;
         if (active) {
             Boolean running = false;
@@ -281,7 +274,6 @@ static void _mal_context_set_active(mal_context *context, bool active) {
                 status = AUGraphStop(context->data.graph);
             }
         }
-        pthread_mutex_unlock(&context->data.mutex);
         if (status != noErr) {
             MAL_LOG("Couldn't %s graph (err %i)", (active ? "start" : "stop"), (int)status);
         }
@@ -346,7 +338,7 @@ static OSStatus render_notification(void *user_data, AudioUnitRenderActionFlags 
     if (*flags & kAudioUnitRenderAction_PreRender) {
         mal_context *context = user_data;
         if (context->data.ramp.value != 0) {
-            pthread_mutex_lock(&context->data.mutex);
+            MAL_LOCK(context);
             // Double-checked locking
             if (context->data.ramp.value != 0) {
                 bool done = _mal_ramp(context, kAudioUnitScope_Output, bus,
@@ -359,7 +351,7 @@ static OSStatus render_notification(void *user_data, AudioUnitRenderActionFlags 
                     }
                 }
             }
-            pthread_mutex_unlock(&context->data.mutex);
+            MAL_UNLOCK(context);
         }
     }
     return noErr;
