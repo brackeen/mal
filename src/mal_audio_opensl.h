@@ -22,6 +22,7 @@
 #define _MAL_AUDIO_OPENSL_H_
 
 #include <SLES/OpenSLES.h>
+#include <stdbool.h>
 #ifdef ANDROID
 // From http://mobilepearls.com/labs/native-android-api/ndk/docs/opensles/
 // "The buffer queue interface is expected to have significant changes... We recommend that your
@@ -49,6 +50,8 @@ struct _mal_player {
     SLPlayItf sl_play;
     SLVolumeItf sl_volume;
     SLBufferQueueItf sl_buffer_queue;
+
+    bool background_paused;
 };
 
 #define MAL_USE_MUTEX
@@ -126,20 +129,38 @@ static void _mal_context_set_active(mal_context *context, bool active) {
         // From http://mobilepearls.com/labs/native-android-api/ndk/docs/opensles/
         // "Be sure to destroy your audio players when your activity is
         // paused, as they are a global resource shared with other apps."
+        //
+        // Here, we'll pause playing sounds, and destroy unused players.
         for (unsigned int i = 0; i < context->players.length; i++) {
             mal_player *player = (mal_player *)context->players.values[i];
 
             if (active) {
                 if (!player->data.sl_object) {
                     mal_player_set_format(player, player->format);
+                    _mal_player_set_gain(player, player->gain);
+                    _mal_player_set_mute(player, player->mute);
+                } else if (player->data.background_paused &&
+                        mal_player_get_state(player) == MAL_PLAYER_STATE_PAUSED) {
+                    mal_player_set_state(player, MAL_PLAYER_STATE_PLAYING);
                 }
+                player->data.background_paused = false;
             } else {
-                MAL_LOCK(player);
-                if (player->buffer) {
-                    _mal_player_set_state(player, MAL_PLAYER_STATE_STOPPED);
+                switch (mal_player_get_state(player)) {
+                    case MAL_PLAYER_STATE_STOPPED:
+                        MAL_LOCK(player);
+                        _mal_player_dispose(player);
+                        MAL_UNLOCK(player);
+                        player->data.background_paused = false;
+                        break;
+                    case MAL_PLAYER_STATE_PAUSED:
+                        player->data.background_paused = false;
+                        break;
+                    case MAL_PLAYER_STATE_PLAYING: {
+                        bool success = mal_player_set_state(player, MAL_PLAYER_STATE_PAUSED);
+                        player->data.background_paused = success;
+                        break;
+                    }
                 }
-                _mal_player_dispose(player);
-                MAL_UNLOCK(player);
             }
         }
     }
@@ -369,7 +390,8 @@ static mal_player_state _mal_player_get_state(const mal_player *player) {
     }
 }
 
-static bool _mal_player_set_state(mal_player *player, mal_player_state state) {
+static bool _mal_player_set_state(mal_player *player, mal_player_state old_state,
+                                  mal_player_state state) {
     SLuint32 sl_state;
     switch (state) {
         case MAL_PLAYER_STATE_STOPPED:
@@ -385,7 +407,8 @@ static bool _mal_player_set_state(mal_player *player, mal_player_state state) {
     }
 
     // Queue if needed
-    if (sl_state == SL_PLAYSTATE_PLAYING && player->data.sl_buffer_queue) {
+    if (old_state != MAL_PLAYER_STATE_PAUSED && sl_state == SL_PLAYSTATE_PLAYING &&
+        player->data.sl_buffer_queue) {
         const mal_buffer *buffer = player->buffer;
         if (buffer->managed_data) {
             const size_t len = (buffer->num_frames * (buffer->format.bit_depth / 8) *

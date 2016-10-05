@@ -584,7 +584,8 @@ static mal_player_state _mal_player_get_state(const mal_player *player) {
     return player->data.state;
 }
 
-static bool _mal_player_set_state(mal_player *player, mal_player_state state) {
+static bool _mal_player_set_state(mal_player *player, mal_player_state old_state,
+                                  mal_player_state state) {
     if (!player->context || !player->context->data.graph) {
         return false;
     }
@@ -615,7 +616,7 @@ static bool _mal_player_set_state(mal_player *player, mal_player_state state) {
             }
             break;
         case MAL_PLAYER_STATE_PLAYING: {
-            if (player->data.state == MAL_PLAYER_STATE_STOPPED) {
+            if (old_state == MAL_PLAYER_STATE_STOPPED) {
                 AudioUnitReset(player->context->data.mixer_unit, kAudioUnitScope_Input, player->data.input_bus);
             }
 
@@ -629,7 +630,7 @@ static bool _mal_player_set_state(mal_player *player, mal_player_state state) {
                                         &render_callback);
             Boolean updated;
             AUGraphUpdate(player->context->data.graph, &updated);
-            if (player->data.state == MAL_PLAYER_STATE_PAUSED &&
+            if (old_state == MAL_PLAYER_STATE_PAUSED &&
                 player->context->data.can_ramp_input_gain) {
                 // Fade in
                 player->data.ramp.value = 1;

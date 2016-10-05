@@ -83,7 +83,8 @@ static void _mal_player_set_mute(mal_player *player, bool mute);
 static void _mal_player_set_gain(mal_player *player, float gain);
 static void _mal_player_set_looping(mal_player *player, bool looping);
 static mal_player_state _mal_player_get_state(const mal_player *player);
-static bool _mal_player_set_state(mal_player *player, mal_player_state state);
+static bool _mal_player_set_state(mal_player *player, mal_player_state old_state,
+                                  mal_player_state state);
 
 // MARK: Structs
 
@@ -436,11 +437,10 @@ bool mal_player_set_state(mal_player *player, mal_player_state state) {
         return false;
     } else {
         MAL_LOCK(player);
-        bool success;
-        if (state == _mal_player_get_state(player)) {
-            success = true;
-        } else {
-            success = _mal_player_set_state(player, state);
+        mal_player_state old_state = _mal_player_get_state(player);
+        bool success = true;
+        if (state != old_state) {
+            success = _mal_player_set_state(player, old_state, state);
         }
         MAL_UNLOCK(player);
         return success;

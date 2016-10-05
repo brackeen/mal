@@ -251,7 +251,8 @@ static mal_player_state _mal_player_get_state(const mal_player *player) {
     }
 }
 
-static bool _mal_player_set_state(mal_player *player, mal_player_state state) {
+static bool _mal_player_set_state(mal_player *player, mal_player_state old_state,
+                                  mal_player_state state) {
     if (player->data.al_source_valid) {
         if (state == MAL_PLAYER_STATE_PLAYING) {
             alSourcePlay(player->data.al_source);
