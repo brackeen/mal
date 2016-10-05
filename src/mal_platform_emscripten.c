@@ -20,9 +20,7 @@
 
 #if defined(__EMSCRIPTEN__)
 
-// Using OpenAL for now, might make more sense to use WebAudio directly.
-#include "mal.h"
-#include "mal_audio_openal.h"
+#include "mal_audio_webaudio.h"
 
 static void _mal_context_did_create(mal_context *context) {
     // Do nothing

@@ -50,6 +50,7 @@
 		E3AB9C651A321CB5006090FF /* mal_platform_ios.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = mal_platform_ios.m; sourceTree = "<group>"; };
 		E3AB9C671A321CB5006090FF /* mal_vector.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = mal_vector.h; sourceTree = "<group>"; };
 		E3C807A51D947E5A0001781F /* mal_audio_opensl.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = mal_audio_opensl.h; sourceTree = "<group>"; };
+		E3CD6C1B1DA48F2C0002F4FD /* mal_audio_webaudio.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = mal_audio_webaudio.h; sourceTree = "<group>"; };
 		E3D77BD71D9ADDFF008554A8 /* mal_audio_coreaudio.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = mal_audio_coreaudio.h; sourceTree = "<group>"; };
 		E3E664101A2C1A9800105FF6 /* main.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = main.c; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -176,6 +177,7 @@
 				E3D77BD71D9ADDFF008554A8 /* mal_audio_coreaudio.h */,
 				E32ED1181D8C6B2D001C1F5A /* mal_audio_openal.h */,
 				E3C807A51D947E5A0001781F /* mal_audio_opensl.h */,
+				E3CD6C1B1DA48F2C0002F4FD /* mal_audio_webaudio.h */,
 				E3AB9C671A321CB5006090FF /* mal_vector.h */,
 			);
 			path = src;
