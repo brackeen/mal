@@ -15,6 +15,15 @@ typedef struct {
     mal_player *players[kMaxPlayers];
 } mal_app;
 
+static void on_finished(void *user_data, mal_player *player) {
+    mal_app *app = user_data;
+    for (int i = 0; i < kMaxPlayers; i++) {
+        if (player == app->players[i]) {
+            glfmLog("FINISHED %i", i);
+        }
+    }
+}
+
 static void play_sound(mal_app *app, mal_buffer *buffer, float gain) {
 #if kTestFreeBufferDuringPlayback
     // This is useful to test buffer freeing during playback
@@ -46,6 +55,7 @@ static void play_sound(mal_app *app, mal_buffer *buffer, float gain) {
         if (app->players[i] && mal_player_get_state(app->players[i]) == MAL_PLAYER_STATE_STOPPED) {
             mal_player_set_buffer(app->players[i], buffer);
             mal_player_set_gain(app->players[i], gain);
+            mal_player_set_finished_func(app->players[i], on_finished, app);
             mal_player_set_state(app->players[i], MAL_PLAYER_STATE_PLAYING);
             glfmLog("PLAY %i gain=%.2f", i, gain);
             break;

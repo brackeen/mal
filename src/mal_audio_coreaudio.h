@@ -361,7 +361,7 @@ static OSStatus render_notification(void *user_data, AudioUnitRenderActionFlags 
 
 static bool _mal_buffer_init(mal_context *context, mal_buffer *buffer,
                              const void *copied_data, void *managed_data,
-                             const mal_deallocator data_deallocator) {
+                             const mal_deallocator_func data_deallocator) {
     if (managed_data) {
         buffer->managed_data = managed_data;
         buffer->managed_data_deallocator = data_deallocator;
@@ -391,15 +391,16 @@ static OSStatus audio_render_callback(void *user_data, AudioUnitRenderActionFlag
     mal_player *player = user_data;
 
     MAL_LOCK(player);
+    mal_player_state state = player->data.state;
     if (player->buffer == NULL || player->buffer->managed_data == NULL ||
-        player->data.state == MAL_PLAYER_STATE_STOPPED ||
+        state == MAL_PLAYER_STATE_STOPPED ||
         player->data.next_frame >= player->buffer->num_frames) {
         // Silence for end of playback, or because the player is paused.
         for (int i = 0; i < data->mNumberBuffers; i++) {
             memset(data->mBuffers[i].mData, 0, data->mBuffers[i].mDataByteSize);
         }
 
-        if (player->data.state == MAL_PLAYER_STATE_PLAYING ||
+        if (state == MAL_PLAYER_STATE_PLAYING ||
             player->buffer == NULL || player->buffer->managed_data == NULL) {
             // Stop
             player->data.state = MAL_PLAYER_STATE_STOPPED;
@@ -409,6 +410,11 @@ static OSStatus audio_render_callback(void *user_data, AudioUnitRenderActionFlag
                 AUGraphDisconnectNodeInput(player->context->data.graph,
                                            player->context->data.mixer_node,
                                            player->data.input_bus);
+            }
+
+            if (state == MAL_PLAYER_STATE_PLAYING && player->on_finished) {
+                dispatch_async_f(dispatch_get_main_queue(), player,
+                                 &_mal_handle_on_finished_callback);
             }
         }
     } else {

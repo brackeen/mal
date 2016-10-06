@@ -72,7 +72,7 @@ static void _mal_context_set_gain(mal_context *context, const float gain);
  */
 static bool _mal_buffer_init(mal_context *context, mal_buffer *buffer,
                              const void *copied_data, void *managed_data,
-                             mal_deallocator data_deallocator);
+                             mal_deallocator_func data_deallocator);
 static void _mal_buffer_dispose(mal_buffer *buffer);
 
 static bool _mal_player_init(mal_player *player);
@@ -85,6 +85,13 @@ static void _mal_player_set_looping(mal_player *player, bool looping);
 static mal_player_state _mal_player_get_state(const mal_player *player);
 static bool _mal_player_set_state(mal_player *player, mal_player_state old_state,
                                   mal_player_state state);
+
+// MARK: Globals
+
+static mal_vector contexts;
+#ifdef MAL_USE_MUTEX
+static pthread_mutex_t contexts_mutex = PTHREAD_MUTEX_INITIALIZER;
+#endif
 
 // MARK: Structs
 
@@ -109,7 +116,7 @@ struct mal_buffer {
     mal_format format;
     uint32_t num_frames;
     void *managed_data;
-    mal_deallocator managed_data_deallocator;
+    mal_deallocator_func managed_data_deallocator;
 
     struct _mal_buffer data;
 };
@@ -118,6 +125,8 @@ struct mal_player {
     mal_context *context;
     mal_format format;
     const mal_buffer *buffer;
+    mal_playback_finished_func on_finished;
+    void *on_finished_user_data;
     float gain;
     bool mute;
     bool looping;
@@ -142,6 +151,13 @@ mal_context *mal_context_create(double output_sample_rate) {
         context->sample_rate = output_sample_rate;
         bool success = _mal_context_init(context);
         if (success) {
+#ifdef MAL_USE_MUTEX
+            pthread_mutex_lock(&contexts_mutex);
+#endif
+            mal_vector_add(&contexts, context);
+#ifdef MAL_USE_MUTEX
+            pthread_mutex_unlock(&contexts_mutex);
+#endif
             _mal_context_did_create(context);
             mal_context_set_active(context, true);
         } else {
@@ -230,6 +246,13 @@ void mal_context_free(mal_context *context) {
 #ifdef MAL_USE_MUTEX
         pthread_mutex_destroy(&context->mutex);
 #endif
+#ifdef MAL_USE_MUTEX
+        pthread_mutex_lock(&contexts_mutex);
+#endif
+        mal_vector_remove(&contexts, context);
+#ifdef MAL_USE_MUTEX
+        pthread_mutex_unlock(&contexts_mutex);
+#endif
         free(context);
     }
 }
@@ -245,7 +268,7 @@ bool mal_formats_equal(const mal_format format1, const mal_format format2) {
 static mal_buffer *_mal_buffer_create_internal(mal_context *context, const mal_format format,
                                                const uint32_t num_frames, const void *copied_data,
                                                void *managed_data,
-                                               const mal_deallocator data_deallocator) {
+                                               const mal_deallocator_func data_deallocator) {
     // Check params
     const bool oneNonNullData = (copied_data == NULL) != (managed_data == NULL);
     if (!context || !mal_context_format_is_valid(context, format) || num_frames == 0 ||
@@ -276,7 +299,7 @@ mal_buffer *mal_buffer_create(mal_context *context, const mal_format format,
 
 mal_buffer *mal_buffer_create_no_copy(mal_context *context, const mal_format format,
                                       const uint32_t num_frames, void *data,
-                                      const mal_deallocator data_deallocator) {
+                                      const mal_deallocator_func data_deallocator) {
     return _mal_buffer_create_internal(context, format, num_frames, NULL, data, data_deallocator);
 }
 
@@ -392,6 +415,50 @@ bool mal_player_set_buffer(mal_player *player, const mal_buffer *buffer) {
 const mal_buffer *mal_player_get_buffer(const mal_player *player) {
     return player ? player->buffer : NULL;
 }
+
+void mal_player_set_finished_func(mal_player *player, mal_playback_finished_func on_finished,
+                                  void *user_data) {
+    if (player) {
+        player->on_finished = on_finished;
+        player->on_finished_user_data = user_data;
+    }
+}
+
+mal_playback_finished_func mal_player_get_finished_func(mal_player *player) {
+    return player ? player->on_finished : NULL;
+}
+
+#ifndef __EMSCRIPTEN__
+static void _mal_handle_on_finished_callback(void *user_data) {
+    // Find the player - make sure it is still valid
+    mal_player *player = user_data;
+    bool player_valid = false;
+#ifdef MAL_USE_MUTEX
+    pthread_mutex_lock(&contexts_mutex);
+#endif
+    for (unsigned int i = 0; i < contexts.length; i++) {
+        mal_context *context = contexts.values[i];
+        MAL_LOCK(context);
+        for (unsigned int j = 0; j < context->players.length; j++) {
+            if (player == context->players.values[j]) {
+                player_valid = true;
+                break;
+            }
+        }
+        MAL_UNLOCK(context);
+        if (player_valid) {
+            break;
+        }
+    }
+#ifdef MAL_USE_MUTEX
+    pthread_mutex_unlock(&contexts_mutex);
+#endif
+    // Send callback
+    if (player_valid && player->on_finished) {
+        player->on_finished(player->on_finished_user_data, player);
+    }
+}
+#endif
 
 bool mal_player_get_mute(const mal_player *player) {
     return player && player->mute;

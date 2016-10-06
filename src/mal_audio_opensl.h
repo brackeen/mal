@@ -24,6 +24,11 @@
 #include <SLES/OpenSLES.h>
 #include <stdbool.h>
 #ifdef ANDROID
+#include <android/looper.h>
+#define _GNU_SOURCE
+#include <fcntl.h>
+#include <unistd.h>
+#define LOOPER_ID_USER_MESSAGE 0x1000
 // From http://mobilepearls.com/labs/native-android-api/ndk/docs/opensles/
 // "The buffer queue interface is expected to have significant changes... We recommend that your
 // application code use Android simple buffer queues instead, because we do not plan to change
@@ -39,6 +44,10 @@ struct _mal_context {
     SLObjectItf sl_object;
     SLEngineItf sl_engine;
     SLObjectItf sl_output_mix_object;
+#ifdef ANDROID
+    ALooper *looper;
+    int looper_message_pipe[2];
+#endif
 };
 
 struct _mal_buffer {
@@ -110,6 +119,16 @@ static bool _mal_context_init(mal_context *context) {
     return true;
 }
 
+static void _mal_context_close_looper(mal_context *context) {
+#ifdef ANDROID
+    if (context && context->data.looper) {
+        ALooper_removeFd(context->data.looper, context->data.looper_message_pipe[0]);
+        close(context->data.looper_message_pipe[0]);
+        context->data.looper = NULL;
+    }
+#endif
+}
+
 static void _mal_context_dispose(mal_context *context) {
     if (context->data.sl_output_mix_object) {
         (*context->data.sl_output_mix_object)->Destroy(context->data.sl_output_mix_object);
@@ -120,11 +139,70 @@ static void _mal_context_dispose(mal_context *context) {
         context->data.sl_object = NULL;
         context->data.sl_engine = NULL;
     }
+    _mal_context_close_looper(context);
 }
+
+#ifdef ANDROID
+enum looper_message_type {
+    ON_PLAYER_FINISHED_MAGIC = 0xdff11ffb
+};
+
+struct looper_message {
+    enum looper_message_type type;
+    void *user_data;
+};
+
+static int _mal_looper_callback(int fd, int events, void *user) {
+    struct looper_message msg;
+
+    if ((events & ALOOPER_EVENT_INPUT) != 0) {
+        while (read(fd, &msg, sizeof(msg)) == sizeof(msg)) {
+            if (msg.type == ON_PLAYER_FINISHED_MAGIC) {
+                _mal_handle_on_finished_callback(msg.user_data);
+            }
+        }
+    }
+
+    if ((events & ALOOPER_EVENT_HANGUP) != 0) {
+        // Not sure this is right
+        _mal_context_close_looper((mal_context *)user);
+    }
+
+    return 1;
+}
+
+static int _mal_looper_post(int pipe, struct looper_message *msg) {
+    if (write(pipe, msg, sizeof(*msg)) != sizeof(*msg)) {
+        // The pipe is full. Shouldn't happen, ignore
+    }
+}
+
+#endif
 
 static void _mal_context_set_active(mal_context *context, bool active) {
     if (context->active != active) {
         context->active = active;
+
+#ifdef ANDROID
+        if (active) {
+            ALooper *looper = ALooper_forThread();
+            if (context->data.looper != looper) {
+                _mal_context_close_looper(context);
+
+                if (looper) {
+                    int result = pipe2(context->data.looper_message_pipe, O_NONBLOCK | O_CLOEXEC);
+                    if (result == 0) {
+                        ALooper_addFd(looper, context->data.looper_message_pipe[0],
+                                      LOOPER_ID_USER_MESSAGE, ALOOPER_EVENT_INPUT,
+                                      _mal_looper_callback, context);
+                        context->data.looper = looper;
+                    }
+                }
+            }
+        } else {
+            _mal_context_close_looper(context);
+        }
+#endif
 
         // From http://mobilepearls.com/labs/native-android-api/ndk/docs/opensles/
         // "Be sure to destroy your audio players when your activity is
@@ -182,7 +260,7 @@ static void _mal_context_set_gain(mal_context *context, float gain) {
 
 static bool _mal_buffer_init(mal_context *context, mal_buffer *buffer,
                              const void *copied_data, void *managed_data,
-                             const mal_deallocator data_deallocator) {
+                             const mal_deallocator_func data_deallocator) {
     const size_t data_length = ((buffer->format.bit_depth / 8) *
                                 buffer->format.num_channels * buffer->num_frames);
     if (managed_data) {
@@ -227,6 +305,13 @@ static void _mal_buffer_queue_callback(SLBufferQueueItf queue, void *void_player
             (*queue)->Enqueue(queue, buffer->managed_data, len);
         } else if (player->data.sl_play) {
             (*player->data.sl_play)->SetPlayState(player->data.sl_play, SL_PLAYSTATE_STOPPED);
+            if (player->on_finished && player->context && player->context->data.looper) {
+                struct looper_message msg = {
+                    .type = ON_PLAYER_FINISHED_MAGIC,
+                    .user_data = player
+                };
+                _mal_looper_post(player->context->data.looper_message_pipe[1], &msg);
+            }
         }
         MAL_UNLOCK(player);
     }

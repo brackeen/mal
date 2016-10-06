@@ -67,7 +67,8 @@ typedef struct mal_context mal_context;
 typedef struct mal_buffer mal_buffer;
 typedef struct mal_player mal_player;
 
-typedef void (*mal_deallocator)(void *);
+typedef void (*mal_deallocator_func)(void *);
+typedef void (*mal_playback_finished_func)(void *user_data, mal_player *player);
 
 // MARK: Context
 
@@ -202,7 +203,7 @@ mal_buffer *mal_buffer_create(mal_context *context, mal_format format, uint32_t 
  * `num_frames` is zero, `data` is `NULL`, or an out-of-memory error occurs.
  */
 mal_buffer *mal_buffer_create_no_copy(mal_context *context, mal_format format, uint32_t num_frames,
-                                      void *data, mal_deallocator data_deallocator);
+                                      void *data, mal_deallocator_func data_deallocator);
 
 /**
  * Gets the format of the buffer.
@@ -269,7 +270,8 @@ mal_format mal_player_get_format(const mal_player *player);
  *
  * If playing, the player is stopped. The attached buffer, if any, is not changed.
  *
- * On OpenAL implementations, the format of the player is always the same as the buffer.
+ * On OpenAL and Web Audio implementations, the format of the player is always the same as the 
+ * buffer.
  *
  * @param player The audio player. If `NULL`, this function does nothing.
  * @param format The audio format to set the player to.
@@ -282,7 +284,8 @@ bool mal_player_set_format(mal_player *player, mal_format format);
  *
  * A buffer may be attached to multiple players.
  *
- * On OpenAL implementations, the player's playback format is set to the buffer's format.
+ * On OpenAL and Web Audio implementations, the player's playback format is set to the buffer's 
+ * format.
  *
  * On other implementations, the player's playback format is not changed. To set the player's 
  * playback format to the buffer's format, call 
@@ -301,6 +304,32 @@ bool mal_player_set_buffer(mal_player *player, const mal_buffer *buffer);
  * @return The buffer attached to the player, or `NULL` if no buffer is currently attached.
  */
 const mal_buffer *mal_player_get_buffer(const mal_player *player);
+
+/**
+ * Sets the function to call when a player has finished playing. The function is not called when
+ * the player is forced to stop, for example when calling #mal_player_set_state() with the 
+ * #MAL_PLAYER_STATE_STOPPED state, or setting the buffer with #mal_player_set_buffer(),
+ * or calling #mal_player_free().
+ *
+ * The player may still be in the #MAL_PLAYER_STATE_PLAYING state when this function is called.
+ *
+ * The function is invoked on the main thread. On Android, the main thread is the thread that
+ * invoked #mal_context_set_active().
+ *
+ * @param player The player. If `NULL`, this function does nothing.
+ * @param on_finished The callback function, or `NULL`.
+ * @param user_data The user data to pass to the callback function. May be `NULL`.
+ */
+void mal_player_set_finished_func(mal_player *player, mal_playback_finished_func on_finished,
+                                  void *user_data);
+
+/**
+ * Gets the function to call when a player has finished playing, or `NULL` if none.
+ *
+ * @param player The player. If `NULL`, this function returns `NULL`.
+ * @return The callback function, or `NULL` if not defined.
+ */
+mal_playback_finished_func mal_player_get_finished_func(mal_player *player);
 
 /**
  * Checks if the player muted.

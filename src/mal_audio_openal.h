@@ -113,7 +113,7 @@ static void _mal_context_set_gain(mal_context *context, const float gain) {
 
 static bool _mal_buffer_init(mal_context *context, mal_buffer *buffer,
                              const void *copied_data, void *managed_data,
-                             const mal_deallocator data_deallocator) {
+                             const mal_deallocator_func data_deallocator) {
     alGenBuffers(1, &buffer->data.al_buffer);
     ALenum error;
     if ((error = alGetError()) != AL_NO_ERROR) {

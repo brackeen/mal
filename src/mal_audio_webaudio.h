@@ -109,7 +109,7 @@ static void _mal_context_set_gain(mal_context *context, float gain) {
 
 static bool _mal_buffer_init(mal_context *context, mal_buffer *buffer,
                              const void *copied_data, void *managed_data,
-                             const mal_deallocator data_deallocator) {
+                             const mal_deallocator_func data_deallocator) {
     if (!context->data.context_id) {
         return false;
     }
@@ -334,6 +334,9 @@ static bool _mal_player_set_state(mal_player *player, mal_player_state old_state
                         player.gainNode.disconnect();
                         player.gainNode = null;
                     }
+                    try {
+                        Module.ccall('_mal_on_finished', 'void', ['number', 'number'], [ $0, $1 ]);
+                    } catch (e) { }
                 };
                 try {
                     if (player.pausedTime && player.sourceNode.buffer) {
@@ -359,6 +362,30 @@ static bool _mal_player_set_state(mal_player *player, mal_player_state old_state
         return success != 0;
     } else {
         return false;
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE void _mal_on_finished(int context_id, int player_id) {
+    // Find the player
+    mal_player *player = NULL;
+    for (unsigned int i = 0; i < contexts.length; i++) {
+        mal_context *context = contexts.values[i];
+        if (context->data.context_id == context_id) {
+            for (unsigned int j = 0; j < context->players.length; j++) {
+                mal_player *p = context->players.values[j];
+                if (p->data.player_id == player_id) {
+                    player = p;
+                    break;
+                }
+            }
+        }
+
+        if (player) {
+            break;
+        }
+    }
+    if (player && player->on_finished) {
+        player->on_finished(player->on_finished_user_data, player);
     }
 }
 
