@@ -82,6 +82,7 @@ static bool _mal_player_set_buffer(mal_player *player, const mal_buffer *buffer)
 static void _mal_player_set_mute(mal_player *player, bool mute);
 static void _mal_player_set_gain(mal_player *player, float gain);
 static void _mal_player_set_looping(mal_player *player, bool looping);
+static void _mal_player_did_set_finished_callback(mal_player *player);
 static mal_player_state _mal_player_get_state(const mal_player *player);
 static bool _mal_player_set_state(mal_player *player, mal_player_state old_state,
                                   mal_player_state state);
@@ -421,6 +422,7 @@ void mal_player_set_finished_func(mal_player *player, mal_playback_finished_func
     if (player) {
         player->on_finished = on_finished;
         player->on_finished_user_data = user_data;
+        _mal_player_did_set_finished_callback(player);
     }
 }
 

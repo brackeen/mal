@@ -21,6 +21,8 @@
 #ifndef _MAL_AUDIO_OPENAL_H_
 #define _MAL_AUDIO_OPENAL_H_
 
+#include <stdbool.h>
+
 #ifdef __APPLE__
 #include <OpenAL/al.h>
 #include <OpenAL/alc.h>
@@ -184,6 +186,10 @@ static void _mal_player_dispose(mal_player *player) {
         alGetError();
         player->data.al_source_valid = false;
     }
+}
+
+static void _mal_player_did_set_finished_callback(mal_player *player) {
+    // Do nothing
 }
 
 static bool _mal_player_set_format(mal_player *player, mal_format format) {

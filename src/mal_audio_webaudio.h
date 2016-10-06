@@ -200,6 +200,17 @@ static void _mal_player_dispose(mal_player *player) {
     player->data.player_id = 0;
 }
 
+static void _mal_player_did_set_finished_callback(mal_player *player) {
+    mal_context *context = player->context;
+    if (context && context->data.context_id && player->data.player_id) {
+        bool has_callback = player->on_finished != NULL;
+        EM_ASM_ARGS({
+            var player = mal_contexts[$0].players[$1];
+            player.hasOnFinished = $2
+        }, context->data.context_id, player->data.player_id, has_callback);
+    }
+}
+
 static bool _mal_player_set_format(mal_player *player, mal_format format) {
     // Do nothing - format determined by attached buffer
     return true;
@@ -334,9 +345,11 @@ static bool _mal_player_set_state(mal_player *player, mal_player_state old_state
                         player.gainNode.disconnect();
                         player.gainNode = null;
                     }
-                    try {
-                        Module.ccall('_mal_on_finished', 'void', ['number', 'number'], [ $0, $1 ]);
-                    } catch (e) { }
+                    if (player.hasOnFinished) {
+                        try {
+                            Module.ccall('_mal_on_finished', 'void', ['number', 'number'], [ $0, $1 ]);
+                        } catch (e) { }
+                    }
                 };
                 try {
                     if (player.pausedTime && player.sourceNode.buffer) {
