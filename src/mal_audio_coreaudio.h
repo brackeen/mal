@@ -385,6 +385,19 @@ static void _mal_buffer_dispose(mal_buffer *buffer) {
 
 // MARK: Player
 
+struct _mal_on_finished_data {
+    mal_context *context;
+    mal_player *player;
+    int on_finished_id;
+};
+
+static void _mal_handle_on_finished(void *user_data) {
+    struct _mal_on_finished_data *callback_data = user_data;
+    _mal_handle_on_finished_callback(callback_data->context, callback_data->player,
+                                     callback_data->on_finished_id);
+    free(callback_data);
+}
+
 static OSStatus audio_render_callback(void *user_data, AudioUnitRenderActionFlags *flags,
                                       const AudioTimeStamp *timestamp, UInt32 bus,
                                       UInt32 in_frames, AudioBufferList *data) {
@@ -413,8 +426,15 @@ static OSStatus audio_render_callback(void *user_data, AudioUnitRenderActionFlag
             }
 
             if (state == MAL_PLAYER_STATE_PLAYING && player->on_finished) {
-                dispatch_async_f(dispatch_get_main_queue(), player,
-                                 &_mal_handle_on_finished_callback);
+                struct _mal_on_finished_data *callback_data =
+                    malloc(sizeof(struct _mal_on_finished_data));
+                if (callback_data) {
+                    callback_data->context = player->context;
+                    callback_data->player = player;
+                    callback_data->on_finished_id = player->on_finished_id;
+                    dispatch_async_f(dispatch_get_main_queue(), callback_data,
+                                     &_mal_handle_on_finished);
+                }
             }
         }
     } else {

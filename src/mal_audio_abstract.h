@@ -90,6 +90,7 @@ static bool _mal_player_set_state(mal_player *player, mal_player_state old_state
 // MARK: Globals
 
 static mal_vector contexts;
+static int next_finished_callback_id = 1;
 #ifdef MAL_USE_MUTEX
 static pthread_mutex_t contexts_mutex = PTHREAD_MUTEX_INITIALIZER;
 #endif
@@ -126,11 +127,13 @@ struct mal_player {
     mal_context *context;
     mal_format format;
     const mal_buffer *buffer;
-    mal_playback_finished_func on_finished;
-    void *on_finished_user_data;
     float gain;
     bool mute;
     bool looping;
+
+    mal_playback_finished_func on_finished;
+    void *on_finished_user_data;
+    int on_finished_id;
 
 #ifdef MAL_USE_MUTEX
     pthread_mutex_t mutex;
@@ -422,6 +425,17 @@ void mal_player_set_finished_func(mal_player *player, mal_playback_finished_func
     if (player) {
         player->on_finished = on_finished;
         player->on_finished_user_data = user_data;
+        if (on_finished) {
+#ifdef MAL_USE_MUTEX
+            pthread_mutex_lock(&contexts_mutex);
+#endif
+            player->on_finished_id = next_finished_callback_id++;
+#ifdef MAL_USE_MUTEX
+            pthread_mutex_unlock(&contexts_mutex);
+#endif        
+        } else {
+            player->on_finished_id = 0;
+        }
         _mal_player_did_set_finished_callback(player);
     }
 }
@@ -431,24 +445,26 @@ mal_playback_finished_func mal_player_get_finished_func(mal_player *player) {
 }
 
 #ifndef __EMSCRIPTEN__
-static void _mal_handle_on_finished_callback(void *user_data) {
+static void _mal_handle_on_finished_callback(mal_context *context, mal_player *player,
+                                             int on_finished_id) {
+    // TODO: A better solution might be to look up the callback data by the on_finished_id in a
+    // hashtable.
+
     // Find the player - make sure it is still valid
-    mal_player *player = user_data;
-    bool player_valid = false;
+    bool player_found = false;
 #ifdef MAL_USE_MUTEX
     pthread_mutex_lock(&contexts_mutex);
 #endif
     for (unsigned int i = 0; i < contexts.length; i++) {
-        mal_context *context = contexts.values[i];
-        MAL_LOCK(context);
-        for (unsigned int j = 0; j < context->players.length; j++) {
-            if (player == context->players.values[j]) {
-                player_valid = true;
-                break;
+        if (context == contexts.values[i]) {
+            MAL_LOCK(context);
+            for (unsigned int j = 0; j < context->players.length; j++) {
+                if (player == context->players.values[j]) {
+                    player_found = true;
+                    break;
+                }
             }
-        }
-        MAL_UNLOCK(context);
-        if (player_valid) {
+            MAL_UNLOCK(context);
             break;
         }
     }
@@ -456,7 +472,7 @@ static void _mal_handle_on_finished_callback(void *user_data) {
     pthread_mutex_unlock(&contexts_mutex);
 #endif
     // Send callback
-    if (player_valid && player->on_finished) {
+    if (player_found && player->on_finished_id == on_finished_id && player->on_finished) {
         player->on_finished(player->on_finished_user_data, player);
     }
 }

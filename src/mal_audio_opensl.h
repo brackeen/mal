@@ -28,7 +28,7 @@
 #define _GNU_SOURCE
 #include <fcntl.h>
 #include <unistd.h>
-#define LOOPER_ID_USER_MESSAGE 0x1000
+#define LOOPER_ID_USER_MESSAGE 0x1ffbdff1
 // From http://mobilepearls.com/labs/native-android-api/ndk/docs/opensles/
 // "The buffer queue interface is expected to have significant changes... We recommend that your
 // application code use Android simple buffer queues instead, because we do not plan to change
@@ -149,7 +149,9 @@ enum looper_message_type {
 
 struct looper_message {
     enum looper_message_type type;
-    void *user_data;
+    mal_context *context;
+    mal_player *player;
+    int message_id;
 };
 
 static int _mal_looper_callback(int fd, int events, void *user) {
@@ -158,7 +160,7 @@ static int _mal_looper_callback(int fd, int events, void *user) {
     if ((events & ALOOPER_EVENT_INPUT) != 0) {
         while (read(fd, &msg, sizeof(msg)) == sizeof(msg)) {
             if (msg.type == ON_PLAYER_FINISHED_MAGIC) {
-                _mal_handle_on_finished_callback(msg.user_data);
+                _mal_handle_on_finished_callback(msg.context, msg.player, msg.message_id);
             }
         }
     }
@@ -307,8 +309,10 @@ static void _mal_buffer_queue_callback(SLBufferQueueItf queue, void *void_player
             (*player->data.sl_play)->SetPlayState(player->data.sl_play, SL_PLAYSTATE_STOPPED);
             if (player->on_finished && player->context && player->context->data.looper) {
                 struct looper_message msg = {
-                    .type = ON_PLAYER_FINISHED_MAGIC,
-                    .user_data = player
+                        .type = ON_PLAYER_FINISHED_MAGIC,
+                        .context = player->context,
+                        .player = player,
+                        .message_id = player->on_finished_id
                 };
                 _mal_looper_post(player->context->data.looper_message_pipe[1], &msg);
             }

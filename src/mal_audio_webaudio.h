@@ -203,11 +203,10 @@ static void _mal_player_dispose(mal_player *player) {
 static void _mal_player_did_set_finished_callback(mal_player *player) {
     mal_context *context = player->context;
     if (context && context->data.context_id && player->data.player_id) {
-        bool has_callback = player->on_finished != NULL;
         EM_ASM_ARGS({
             var player = mal_contexts[$0].players[$1];
-            player.hasOnFinished = $2
-        }, context->data.context_id, player->data.player_id, has_callback);
+            player.onFinishedId = $2
+        }, context->data.context_id, player->data.player_id, player->on_finished_id);
     }
 }
 
@@ -345,9 +344,10 @@ static bool _mal_player_set_state(mal_player *player, mal_player_state old_state
                         player.gainNode.disconnect();
                         player.gainNode = null;
                     }
-                    if (player.hasOnFinished) {
+                    if (player.onFinishedId) {
                         try {
-                            Module.ccall('_mal_on_finished', 'void', ['number', 'number'], [ $0, $1 ]);
+                            Module.ccall('_mal_on_finished', 'void', ['number', 'number'],
+                                         [ $0, player.onFinishedId ]);
                         } catch (e) { }
                     }
                 };
@@ -378,7 +378,7 @@ static bool _mal_player_set_state(mal_player *player, mal_player_state old_state
     }
 }
 
-EMSCRIPTEN_KEEPALIVE void _mal_on_finished(int context_id, int player_id) {
+EMSCRIPTEN_KEEPALIVE void _mal_on_finished(int context_id, int on_finished_id) {
     // Find the player
     mal_player *player = NULL;
     for (unsigned int i = 0; i < contexts.length; i++) {
@@ -386,14 +386,11 @@ EMSCRIPTEN_KEEPALIVE void _mal_on_finished(int context_id, int player_id) {
         if (context->data.context_id == context_id) {
             for (unsigned int j = 0; j < context->players.length; j++) {
                 mal_player *p = context->players.values[j];
-                if (p->data.player_id == player_id) {
+                if (p->on_finished_id == on_finished_id) {
                     player = p;
                     break;
                 }
             }
-        }
-
-        if (player) {
             break;
         }
     }
