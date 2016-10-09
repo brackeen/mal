@@ -149,9 +149,7 @@ enum looper_message_type {
 
 struct looper_message {
     enum looper_message_type type;
-    mal_context *context;
-    mal_player *player;
-    int message_id;
+    uint64_t on_finished_id;
 };
 
 static int _mal_looper_callback(int fd, int events, void *user) {
@@ -160,7 +158,7 @@ static int _mal_looper_callback(int fd, int events, void *user) {
     if ((events & ALOOPER_EVENT_INPUT) != 0) {
         while (read(fd, &msg, sizeof(msg)) == sizeof(msg)) {
             if (msg.type == ON_PLAYER_FINISHED_MAGIC) {
-                _mal_handle_on_finished_callback(msg.context, msg.player, msg.message_id);
+                _mal_handle_on_finished_callback(msg.on_finished_id);
             }
         }
     }
@@ -310,9 +308,7 @@ static void _mal_buffer_queue_callback(SLBufferQueueItf queue, void *void_player
             if (player->on_finished && player->context && player->context->data.looper) {
                 struct looper_message msg = {
                         .type = ON_PLAYER_FINISHED_MAGIC,
-                        .context = player->context,
-                        .player = player,
-                        .message_id = player->on_finished_id
+                        .on_finished_id = player->on_finished_id,
                 };
                 _mal_looper_post(player->context->data.looper_message_pipe[1], &msg);
             }

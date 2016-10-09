@@ -205,8 +205,11 @@ static void _mal_player_did_set_finished_callback(mal_player *player) {
     if (context && context->data.context_id && player->data.player_id) {
         EM_ASM_ARGS({
             var player = mal_contexts[$0].players[$1];
-            player.onFinishedId = $2
-        }, context->data.context_id, player->data.player_id, player->on_finished_id);
+            player.onFinishedIdLow = $2;
+            player.onFinishedIdHigh = $3;
+        }, context->data.context_id, player->data.player_id,
+                    (uint32_t)(player->on_finished_id & 0xffffffff),
+                    (uint32_t)(player->on_finished_id >> 32));
     }
 }
 
@@ -344,10 +347,11 @@ static bool _mal_player_set_state(mal_player *player, mal_player_state old_state
                         player.gainNode.disconnect();
                         player.gainNode = null;
                     }
-                    if (player.onFinishedId) {
+                    if (player.onFinishedIdLow || player.onFinishedIdHigh) {
                         try {
-                            Module.ccall('_mal_on_finished', 'void', ['number', 'number'],
-                                         [ $0, player.onFinishedId ]);
+                            Module.ccall('_mal_handle_on_finished_callback2', 'void',
+                                         ['number', 'number'],
+                                         [ player.onFinishedIdHigh, player.onFinishedIdLow ]);
                         } catch (e) { }
                     }
                 };
@@ -378,25 +382,11 @@ static bool _mal_player_set_state(mal_player *player, mal_player_state old_state
     }
 }
 
-EMSCRIPTEN_KEEPALIVE void _mal_on_finished(int context_id, int on_finished_id) {
-    // Find the player
-    mal_player *player = NULL;
-    for (unsigned int i = 0; i < contexts.length; i++) {
-        mal_context *context = contexts.values[i];
-        if (context->data.context_id == context_id) {
-            for (unsigned int j = 0; j < context->players.length; j++) {
-                mal_player *p = context->players.values[j];
-                if (p->on_finished_id == on_finished_id) {
-                    player = p;
-                    break;
-                }
-            }
-            break;
-        }
-    }
-    if (player && player->on_finished) {
-        player->on_finished(player->on_finished_user_data, player);
-    }
+EMSCRIPTEN_KEEPALIVE
+static void _mal_handle_on_finished_callback2(uint32_t on_finished_id_high,
+                                              uint32_t on_finished_id_low) {
+    uint64_t on_finished_id = (((uint64_t)on_finished_id_high) << 32) | on_finished_id_low;
+    _mal_handle_on_finished_callback(on_finished_id);
 }
 
 #endif

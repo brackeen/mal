@@ -385,17 +385,10 @@ static void _mal_buffer_dispose(mal_buffer *buffer) {
 
 // MARK: Player
 
-struct _mal_on_finished_data {
-    mal_context *context;
-    mal_player *player;
-    int on_finished_id;
-};
-
 static void _mal_handle_on_finished(void *user_data) {
-    struct _mal_on_finished_data *callback_data = user_data;
-    _mal_handle_on_finished_callback(callback_data->context, callback_data->player,
-                                     callback_data->on_finished_id);
-    free(callback_data);
+    uint64_t *on_finished_id = user_data;
+    _mal_handle_on_finished_callback(*on_finished_id);
+    free(on_finished_id);
 }
 
 static OSStatus audio_render_callback(void *user_data, AudioUnitRenderActionFlags *flags,
@@ -425,14 +418,12 @@ static OSStatus audio_render_callback(void *user_data, AudioUnitRenderActionFlag
                                            player->data.input_bus);
             }
 
-            if (state == MAL_PLAYER_STATE_PLAYING && player->on_finished) {
-                struct _mal_on_finished_data *callback_data =
-                    malloc(sizeof(struct _mal_on_finished_data));
-                if (callback_data) {
-                    callback_data->context = player->context;
-                    callback_data->player = player;
-                    callback_data->on_finished_id = player->on_finished_id;
-                    dispatch_async_f(dispatch_get_main_queue(), callback_data,
+            if (state == MAL_PLAYER_STATE_PLAYING && player->on_finished_id) {
+                static_assert(sizeof(player->on_finished_id) == sizeof(uint64_t));
+                uint64_t *on_finished_id = malloc(sizeof(uint64_t));
+                if (on_finished_id) {
+                    *on_finished_id = player->on_finished_id;
+                    dispatch_async_f(dispatch_get_main_queue(), on_finished_id,
                                      &_mal_handle_on_finished);
                 }
             }
