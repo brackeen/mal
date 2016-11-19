@@ -22,7 +22,7 @@
 #define _MAL_AUDIO_ABSTRACT_H_
 
 #include "mal.h"
-#include "mal_vector.h"
+#include "ok_lib.h"
 
 // If MAL_USE_MUTEX is defined, modifications to mal_player objects are locked.
 // Define MAL_USE_MUTEX if a player's buffer data is read on a different thread than the main
@@ -93,8 +93,11 @@ static bool _mal_player_set_state(mal_player *player, mal_player_state old_state
 
 // MARK: Globals
 
-// TODO: Hashtable instead of vector?
-static mal_vector global_active_callbacks;
+typedef struct ok_vec_of(mal_player *) mal_player_vec_t;
+typedef struct ok_vec_of(mal_buffer *) mal_buffer_vec_t;
+typedef struct ok_map_of(uint64_t, mal_player *) mal_callback_map_t;
+
+static mal_callback_map_t *global_active_callbacks = NULL;
 static uint64_t next_finished_callback_id = 1;
 #ifdef MAL_USE_MUTEX
 static pthread_mutex_t global_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -103,8 +106,8 @@ static pthread_mutex_t global_mutex = PTHREAD_MUTEX_INITIALIZER;
 // MARK: Structs
 
 struct mal_context {
-    mal_vector players;
-    mal_vector buffers;
+    mal_player_vec_t players;
+    mal_buffer_vec_t buffers;
     bool routes[NUM_MAL_ROUTES];
     float gain;
     bool mute;
@@ -158,6 +161,8 @@ mal_context *mal_context_create(double output_sample_rate) {
         context->mute = false;
         context->gain = 1.0f;
         context->sample_rate = output_sample_rate;
+        ok_vec_init(&context->players);
+        ok_vec_init(&context->buffers);
         bool success = _mal_context_init(context);
         if (success) {
             _mal_context_did_create(context);
@@ -220,23 +225,21 @@ bool mal_context_is_route_enabled(const mal_context *context, const mal_route ro
 void mal_context_free(mal_context *context) {
     if (context) {
         // Delete players
-        for (unsigned int i = 0; i < context->players.length; i++) {
-            mal_player *player = context->players.values[i];
+        ok_vec_foreach(&context->players, mal_player *player) {
             mal_player_set_buffer(player, NULL);
             MAL_LOCK(player);
             _mal_player_dispose(player);
             player->context = NULL;
             MAL_UNLOCK(player);
         }
-        mal_vector_free(&context->players);
+        ok_vec_deinit(&context->players);
 
         // Delete buffers
-        for (unsigned int i = 0; i < context->buffers.length; i++) {
-            mal_buffer *buffer = context->buffers.values[i];
+        ok_vec_foreach(&context->buffers, mal_buffer *buffer) {
             _mal_buffer_dispose(buffer);
             buffer->context = NULL;
         }
-        mal_vector_free(&context->buffers);
+        ok_vec_deinit(&context->buffers);
 
         // Dispose and free
         _mal_context_will_dispose(context);
@@ -272,7 +275,7 @@ static mal_buffer *_mal_buffer_create_internal(mal_context *context, const mal_f
     }
     mal_buffer *buffer = calloc(1, sizeof(mal_buffer));
     if (buffer) {
-        mal_vector_add(&context->buffers, buffer);
+        ok_vec_push(&context->buffers, buffer);
         buffer->context = context;
         buffer->format = format;
         buffer->num_frames = num_frames;
@@ -319,13 +322,12 @@ void mal_buffer_free(mal_buffer *buffer) {
     if (buffer) {
         if (buffer->context) {
             // First, stop all players that are using this buffer.
-            for (unsigned int i = 0; i < buffer->context->players.length; i++) {
-                mal_player *player = buffer->context->players.values[i];
+            ok_vec_foreach(&buffer->context->players, mal_player *player) {
                 if (player->buffer == buffer) {
                     mal_player_set_buffer(player, NULL);
                 }
             }
-            mal_vector_remove(&buffer->context->buffers, buffer);
+            ok_vec_remove(&buffer->context->buffers, buffer);
         }
         _mal_buffer_dispose(buffer);
         if (buffer->managed_data) {
@@ -350,7 +352,7 @@ mal_player *mal_player_create(mal_context *context, const mal_format format) {
 #ifdef MAL_USE_MUTEX
         pthread_mutex_init(&player->mutex, NULL);
 #endif
-        mal_vector_add(&context->players, player);
+        ok_vec_push(&context->players, player);
         player->context = context;
         player->format = format;
         player->gain = 1.0f;
@@ -417,22 +419,21 @@ void mal_player_set_finished_func(mal_player *player, mal_playback_finished_func
 #ifdef MAL_USE_MUTEX
         pthread_mutex_lock(&global_mutex);
 #endif
-        bool did_have_callback = player->on_finished != NULL;
-        bool has_callback = on_finished != NULL;
+        if (!global_active_callbacks) {
+            global_active_callbacks = malloc(sizeof(*global_active_callbacks));
+            ok_map_init_custom(global_active_callbacks, ok_uint64_hash, ok_64bit_equals);
+        }
+        if (player->on_finished_id) {
+            ok_map_remove(global_active_callbacks, player->on_finished_id);
+        }
         player->on_finished = on_finished;
         player->on_finished_user_data = user_data;
-        if (has_callback) {
+        if (on_finished != NULL) {
             player->on_finished_id = next_finished_callback_id;
             next_finished_callback_id++;
+            ok_map_put(global_active_callbacks, player->on_finished_id, player);
         } else {
             player->on_finished_id = 0;
-        }
-        if (has_callback != did_have_callback) {
-            if (has_callback) {
-                mal_vector_add(&global_active_callbacks, player);
-            } else {
-                mal_vector_remove(&global_active_callbacks, player);
-            }
         }
 #ifdef MAL_USE_MUTEX
         pthread_mutex_unlock(&global_mutex);
@@ -451,12 +452,8 @@ static void _mal_handle_on_finished_callback(uint64_t on_finished_id) {
 #ifdef MAL_USE_MUTEX
     pthread_mutex_lock(&global_mutex);
 #endif
-    for (unsigned int i = 0; i < global_active_callbacks.length; i++) {
-        mal_player *p = global_active_callbacks.values[i];
-        if (p->on_finished_id == on_finished_id) {
-            player = p;
-            break;
-        }
+    if (global_active_callbacks) {
+        player = ok_map_get(global_active_callbacks, on_finished_id);
     }
 #ifdef MAL_USE_MUTEX
     pthread_mutex_unlock(&global_mutex);
@@ -537,7 +534,7 @@ void mal_player_free(mal_player *player) {
         mal_player_set_buffer(player, NULL);
         MAL_LOCK(player);
         if (player->context) {
-            mal_vector_remove(&player->context->players, player);
+            ok_vec_remove(&player->context->players, player);
             player->context = NULL;
         }
         mal_player_set_finished_func(player, NULL, NULL);

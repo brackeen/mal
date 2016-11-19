@@ -209,9 +209,7 @@ static void _mal_context_set_active(mal_context *context, bool active) {
         // paused, as they are a global resource shared with other apps."
         //
         // Here, we'll pause playing sounds, and destroy unused players.
-        for (unsigned int i = 0; i < context->players.length; i++) {
-            mal_player *player = (mal_player *)context->players.values[i];
-
+        ok_vec_foreach(&context->players, mal_player *player) {
             if (active) {
                 if (!player->data.sl_object) {
                     mal_player_set_format(player, player->format);
@@ -245,15 +243,11 @@ static void _mal_context_set_active(mal_context *context, bool active) {
 }
 
 static void _mal_context_set_mute(mal_context *context, bool mute) {
-    for (unsigned int i = 0; i < context->players.length; i++) {
-        _mal_player_update_gain((mal_player *)context->players.values[i]);
-    }
+    ok_vec_apply(&context->players, _mal_player_update_gain);
 }
 
 static void _mal_context_set_gain(mal_context *context, float gain) {
-    for (unsigned int i = 0; i < context->players.length; i++) {
-        _mal_player_update_gain((mal_player *)context->players.values[i]);
-    }
+    ok_vec_apply(&context->players, _mal_player_update_gain);
 }
 
 // MARK: Buffer

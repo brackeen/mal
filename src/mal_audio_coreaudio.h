@@ -214,8 +214,7 @@ static void _mal_context_dispose(mal_context *context) {
 
 static void _mal_context_reset(mal_context *context) {
     bool active = context->active;
-    for (int i = 0; i < context->players.length; i++) {
-        mal_player *player = context->players.values[i];
+    ok_vec_foreach(&context->players, mal_player *player) {
         _mal_player_dispose(player);
     }
     MAL_LOCK(context);
@@ -225,11 +224,10 @@ static void _mal_context_reset(mal_context *context) {
     _mal_context_set_gain(context, context->gain);
     MAL_UNLOCK(context);
     mal_context_set_active(context, active);
-    for (int i = 0; i < context->players.length; i++) {
-        mal_player *player = context->players.values[i];
+    ok_vec_foreach(&context->players, mal_player *player) {
         bool success = _mal_player_init(player);
         if (!success) {
-            MAL_LOG("Couldn't reset player %i", i);
+            MAL_LOG("Couldn't reset player");
         } else {
             _mal_player_set_mute(player, player->mute);
             _mal_player_set_gain(player, player->gain);
@@ -500,8 +498,7 @@ static bool _mal_player_init(mal_player *player) {
     if (!taken_buses) {
         return false;
     }
-    for (int i = 0; i < context->players.length; i++) {
-        mal_player *curr_player = context->players.values[i];
+    ok_vec_foreach(&context->players, mal_player *curr_player) {
         if (curr_player != player) {
             taken_buses[curr_player->data.input_bus] = true;
         }
