@@ -25,6 +25,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		E314DC4B1DDFE0170099D843 /* ok_lib.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ok_lib.h; sourceTree = "<group>"; };
 		E31A9F9619C65DA20099CE76 /* LaunchScreen.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; path = LaunchScreen.xib; sourceTree = "<group>"; };
 		E32ED1171D8C6996001C1F5A /* mal_audio_abstract.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = mal_audio_abstract.h; sourceTree = "<group>"; };
 		E32ED1181D8C6B2D001C1F5A /* mal_audio_openal.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = mal_audio_openal.h; sourceTree = "<group>"; };
@@ -48,7 +49,6 @@
 		E3AB9C631A321CB5006090FF /* mal_platform_android.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = mal_platform_android.c; sourceTree = "<group>"; };
 		E3AB9C641A321CB5006090FF /* mal_platform_emscripten.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = mal_platform_emscripten.c; sourceTree = "<group>"; };
 		E3AB9C651A321CB5006090FF /* mal_platform_ios.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = mal_platform_ios.m; sourceTree = "<group>"; };
-		E3AB9C671A321CB5006090FF /* mal_vector.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = mal_vector.h; sourceTree = "<group>"; };
 		E3C807A51D947E5A0001781F /* mal_audio_opensl.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = mal_audio_opensl.h; sourceTree = "<group>"; };
 		E3CD6C1B1DA48F2C0002F4FD /* mal_audio_webaudio.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = mal_audio_webaudio.h; sourceTree = "<group>"; };
 		E3D77BD71D9ADDFF008554A8 /* mal_audio_coreaudio.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = mal_audio_coreaudio.h; sourceTree = "<group>"; };
@@ -178,7 +178,7 @@
 				E32ED1181D8C6B2D001C1F5A /* mal_audio_openal.h */,
 				E3C807A51D947E5A0001781F /* mal_audio_opensl.h */,
 				E3CD6C1B1DA48F2C0002F4FD /* mal_audio_webaudio.h */,
-				E3AB9C671A321CB5006090FF /* mal_vector.h */,
+				E314DC4B1DDFE0170099D843 /* ok_lib.h */,
 			);
 			path = src;
 			sourceTree = "<group>";
