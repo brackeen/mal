@@ -417,7 +417,8 @@ static OSStatus audio_render_callback(void *user_data, AudioUnitRenderActionFlag
             }
 
             if (state == MAL_PLAYER_STATE_PLAYING && player->on_finished_id) {
-                static_assert(sizeof(player->on_finished_id) == sizeof(uint64_t));
+                ok_static_assert(sizeof(player->on_finished_id) == sizeof(uint64_t),
+                                 "on_finished_id expected to be 64-bit");
                 uint64_t *on_finished_id = malloc(sizeof(uint64_t));
                 if (on_finished_id) {
                     *on_finished_id = player->on_finished_id;

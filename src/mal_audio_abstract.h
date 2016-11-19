@@ -48,10 +48,6 @@
 #  define MAL_LOG(...) do { } while(0)
 #endif
 
-#ifndef static_assert
-#  define static_assert(condition) typedef char _static_assert_[(condition)?1:-1]
-#endif
-
 // Audio subsystems need to implement these structs and functions.
 // All mal_*init() functions should return `true` on success, `false` otherwise.
 
