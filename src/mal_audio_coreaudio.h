@@ -48,7 +48,9 @@ struct _mal_buffer {
 };
 
 struct _mal_player {
-    uint32_t input_bus;
+    AudioUnit converter_unit;
+    AUNode converter_node;
+    uint32_t mixer_bus;
 
     uint32_t next_frame;
     mal_player_state state;
@@ -78,9 +80,15 @@ static bool _mal_context_init(mal_context *context) {
 
     // Create output node
     AUNode output_node;
+#if TARGET_OS_OSX
+    UInt32 output_type = kAudioUnitSubType_DefaultOutput;
+#elif TARGET_OS_IPHONE
+    UInt32 output_type = kAudioUnitSubType_RemoteIO;
+#endif
+
     AudioComponentDescription output_desc = {
         .componentType = kAudioUnitType_Output,
-        .componentSubType = kAudioUnitSubType_RemoteIO,
+        .componentSubType = output_type,
         .componentManufacturer = kAudioUnitManufacturer_Apple,
         .componentFlags = 0,
         .componentFlagsMask = 0,
@@ -120,7 +128,7 @@ static bool _mal_context_init(mal_context *context) {
         return false;
     }
 
-    // Get mixer
+    // Get mixer unit
     status = AUGraphNodeInfo(context->data.graph, context->data.mixer_node, NULL,
                              &context->data.mixer_unit);
     if (status != noErr) {
@@ -194,10 +202,6 @@ static bool _mal_context_init(mal_context *context) {
         return false;
     }
 
-#ifdef MAL_DEBUG_LOG
-    CAShow(context->data.graph);
-#endif
-
     return true;
 }
 
@@ -209,6 +213,7 @@ static void _mal_context_dispose(mal_context *context) {
         DisposeAUGraph(context->data.graph);
         context->data.graph = NULL;
         context->data.mixer_unit = NULL;
+        context->data.mixer_node = 0;
     }
 }
 
@@ -412,8 +417,8 @@ static OSStatus audio_render_callback(void *user_data, AudioUnitRenderActionFlag
 
             if (player->context && player->context->data.graph) {
                 AUGraphDisconnectNodeInput(player->context->data.graph,
-                                           player->context->data.mixer_node,
-                                           player->data.input_bus);
+                                           player->data.converter_node,
+                                           0);
             }
 
             if (state == MAL_PLAYER_STATE_PLAYING && player->on_finished_id) {
@@ -468,13 +473,14 @@ static OSStatus audio_render_callback(void *user_data, AudioUnitRenderActionFlag
             }
         }
         if (player->data.ramp.value != 0) {
-            bool done = _mal_ramp(player->context, kAudioUnitScope_Input, player->data.input_bus,
-                                  in_frames, player->gain, &player->data.ramp);
+            bool done = _mal_ramp(player->context, kAudioUnitScope_Input,
+                                  player->data.mixer_bus, in_frames, player->gain,
+                                  &player->data.ramp);
             if (done && player->data.state == MAL_PLAYER_STATE_PAUSED &&
                 player->context && player->context->data.graph) {
                 AUGraphDisconnectNodeInput(player->context->data.graph,
-                                           player->context->data.mixer_node,
-                                           player->data.input_bus);
+                                           player->data.converter_node,
+                                           0);
                 Boolean updated;
                 AUGraphUpdate(player->context->data.graph, &updated);
             }
@@ -485,8 +491,8 @@ static OSStatus audio_render_callback(void *user_data, AudioUnitRenderActionFlag
     return noErr;
 }
 
-static bool _mal_player_init(mal_player *player) {
-    player->data.input_bus = UINT32_MAX;
+static bool _mal_player_init_bus(mal_player *player) {
+    player->data.mixer_bus = UINT32_MAX;
 
     mal_context *context = player->context;
     if (!context || context->data.num_buses == 0) {
@@ -501,17 +507,17 @@ static bool _mal_player_init(mal_player *player) {
     }
     ok_vec_foreach(&context->players, mal_player *curr_player) {
         if (curr_player != player) {
-            taken_buses[curr_player->data.input_bus] = true;
+            taken_buses[curr_player->data.mixer_bus] = true;
         }
     }
     for (int i = 0; i < num_buses; i++) {
         if (!taken_buses[i]) {
-            player->data.input_bus = i;
+            player->data.mixer_bus = i;
             break;
         }
     }
     free(taken_buses);
-    if (player->data.input_bus != UINT32_MAX) {
+    if (player->data.mixer_bus != UINT32_MAX) {
         return true;
     }
 
@@ -526,15 +532,60 @@ static bool _mal_player_init(mal_player *player) {
                                            bus_size);
     if (status == noErr) {
         context->data.num_buses = new_bus_count;
-        player->data.input_bus = num_buses;
+        player->data.mixer_bus = num_buses;
         return true;
     } else {
         return false;
     }
 }
 
+static bool _mal_player_init(mal_player *player) {
+    if (!_mal_player_init_bus(player)) {
+        return false;
+    }
+
+    // Create converter node
+    AudioComponentDescription converter_desc;
+    converter_desc.componentType = kAudioUnitType_FormatConverter;
+    converter_desc.componentSubType = kAudioUnitSubType_AUConverter;
+    converter_desc.componentManufacturer = kAudioUnitManufacturer_Apple;
+    OSStatus status = AUGraphAddNode(player->context->data.graph,
+                                     &converter_desc,
+                                     &player->data.converter_node);
+    if (status != noErr) {
+        MAL_LOG("Couldn't add converter node(err %i)", (int)status);
+        return false;
+    }
+
+    // Get converter audio unit
+    status = AUGraphNodeInfo(player->context->data.graph, player->data.converter_node, NULL, &player->data.converter_unit);
+    if (status != noErr) {
+        MAL_LOG("Couldn't get converter unit (err %i)", (int)status);
+        return false;
+    }
+
+    // Connect converter to mixer
+    status = AUGraphConnectNodeInput(player->context->data.graph,
+                                     player->data.converter_node,
+                                     0,
+                                     player->context->data.mixer_node,
+                                     player->data.mixer_bus);
+    if (status != noErr) {
+        MAL_LOG("Couldn't connect converter to mixer (err %i)", (int)status);
+        return false;
+    }
+
+    mal_player_set_gain(player, player->gain); // For macOS
+    return true;
+}
+
 static void _mal_player_dispose(mal_player *player) {
-    // Do nothing
+    if (player->data.converter_node) {
+        AudioUnitUninitialize(player->data.converter_unit);
+        AUGraphRemoveNode(player->context->data.graph, player->data.converter_node);
+        player->data.converter_unit = NULL;
+        player->data.converter_node = 0;
+    }
 }
 
 static void _mal_player_did_set_finished_callback(mal_player *player) {
@@ -557,10 +608,10 @@ static bool _mal_player_set_format(mal_player *player, mal_format format) {
     stream_desc.mBytesPerPacket = stream_desc.mBytesPerFrame;
     stream_desc.mFormatFlags = (kLinearPCMFormatFlagIsSignedInteger |
                                 kAudioFormatFlagsNativeEndian | kLinearPCMFormatFlagIsPacked);
-    OSStatus status = AudioUnitSetProperty(player->context->data.mixer_unit,
+    OSStatus status = AudioUnitSetProperty(player->data.converter_unit,
                                            kAudioUnitProperty_StreamFormat,
                                            kAudioUnitScope_Input,
-                                           player->data.input_bus,
+                                           0,
                                            &stream_desc,
                                            sizeof(stream_desc));
     if (status != noErr) {
@@ -586,7 +637,7 @@ static void _mal_player_set_gain(mal_player *player, float gain) {
         OSStatus status = AudioUnitSetParameter(player->context->data.mixer_unit,
                                                 kMultiChannelMixerParam_Volume,
                                                 kAudioUnitScope_Input,
-                                                player->data.input_bus,
+                                                player->data.mixer_bus,
                                                 total_gain,
                                                 0);
         if (status != noErr) {
@@ -613,8 +664,8 @@ static bool _mal_player_set_state(mal_player *player, mal_player_state old_state
         case MAL_PLAYER_STATE_STOPPED:
         default: {
             AUGraphDisconnectNodeInput(player->context->data.graph,
-                                       player->context->data.mixer_node,
-                                       player->data.input_bus);
+                                       player->data.converter_node,
+                                       0);
             Boolean updated;
             AUGraphUpdate(player->context->data.graph, &updated);
             player->data.next_frame = 0;
@@ -628,15 +679,16 @@ static bool _mal_player_set_state(mal_player *player, mal_player_state old_state
                 player->data.ramp.frames_position = 0;
             } else {
                 AUGraphDisconnectNodeInput(player->context->data.graph,
-                                           player->context->data.mixer_node,
-                                           player->data.input_bus);
+                                           player->data.converter_node,
+                                           0);
                 Boolean updated;
                 AUGraphUpdate(player->context->data.graph, &updated);
             }
             break;
         case MAL_PLAYER_STATE_PLAYING: {
             if (old_state == MAL_PLAYER_STATE_STOPPED) {
-                AudioUnitReset(player->context->data.mixer_unit, kAudioUnitScope_Input, player->data.input_bus);
+                AudioUnitReset(player->context->data.mixer_unit, kAudioUnitScope_Input,
+                               player->data.mixer_bus);
             }
 
             AURenderCallbackStruct render_callback;
@@ -644,8 +696,8 @@ static bool _mal_player_set_state(mal_player *player, mal_player_state old_state
             render_callback.inputProc = audio_render_callback;
             render_callback.inputProcRefCon = player;
             AUGraphSetNodeInputCallback(player->context->data.graph,
-                                        player->context->data.mixer_node,
-                                        player->data.input_bus,
+                                        player->data.converter_node,
+                                        0,
                                         &render_callback);
             Boolean updated;
             AUGraphUpdate(player->context->data.graph, &updated);
