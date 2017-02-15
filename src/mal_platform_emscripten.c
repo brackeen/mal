@@ -1,7 +1,7 @@
 /*
  mal
  https://github.com/brackeen/mal
- Copyright (c) 2014-2016 David Brackeen
+ Copyright (c) 2014-2017 David Brackeen
  
  This software is provided 'as-is', without any express or implied warranty.
  In no event will the authors be held liable for any damages arising from the
@@ -22,15 +22,15 @@
 
 #include "mal_audio_webaudio.h"
 
-static void _mal_context_did_create(mal_context *context) {
+static void _malContextDidCreate(MalContext *context) {
     // Do nothing
 }
 
-static void _mal_context_will_dispose(mal_context *context) {
+static void _malContextWillDispose(MalContext *context) {
     // Do nothing
 }
 
-static void _mal_context_did_set_active(mal_context *context, bool active) {
+static void _malContextDidSetActive(MalContext *context, bool active) {
     // Do nothing
 }
 

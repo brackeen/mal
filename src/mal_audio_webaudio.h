@@ -1,7 +1,7 @@
 /*
  mal
  https://github.com/brackeen/mal
- Copyright (c) 2014-2016 David Brackeen
+ Copyright (c) 2014-2017 David Brackeen
  
  This software is provided 'as-is', without any express or implied warranty.
  In no event will the authors be held liable for any damages arising from the
@@ -23,29 +23,29 @@
 
 #include <emscripten/emscripten.h>
 
-static int next_context_id = 1;
-static int next_buffer_id = 1;
-static int next_player_id = 1;
+static int nextContextId = 1;
+static int nextBufferId = 1;
+static int nextPlayerId = 1;
 
-struct _mal_context {
-    int context_id;
+struct _MalContext {
+    int contextId;
 };
 
-struct _mal_buffer {
-    int buffer_id;
+struct _MalBuffer {
+    int bufferId;
 };
 
-struct _mal_player {
-    int player_id;
+struct _MalPlayer {
+    int playerId;
 };
 
 #include "mal_audio_abstract.h"
 
 // MARK: Context
 
-static bool _mal_context_init(mal_context *context) {
+static bool _malContextInit(MalContext *context) {
     int success = EM_ASM_INT({
-        mal_contexts = window.mal_contexts || {};
+        malContexts = window.malContexts || {};
         var context;
         try {
             if (window.AudioContext) {
@@ -64,68 +64,68 @@ static bool _mal_context_init(mal_context *context) {
             data.outputNode = gainNode;
             data.buffers = {};
             data.players = {};
-            mal_contexts[$0] = data;
+            malContexts[$0] = data;
             return 1;
         } else {
             return 0;
         }
-    }, next_context_id);
+    }, nextContextId);
     if (success) {
-        context->data.context_id = next_context_id;
-        next_context_id++;
+        context->data.contextId = nextContextId;
+        nextContextId++;
         return true;
     } else {
         return false;
     }
 }
 
-static void _mal_context_dispose(mal_context *context) {
-    if (context->data.context_id) {
+static void _malContextDispose(MalContext *context) {
+    if (context->data.contextId) {
         EM_ASM_ARGS({
-            delete mal_contexts[$0];
-        }, context->data.context_id);
-        context->data.context_id = 0;
+            delete malContexts[$0];
+        }, context->data.contextId);
+        context->data.contextId = 0;
     }
 }
 
-static void _mal_context_set_active(mal_context *context, bool active) {
+static void _malContextSetActive(MalContext *context, bool active) {
     // Do nothing
 }
 
-static void _mal_context_set_mute(mal_context *context, bool mute) {
-    _mal_context_set_gain(context, context->gain);
+static void _malContextSetMute(MalContext *context, bool mute) {
+    _malContextSetGain(context, context->gain);
 }
 
-static void _mal_context_set_gain(mal_context *context, float gain) {
-    if (context->data.context_id) {
-        float total_gain = context->mute ? 0.0f : gain;
+static void _malContextSetGain(MalContext *context, float gain) {
+    if (context->data.contextId) {
+        float totalGain = context->mute ? 0.0f : gain;
         EM_ASM_ARGS({
-            mal_contexts[$0].outputNode.gain.value = $1;
-        }, context->data.context_id, total_gain);
+            malContexts[$0].outputNode.gain.value = $1;
+        }, context->data.contextId, totalGain);
     }
 }
 
 // MARK: Buffer
 
-static bool _mal_buffer_init(mal_context *context, mal_buffer *buffer,
-                             const void *copied_data, void *managed_data,
-                             const mal_deallocator_func data_deallocator) {
-    if (!context->data.context_id) {
+static bool _malBufferInit(MalContext *context, MalBuffer *buffer,
+                             const void *copiedData, void *managedData,
+                             const malDeallocatorFunc dataDeallocator) {
+    if (!context->data.contextId) {
         return false;
     }
-    const void *data = copied_data ? copied_data : managed_data;
-    mal_format format = buffer->format;
+    const void *data = copiedData ? copiedData : managedData;
+    MalFormat format = buffer->format;
     // Convert from interleaved 16-bit signed integer to non-interleaved 32-bit float.
     // This uses Emscripten's HEAP16 Int16Array to access the data, and may not be future-proof.
     int success = EM_ASM_INT({
-        var context_data = mal_contexts[$0];
+        var contextData = malContexts[$0];
         var channels = $2;
         var frames = $3;
-        var sample_rate = $4;
+        var sampleRate = $4;
         var data = $5 >> 1;
         var buffer;
         try {
-            buffer = context_data.context.createBuffer(channels, frames, sample_rate);
+            buffer = contextData.context.createBuffer(channels, frames, sampleRate);
         } catch (e) { }
 
         if (buffer) {
@@ -137,19 +137,19 @@ static bool _mal_buffer_init(mal_context *context, mal_buffer *buffer,
                     src += channels;
                 }
             }
-            context_data.buffers[$1] = buffer;
+            contextData.buffers[$1] = buffer;
             return 1;
         } else {
             return 0;
         }
-    }, context->data.context_id, next_buffer_id,
-                format.num_channels, buffer->num_frames, format.sample_rate, data);
+    }, context->data.contextId, nextBufferId,
+                format.numChannels, buffer->numFrames, format.sampleRate, data);
     if (success) {
-        buffer->data.buffer_id = next_buffer_id;
-        next_buffer_id++;
+        buffer->data.bufferId = nextBufferId;
+        nextBufferId++;
         // Data is always copied. Delete any managed data immediately.
-        if (managed_data && data_deallocator) {
-            data_deallocator(managed_data);
+        if (managedData && dataDeallocator) {
+            dataDeallocator(managedData);
         }
         return true;
     } else {
@@ -157,116 +157,116 @@ static bool _mal_buffer_init(mal_context *context, mal_buffer *buffer,
     }
 }
 
-static void _mal_buffer_dispose(mal_buffer *buffer) {
-    mal_context *context = buffer->context;
-    if (context && context->data.context_id && buffer->data.buffer_id) {
+static void _malBufferDispose(MalBuffer *buffer) {
+    MalContext *context = buffer->context;
+    if (context && context->data.contextId && buffer->data.bufferId) {
         EM_ASM_ARGS({
-            delete mal_contexts[$0].buffers[$1];
-        }, context->data.context_id, buffer->data.buffer_id);
-        buffer->data.buffer_id = 0;
+            delete malContexts[$0].buffers[$1];
+        }, context->data.contextId, buffer->data.bufferId);
+        buffer->data.bufferId = 0;
     }
 }
 
 // MARK: Player
 
-static bool _mal_player_init(mal_player *player) {
-    mal_context *context = player->context;
-    if (context && context->data.context_id) {
-        player->data.player_id = next_player_id;
-        next_player_id++;
+static bool _malPlayerInit(MalPlayer *player) {
+    MalContext *context = player->context;
+    if (context && context->data.contextId) {
+        player->data.playerId = nextPlayerId;
+        nextPlayerId++;
         EM_ASM_ARGS({
-            mal_contexts[$0].players[$1] = { };
-        }, context->data.context_id, player->data.player_id);
+            malContexts[$0].players[$1] = { };
+        }, context->data.contextId, player->data.playerId);
         return true;
     } else {
         return false;
     }
 }
 
-static void _mal_player_dispose(mal_player *player) {
-    mal_context *context = player->context;
-    if (context && context->data.context_id && player->data.player_id) {
+static void _malPlayerDispose(MalPlayer *player) {
+    MalContext *context = player->context;
+    if (context && context->data.contextId && player->data.playerId) {
         EM_ASM_ARGS({
-            var player = mal_contexts[$0].players[$1];
+            var player = malContexts[$0].players[$1];
             if (player.gainNode) {
                 player.gainNode.disconnect();
             }
             if (player.sourceNode) {
                 player.sourceNode.disconnect();
             }
-            delete mal_contexts[$0].players[$1];
-        }, context->data.context_id, player->data.player_id);
+            delete malContexts[$0].players[$1];
+        }, context->data.contextId, player->data.playerId);
     }
-    player->data.player_id = 0;
+    player->data.playerId = 0;
 }
 
-static void _mal_player_did_set_finished_callback(mal_player *player) {
-    mal_context *context = player->context;
-    if (context && context->data.context_id && player->data.player_id) {
+static void _malPlayerDidSetFinishedCallback(MalPlayer *player) {
+    MalContext *context = player->context;
+    if (context && context->data.contextId && player->data.playerId) {
         EM_ASM_ARGS({
-            var player = mal_contexts[$0].players[$1];
+            var player = malContexts[$0].players[$1];
             player.onFinishedIdLow = $2;
             player.onFinishedIdHigh = $3;
-        }, context->data.context_id, player->data.player_id,
-                    (uint32_t)(player->on_finished_id & 0xffffffff),
-                    (uint32_t)(player->on_finished_id >> 32));
+        }, context->data.contextId, player->data.playerId,
+                    (uint32_t)(player->onFinishedId & 0xffffffff),
+                    (uint32_t)(player->onFinishedId >> 32));
     }
 }
 
-static bool _mal_player_set_format(mal_player *player, mal_format format) {
+static bool _malPlayerSetFormat(MalPlayer *player, MalFormat format) {
     // Do nothing - format determined by attached buffer
     return true;
 }
 
-static bool _mal_player_set_buffer(mal_player *player, const mal_buffer *buffer) {
-    mal_context *context = player->context;
-    if (!context || !player->data.player_id) {
+static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer) {
+    MalContext *context = player->context;
+    if (!context || !player->data.playerId) {
         return false;
     } else if (!buffer) {
         return true;
-    } else if (!mal_context_format_is_valid(context, buffer->format) || !buffer->data.buffer_id) {
+    } else if (!malContextIsFormatValid(context, buffer->format) || !buffer->data.bufferId) {
         return false;
     } else {
         return true;
     }
 }
 
-static void _mal_player_set_mute(mal_player *player, bool mute) {
-    _mal_player_set_gain(player, player->gain);
+static void _malPlayerSetMute(MalPlayer *player, bool mute) {
+    _malPlayerSetGain(player, player->gain);
 }
 
-static void _mal_player_set_gain(mal_player *player, float gain) {
-    mal_context *context = player->context;
-    if (context && context->data.context_id && player->data.player_id) {
-        float total_gain = player->mute ? 0.0f : gain;
+static void _malPlayerSetGain(MalPlayer *player, float gain) {
+    MalContext *context = player->context;
+    if (context && context->data.contextId && player->data.playerId) {
+        float totalGain = player->mute ? 0.0f : gain;
         EM_ASM_ARGS({
-            var player = mal_contexts[$0].players[$1];
+            var player = malContexts[$0].players[$1];
             if (player && player.gainNode) {
                 player.gainNode.gain.value = $2;;
             }
-        }, context->data.context_id, player->data.player_id, total_gain);
+        }, context->data.contextId, player->data.playerId, totalGain);
     }
 }
 
-static void _mal_player_set_looping(mal_player *player, bool looping) {
-    mal_context *context = player->context;
-    if (context && context->data.context_id && player->data.player_id) {
+static void _malPlayerSetLooping(MalPlayer *player, bool looping) {
+    MalContext *context = player->context;
+    if (context && context->data.contextId && player->data.playerId) {
         EM_ASM_ARGS({
-            var player = mal_contexts[$0].players[$1];
+            var player = malContexts[$0].players[$1];
             if (player && player.sourceNode) {
                 player.sourceNode.loop = $2;
             }
-        }, context->data.context_id, player->data.player_id, looping);
+        }, context->data.contextId, player->data.playerId, looping);
     }
 }
 
-static mal_player_state _mal_player_get_state(const mal_player *player) {
-    mal_context *context = player->context;
-    if (!context || !context->data.context_id || !player->data.player_id) {
+static MalPlayerState _malPlayerGetState(const MalPlayer *player) {
+    MalContext *context = player->context;
+    if (!context || !context->data.contextId || !player->data.playerId) {
         return MAL_PLAYER_STATE_STOPPED;
     }
     int state = EM_ASM_INT({
-        var player = mal_contexts[$0].players[$1];
+        var player = malContexts[$0].players[$1];
         if (!player) {
             return 0;
         } else if (player.sourceNode) {
@@ -276,7 +276,7 @@ static mal_player_state _mal_player_get_state(const mal_player *player) {
         } else {
             return 0;
         }
-    }, context->data.context_id, player->data.player_id);
+    }, context->data.contextId, player->data.playerId);
     switch (state) {
         case 0: default: return MAL_PLAYER_STATE_STOPPED;
         case 1: return MAL_PLAYER_STATE_PLAYING;
@@ -284,17 +284,17 @@ static mal_player_state _mal_player_get_state(const mal_player *player) {
     }
 }
 
-static bool _mal_player_set_state(mal_player *player, mal_player_state old_state,
-                                  mal_player_state state) {
-    mal_context *context = player->context;
-    if (!context || !context->data.context_id || !player->data.player_id) {
+static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState,
+                               MalPlayerState state) {
+    MalContext *context = player->context;
+    if (!context || !context->data.contextId || !player->data.playerId) {
         return false;
     }
 
     // NOTE: A new AudioBufferSourceNode must be created everytime it is played.
     if (state == MAL_PLAYER_STATE_STOPPED || state == MAL_PLAYER_STATE_PAUSED) {
         EM_ASM_ARGS({
-            var player = mal_contexts[$0].players[$1];
+            var player = malContexts[$0].players[$1];
             var pause = $2;
             if (player) {
                 if (pause && player.startTime) {
@@ -315,27 +315,27 @@ static bool _mal_player_set_state(mal_player *player, mal_player_state old_state
                     player.gainNode = null;
                 }
             }
-        }, context->data.context_id, player->data.player_id, (state == MAL_PLAYER_STATE_PAUSED));
+        }, context->data.contextId, player->data.playerId, (state == MAL_PLAYER_STATE_PAUSED));
         return true;
-    } else if (player->buffer && player->buffer->data.buffer_id) {
+    } else if (player->buffer && player->buffer->data.bufferId) {
         EM_ASM_ARGS({
-            var context_data = mal_contexts[$0];
-            var player = context_data.players[$1];
+            var contextData = malContexts[$0];
+            var player = contextData.players[$1];
             if (player) {
                 try {
-                    player.sourceNode = context_data.context.createBufferSource();
-                    player.gainNode = context_data.context.createGain();
+                    player.sourceNode = contextData.context.createBufferSource();
+                    player.gainNode = contextData.context.createGain();
                     player.sourceNode.connect(player.gainNode);
-                    player.gainNode.connect(context_data.outputNode);
-                    player.sourceNode.buffer = context_data.buffers[$2];
+                    player.gainNode.connect(contextData.outputNode);
+                    player.sourceNode.buffer = contextData.buffers[$2];
                 } catch (e) { }
             }
-        }, context->data.context_id, player->data.player_id, player->buffer->data.buffer_id);
-        _mal_player_set_gain(player, player->gain);
-        _mal_player_set_looping(player, player->looping);
+        }, context->data.contextId, player->data.playerId, player->buffer->data.bufferId);
+        _malPlayerSetGain(player, player->gain);
+        _malPlayerSetLooping(player, player->looping);
         int success = EM_ASM_INT({
-            var context_data = mal_contexts[$0];
-            var player = context_data.players[$1];
+            var contextData = malContexts[$0];
+            var player = contextData.players[$1];
             if (player) {
                 player.sourceNode.onended = function() {
                     player.pausedTime = null;
@@ -349,7 +349,7 @@ static bool _mal_player_set_state(mal_player *player, mal_player_state old_state
                     }
                     if (player.onFinishedIdLow || player.onFinishedIdHigh) {
                         try {
-                            Module.ccall('_mal_handle_on_finished_callback2', 'void',
+                            Module.ccall('_malHandleOnFinishedCallback2', 'void',
                                          ['number', 'number'],
                                          [ player.onFinishedIdHigh, player.onFinishedIdLow ]);
                         } catch (e) { }
@@ -375,7 +375,7 @@ static bool _mal_player_set_state(mal_player *player, mal_player_state old_state
             } else {
                 return 0;
             }
-        }, context->data.context_id, player->data.player_id);
+        }, context->data.contextId, player->data.playerId);
         return success != 0;
     } else {
         return false;
@@ -383,10 +383,9 @@ static bool _mal_player_set_state(mal_player *player, mal_player_state old_state
 }
 
 EMSCRIPTEN_KEEPALIVE
-static void _mal_handle_on_finished_callback2(uint32_t on_finished_id_high,
-                                              uint32_t on_finished_id_low) {
-    uint64_t on_finished_id = (((uint64_t)on_finished_id_high) << 32) | on_finished_id_low;
-    _mal_handle_on_finished_callback(on_finished_id);
+static void _malHandleOnFinishedCallback2(uint32_t onFinishedHighId, uint32_t onFinishedLowId) {
+    uint64_t onFinishedId = (((uint64_t)onFinishedHighId) << 32) | onFinishedLowId;
+    _malHandleOnFinishedCallback(onFinishedId);
 }
 
 #endif

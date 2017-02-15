@@ -1,7 +1,7 @@
 /*
  mal
  https://github.com/brackeen/mal
- Copyright (c) 2014-2016 David Brackeen
+ Copyright (c) 2014-2017 David Brackeen
  
  This software is provided 'as-is', without any express or implied warranty.
  In no event will the authors be held liable for any damages arising from the
@@ -24,38 +24,38 @@
 #include "mal.h"
 #include <AudioToolbox/AudioToolbox.h>
 
-struct _ramp {
+struct _MalRamp {
     int value; // -1 for fade out, 1 for fade in, 0 for no fade
     uint32_t frames;
-    uint32_t frames_position;
+    uint32_t framesPosition;
 };
 
-struct _mal_context {
+struct _MalContext {
     AUGraph graph;
-    AudioUnit mixer_unit;
-    AUNode mixer_node;
+    AudioUnit mixerUnit;
+    AUNode mixerNode;
 
-    bool first_time;
+    bool firstTime;
 
-    uint32_t num_buses;
-    bool can_ramp_input_gain;
-    bool can_ramp_output_gain;
-    struct _ramp ramp;
+    uint32_t numBuses;
+    bool canRampInputGain;
+    bool canRampOutputGain;
+    struct _MalRamp ramp;
 };
 
-struct _mal_buffer {
+struct _MalBuffer {
 
 };
 
-struct _mal_player {
-    AudioUnit converter_unit;
-    AUNode converter_node;
-    uint32_t mixer_bus;
+struct _MalPlayer {
+    AudioUnit converterUnit;
+    AUNode converterNode;
+    uint32_t mixerBus;
 
-    uint32_t next_frame;
-    mal_player_state state;
+    uint32_t nextFrame;
+    MalPlayerState state;
 
-    struct _ramp ramp;
+    struct _MalRamp ramp;
 };
 
 #define MAL_USE_MUTEX
@@ -63,12 +63,12 @@ struct _mal_player {
 
 // MARK: Context
 
-static OSStatus render_notification(void *user_data, AudioUnitRenderActionFlags *flags,
-                                    const AudioTimeStamp *timestamp, UInt32 bus,
-                                    UInt32 in_frames, AudioBufferList *data);
+static OSStatus renderNotification(void *userData, AudioUnitRenderActionFlags *flags,
+                                   const AudioTimeStamp *timestamp, UInt32 bus,
+                                   UInt32 inFrames, AudioBufferList *data);
 
-static bool _mal_context_init(mal_context *context) {
-    context->data.first_time = true;
+static bool _malContextInit(MalContext *context) {
+    context->data.firstTime = true;
     context->active = false;
 
     // Create audio graph
@@ -79,43 +79,43 @@ static bool _mal_context_init(mal_context *context) {
     }
 
     // Create output node
-    AUNode output_node;
+    AUNode outputNode;
 #if TARGET_OS_OSX
-    UInt32 output_type = kAudioUnitSubType_DefaultOutput;
+    UInt32 outputType = kAudioUnitSubType_DefaultOutput;
 #elif TARGET_OS_IPHONE
-    UInt32 output_type = kAudioUnitSubType_RemoteIO;
+    UInt32 outputType = kAudioUnitSubType_RemoteIO;
 #endif
 
-    AudioComponentDescription output_desc = {
+    AudioComponentDescription outputDesc = {
         .componentType = kAudioUnitType_Output,
-        .componentSubType = output_type,
+        .componentSubType = outputType,
         .componentManufacturer = kAudioUnitManufacturer_Apple,
         .componentFlags = 0,
         .componentFlagsMask = 0,
     };
-    status = AUGraphAddNode(context->data.graph, &output_desc, &output_node);
+    status = AUGraphAddNode(context->data.graph, &outputDesc, &outputNode);
     if (status != noErr) {
         MAL_LOG("Couldn't create output node (err %i)", (int)status);
         return false;
     }
 
     // Create mixer node
-    AudioComponentDescription mixer_desc = {
+    AudioComponentDescription mixerDesc = {
         .componentType = kAudioUnitType_Mixer,
         .componentSubType = kAudioUnitSubType_MultiChannelMixer,
         .componentManufacturer = kAudioUnitManufacturer_Apple,
         .componentFlags = 0,
         .componentFlagsMask = 0,
     };
-    status = AUGraphAddNode(context->data.graph, &mixer_desc, &context->data.mixer_node);
+    status = AUGraphAddNode(context->data.graph, &mixerDesc, &context->data.mixerNode);
     if (status != noErr) {
         MAL_LOG("Couldn't create mixer node (err %i)", (int)status);
         return false;
     }
 
     // Connect a node's output to a node's input
-    status = AUGraphConnectNodeInput(context->data.graph, context->data.mixer_node, 0,
-                                     output_node, 0);
+    status = AUGraphConnectNodeInput(context->data.graph, context->data.mixerNode, 0,
+                                     outputNode, 0);
     if (status != noErr) {
         MAL_LOG("Couldn't connect nodes (err %i)", (int)status);
         return false;
@@ -129,71 +129,71 @@ static bool _mal_context_init(mal_context *context) {
     }
 
     // Get mixer unit
-    status = AUGraphNodeInfo(context->data.graph, context->data.mixer_node, NULL,
-                             &context->data.mixer_unit);
+    status = AUGraphNodeInfo(context->data.graph, context->data.mixerNode, NULL,
+                             &context->data.mixerUnit);
     if (status != noErr) {
         MAL_LOG("Couldn't get mixer unit (err %i)", (int)status);
         return false;
     }
 
     // Set output sample rate
-    if (context->sample_rate > 0) {
-        status = AudioUnitSetProperty(context->data.mixer_unit,
+    if (context->sampleRate > 0) {
+        status = AudioUnitSetProperty(context->data.mixerUnit,
                                       kAudioUnitProperty_SampleRate,
                                       kAudioUnitScope_Output,
                                       0,
-                                      &context->sample_rate,
-                                      sizeof(context->sample_rate));
+                                      &context->sampleRate,
+                                      sizeof(context->sampleRate));
         if (status != noErr) {
             MAL_LOG("Ignoring: Couldn't set output sample rate (err %i)", (int)status);
         }
     }
 
     // Check if input gain can ramp
-    AudioUnitParameterInfo parameter_info;
-    UInt32 parameter_info_size = sizeof(AudioUnitParameterInfo);
-    status = AudioUnitGetProperty(context->data.mixer_unit, kAudioUnitProperty_ParameterInfo,
+    AudioUnitParameterInfo parameterInfo;
+    UInt32 parameterInfoSize = sizeof(AudioUnitParameterInfo);
+    status = AudioUnitGetProperty(context->data.mixerUnit, kAudioUnitProperty_ParameterInfo,
                                   kAudioUnitScope_Input, kMultiChannelMixerParam_Volume,
-                                  &parameter_info, &parameter_info_size);
+                                  &parameterInfo, &parameterInfoSize);
     if (status == noErr) {
-        context->data.can_ramp_input_gain =
-            (parameter_info.flags & kAudioUnitParameterFlag_CanRamp) != 0;
+        context->data.canRampInputGain =
+            (parameterInfo.flags & kAudioUnitParameterFlag_CanRamp) != 0;
     } else {
-        context->data.can_ramp_input_gain = false;
+        context->data.canRampInputGain = false;
     }
 
     // Check if output gain can ramp
-    status = AudioUnitGetProperty(context->data.mixer_unit, kAudioUnitProperty_ParameterInfo,
+    status = AudioUnitGetProperty(context->data.mixerUnit, kAudioUnitProperty_ParameterInfo,
                                   kAudioUnitScope_Output, kMultiChannelMixerParam_Volume,
-                                  &parameter_info, &parameter_info_size);
+                                  &parameterInfo, &parameterInfoSize);
     if (status == noErr) {
-        context->data.can_ramp_output_gain =
-            (parameter_info.flags & kAudioUnitParameterFlag_CanRamp) != 0;
+        context->data.canRampOutputGain =
+            (parameterInfo.flags & kAudioUnitParameterFlag_CanRamp) != 0;
     } else {
-        context->data.can_ramp_output_gain = false;
+        context->data.canRampOutputGain = false;
     }
-    if (context->data.can_ramp_output_gain) {
-        status = AudioUnitAddRenderNotify(context->data.mixer_unit, render_notification, context);
+    if (context->data.canRampOutputGain) {
+        status = AudioUnitAddRenderNotify(context->data.mixerUnit, renderNotification, context);
         if (status != noErr) {
-            context->data.can_ramp_output_gain = false;
+            context->data.canRampOutputGain = false;
         }
     }
 
     // Get bus count
-    UInt32 bus_size = sizeof(context->data.num_buses);
-    status = AudioUnitGetProperty(context->data.mixer_unit,
+    UInt32 busSize = sizeof(context->data.numBuses);
+    status = AudioUnitGetProperty(context->data.mixerUnit,
                                   kAudioUnitProperty_ElementCount,
                                   kAudioUnitScope_Input,
                                   0,
-                                  &context->data.num_buses,
-                                  &bus_size);
+                                  &context->data.numBuses,
+                                  &busSize);
     if (status != noErr) {
         MAL_LOG("Couldn't get mixer unit (err %i)", (int)status);
         return false;
     }
 
     // Set output volume
-    _mal_context_set_gain(context, context->gain);
+    _malContextSetGain(context, context->gain);
 
     // Init
     status = AUGraphInitialize(context->data.graph);
@@ -205,47 +205,47 @@ static bool _mal_context_init(mal_context *context) {
     return true;
 }
 
-static void _mal_context_dispose(mal_context *context) {
+static void _malContextDispose(MalContext *context) {
     context->active = false;
     if (context->data.graph) {
         AUGraphStop(context->data.graph);
         AUGraphUninitialize(context->data.graph);
         DisposeAUGraph(context->data.graph);
         context->data.graph = NULL;
-        context->data.mixer_unit = NULL;
-        context->data.mixer_node = 0;
+        context->data.mixerUnit = NULL;
+        context->data.mixerNode = 0;
     }
 }
 
-static void _mal_context_reset(mal_context *context) {
+static void _malContextReset(MalContext *context) {
     bool active = context->active;
-    ok_vec_foreach(&context->players, mal_player *player) {
-        _mal_player_dispose(player);
+    ok_vec_foreach(&context->players, MalPlayer *player) {
+        _malPlayerDispose(player);
     }
     MAL_LOCK(context);
-    _mal_context_dispose(context);
-    _mal_context_init(context);
-    _mal_context_set_mute(context, context->mute);
-    _mal_context_set_gain(context, context->gain);
+    _malContextDispose(context);
+    _malContextInit(context);
+    _malContextSetMute(context, context->mute);
+    _malContextSetGain(context, context->gain);
     MAL_UNLOCK(context);
-    mal_context_set_active(context, active);
-    ok_vec_foreach(&context->players, mal_player *player) {
-        bool success = _mal_player_init(player);
+    malContextSetActive(context, active);
+    ok_vec_foreach(&context->players, MalPlayer *player) {
+        bool success = _malPlayerInit(player);
         if (!success) {
             MAL_LOG("Couldn't reset player");
         } else {
-            _mal_player_set_mute(player, player->mute);
-            _mal_player_set_gain(player, player->gain);
-            _mal_player_set_format(player, player->format);
+            _malPlayerSetMute(player, player->mute);
+            _malPlayerSetGain(player, player->gain);
+            _malPlayerSetFormat(player, player->format);
             if (player->data.state == MAL_PLAYER_STATE_PLAYING) {
                 player->data.state = MAL_PLAYER_STATE_STOPPED;
-                mal_player_set_state(player, MAL_PLAYER_STATE_PLAYING);
+                malPlayerSetState(player, MAL_PLAYER_STATE_PLAYING);
             }
         }
     }
 }
 
-static void _mal_context_set_active(mal_context *context, bool active) {
+static void _malContextSetActive(MalContext *context, bool active) {
     if (context->active != active) {
         OSStatus status;
         context->active = active;
@@ -257,21 +257,21 @@ static void _mal_context_set_active(mal_context *context, bool active) {
                 context->data.ramp.value = 0;
                 status = noErr;
             } else {
-                if (!context->data.first_time && context->data.can_ramp_output_gain) {
+                if (!context->data.firstTime && context->data.canRampOutputGain) {
                     // Fade in
                     context->data.ramp.value = 1;
                     context->data.ramp.frames = 4096;
-                    context->data.ramp.frames_position = 0;
+                    context->data.ramp.framesPosition = 0;
                 }
                 status = AUGraphStart(context->data.graph);
-                context->data.first_time = false;
+                context->data.firstTime = false;
             }
         } else {
-            if (context->data.can_ramp_output_gain) {
+            if (context->data.canRampOutputGain) {
                 // Fade out
                 context->data.ramp.value = -1;
                 context->data.ramp.frames = 4096;
-                context->data.ramp.frames_position = 0;
+                context->data.ramp.framesPosition = 0;
                 status = noErr;
             } else {
                 status = AUGraphStop(context->data.graph);
@@ -283,17 +283,17 @@ static void _mal_context_set_active(mal_context *context, bool active) {
     }
 }
 
-static void _mal_context_set_mute(mal_context *context, bool mute) {
-    _mal_context_set_gain(context, context->gain);
+static void _malContextSetMute(MalContext *context, bool mute) {
+    _malContextSetGain(context, context->gain);
 }
 
-static void _mal_context_set_gain(mal_context *context, float gain) {
-    float total_gain = context->mute ? 0.0f : gain;
-    OSStatus status = AudioUnitSetParameter(context->data.mixer_unit,
+static void _malContextSetGain(MalContext *context, float gain) {
+    float totalGain = context->mute ? 0.0f : gain;
+    OSStatus status = AudioUnitSetParameter(context->data.mixerUnit,
                                             kMultiChannelMixerParam_Volume,
                                             kAudioUnitScope_Output,
                                             0,
-                                            total_gain,
+                                            totalGain,
                                             0);
 
     if (status != noErr) {
@@ -301,33 +301,33 @@ static void _mal_context_set_gain(mal_context *context, float gain) {
     }
 }
 
-static bool _mal_ramp(mal_context *context, AudioUnitScope scope, AudioUnitElement bus,
-                      uint32_t in_frames, double gain, struct _ramp *ramp) {
+static bool _malRamp(MalContext *context, AudioUnitScope scope, AudioUnitElement bus,
+                      uint32_t inFrames, double gain, struct _MalRamp *ramp) {
     uint32_t t = ramp->frames;
-    uint32_t p1 = ramp->frames_position;
-    uint32_t p2 = p1 + in_frames;
+    uint32_t p1 = ramp->framesPosition;
+    uint32_t p2 = p1 + inFrames;
     bool done = false;
     if (p2 >= t) {
         p2 = t;
         done = true;
     }
-    ramp->frames_position = p2;
+    ramp->framesPosition = p2;
     if (ramp->value < 0) {
         p1 = t - p1;
         p2 = t - p2;
     }
 
-    AudioUnitParameterEvent ramp_event;
-    memset(&ramp_event, 0, sizeof(ramp_event));
-    ramp_event.scope = scope;
-    ramp_event.element = bus;
-    ramp_event.parameter = kMultiChannelMixerParam_Volume;
-    ramp_event.eventType = kParameterEvent_Ramped;
-    ramp_event.eventValues.ramp.startValue = gain * p1 / t;
-    ramp_event.eventValues.ramp.endValue = gain * p2 / t;
-    ramp_event.eventValues.ramp.durationInFrames = in_frames;
-    ramp_event.eventValues.ramp.startBufferOffset = 0;
-    AudioUnitScheduleParameters(context->data.mixer_unit, &ramp_event, 1);
+    AudioUnitParameterEvent rampEvent;
+    memset(&rampEvent, 0, sizeof(rampEvent));
+    rampEvent.scope = scope;
+    rampEvent.element = bus;
+    rampEvent.parameter = kMultiChannelMixerParam_Volume;
+    rampEvent.eventType = kParameterEvent_Ramped;
+    rampEvent.eventValues.ramp.startValue = gain * p1 / t;
+    rampEvent.eventValues.ramp.endValue = gain * p2 / t;
+    rampEvent.eventValues.ramp.durationInFrames = inFrames;
+    rampEvent.eventValues.ramp.startBufferOffset = 0;
+    AudioUnitScheduleParameters(context->data.mixerUnit, &rampEvent, 1);
 
     if (done) {
         ramp->value = 0;
@@ -335,17 +335,17 @@ static bool _mal_ramp(mal_context *context, AudioUnitScope scope, AudioUnitEleme
     return done;
 }
 
-static OSStatus render_notification(void *user_data, AudioUnitRenderActionFlags *flags,
+static OSStatus renderNotification(void *userData, AudioUnitRenderActionFlags *flags,
                                     const AudioTimeStamp *timestamp, UInt32 bus,
-                                    UInt32 in_frames, AudioBufferList *data) {
+                                    UInt32 inFrames, AudioBufferList *data) {
     if (*flags & kAudioUnitRenderAction_PreRender) {
-        mal_context *context = user_data;
+        MalContext *context = userData;
         if (context->data.ramp.value != 0) {
             MAL_LOCK(context);
             // Double-checked locking
             if (context->data.ramp.value != 0) {
-                bool done = _mal_ramp(context, kAudioUnitScope_Output, bus,
-                                      in_frames, context->gain, &context->data.ramp);
+                bool done = _malRamp(context, kAudioUnitScope_Output, bus,
+                                      inFrames, context->gain, &context->data.ramp);
                 if (done && context->active == false && context->data.graph) {
                     Boolean running = false;
                     AUGraphIsRunning(context->data.graph, &running);
@@ -362,124 +362,124 @@ static OSStatus render_notification(void *user_data, AudioUnitRenderActionFlags 
 
 // MARK: Buffer
 
-static bool _mal_buffer_init(mal_context *context, mal_buffer *buffer,
-                             const void *copied_data, void *managed_data,
-                             const mal_deallocator_func data_deallocator) {
-    if (managed_data) {
-        buffer->managed_data = managed_data;
-        buffer->managed_data_deallocator = data_deallocator;
+static bool _malBufferInit(MalContext *context, MalBuffer *buffer,
+                             const void *copiedData, void *managedData,
+                             const malDeallocatorFunc dataDeallocator) {
+    if (managedData) {
+        buffer->managedData = managedData;
+        buffer->managedDataDeallocator = dataDeallocator;
     } else {
-        const size_t data_length = ((buffer->format.bit_depth / 8) *
-                                    buffer->format.num_channels * buffer->num_frames);
-        void *new_buffer = malloc(data_length);
-        if (!new_buffer) {
+        const size_t dataLength = ((buffer->format.bitDepth / 8) *
+                                   buffer->format.numChannels * buffer->numFrames);
+        void *newBuffer = malloc(dataLength);
+        if (!newBuffer) {
             return false;
         }
-        memcpy(new_buffer, copied_data, data_length);
-        buffer->managed_data = new_buffer;
-        buffer->managed_data_deallocator = free;
+        memcpy(newBuffer, copiedData, dataLength);
+        buffer->managedData = newBuffer;
+        buffer->managedDataDeallocator = free;
     }
     return true;
 }
 
-static void _mal_buffer_dispose(mal_buffer *buffer) {
+static void _malBufferDispose(MalBuffer *buffer) {
     // Do nothing
 }
 
 // MARK: Player
 
-static void _mal_handle_on_finished(void *user_data) {
-    uint64_t *on_finished_id = user_data;
-    _mal_handle_on_finished_callback(*on_finished_id);
-    free(on_finished_id);
+static void _malHandleOnFinished(void *userData) {
+    uint64_t *onFinishedId = userData;
+    _malHandleOnFinishedCallback(*onFinishedId);
+    free(onFinishedId);
 }
 
-static OSStatus audio_render_callback(void *user_data, AudioUnitRenderActionFlags *flags,
-                                      const AudioTimeStamp *timestamp, UInt32 bus,
-                                      UInt32 in_frames, AudioBufferList *data) {
-    mal_player *player = user_data;
+static OSStatus audioRenderCallback(void *userData, AudioUnitRenderActionFlags *flags,
+                                    const AudioTimeStamp *timestamp, UInt32 bus,
+                                    UInt32 inFrames, AudioBufferList *data) {
+    MalPlayer *player = userData;
 
     MAL_LOCK(player);
-    mal_player_state state = player->data.state;
-    if (player->buffer == NULL || player->buffer->managed_data == NULL ||
+    MalPlayerState state = player->data.state;
+    if (player->buffer == NULL || player->buffer->managedData == NULL ||
         state == MAL_PLAYER_STATE_STOPPED ||
-        player->data.next_frame >= player->buffer->num_frames) {
+        player->data.nextFrame >= player->buffer->numFrames) {
         // Silence for end of playback, or because the player is paused.
         for (int i = 0; i < data->mNumberBuffers; i++) {
             memset(data->mBuffers[i].mData, 0, data->mBuffers[i].mDataByteSize);
         }
 
         if (state == MAL_PLAYER_STATE_PLAYING ||
-            player->buffer == NULL || player->buffer->managed_data == NULL) {
+            player->buffer == NULL || player->buffer->managedData == NULL) {
             // Stop
             player->data.state = MAL_PLAYER_STATE_STOPPED;
-            player->data.next_frame = 0;
+            player->data.nextFrame = 0;
 
             if (player->context && player->context->data.graph) {
                 AUGraphDisconnectNodeInput(player->context->data.graph,
-                                           player->data.converter_node,
+                                           player->data.converterNode,
                                            0);
             }
 
-            if (state == MAL_PLAYER_STATE_PLAYING && player->on_finished_id) {
-                ok_static_assert(sizeof(player->on_finished_id) == sizeof(uint64_t),
-                                 "on_finished_id expected to be 64-bit");
-                uint64_t *on_finished_id = malloc(sizeof(uint64_t));
-                if (on_finished_id) {
-                    *on_finished_id = player->on_finished_id;
-                    dispatch_async_f(dispatch_get_main_queue(), on_finished_id,
-                                     &_mal_handle_on_finished);
+            if (state == MAL_PLAYER_STATE_PLAYING && player->onFinishedId) {
+                ok_static_assert(sizeof(player->onFinishedId) == sizeof(uint64_t),
+                                 "onFinishedId expected to be 64-bit");
+                uint64_t *onFinishedId = malloc(sizeof(uint64_t));
+                if (onFinishedId) {
+                    *onFinishedId = player->onFinishedId;
+                    dispatch_async_f(dispatch_get_main_queue(), onFinishedId,
+                                     &_malHandleOnFinished);
                 }
             }
         }
     } else {
-        const uint32_t num_frames = player->buffer->num_frames;
-        const uint32_t frame_size = ((player->buffer->format.bit_depth / 8) *
-                                     player->buffer->format.num_channels);
+        const uint32_t numFrames = player->buffer->numFrames;
+        const uint32_t frameSize = ((player->buffer->format.bitDepth / 8) *
+                                    player->buffer->format.numChannels);
         for (int i = 0; i < data->mNumberBuffers; i++) {
             void *dst = data->mBuffers[i].mData;
-            uint32_t dst_remaining = data->mBuffers[i].mDataByteSize;
+            uint32_t dstRemaining = data->mBuffers[i].mDataByteSize;
 
-            void *src = player->buffer->managed_data + player->data.next_frame * frame_size;
-            while (dst_remaining > 0) {
-                uint32_t player_frames = num_frames - player->data.next_frame;
-                uint32_t max_frames = dst_remaining / frame_size;
-                uint32_t copy_frames = player_frames < max_frames ? player_frames : max_frames;
-                uint32_t copy_bytes = copy_frames * frame_size;
+            void *src = player->buffer->managedData + player->data.nextFrame * frameSize;
+            while (dstRemaining > 0) {
+                uint32_t playerFrames = numFrames - player->data.nextFrame;
+                uint32_t maxFrames = dstRemaining / frameSize;
+                uint32_t copyFrames = playerFrames < maxFrames ? playerFrames : maxFrames;
+                uint32_t copyBytes = copyFrames * frameSize;
 
-                if (copy_bytes == 0) {
+                if (copyBytes == 0) {
                     break;
                 }
 
-                memcpy(dst, src, copy_bytes);
-                player->data.next_frame += copy_frames;
-                dst += copy_bytes;
-                src += copy_bytes;
-                dst_remaining -= copy_bytes;
+                memcpy(dst, src, copyBytes);
+                player->data.nextFrame += copyFrames;
+                dst += copyBytes;
+                src += copyBytes;
+                dstRemaining -= copyBytes;
 
-                if (player->data.next_frame >= player->buffer->num_frames) {
+                if (player->data.nextFrame >= player->buffer->numFrames) {
                     if (player->looping) {
-                        player->data.next_frame = 0;
-                        src = player->buffer->managed_data;
+                        player->data.nextFrame = 0;
+                        src = player->buffer->managedData;
                     } else {
                         break;
                     }
                 }
             }
 
-            if (dst_remaining > 0) {
+            if (dstRemaining > 0) {
                 // Silence
-                memset(dst, 0, dst_remaining);
+                memset(dst, 0, dstRemaining);
             }
         }
         if (player->data.ramp.value != 0) {
-            bool done = _mal_ramp(player->context, kAudioUnitScope_Input,
-                                  player->data.mixer_bus, in_frames, player->gain,
+            bool done = _malRamp(player->context, kAudioUnitScope_Input,
+                                  player->data.mixerBus, inFrames, player->gain,
                                   &player->data.ramp);
             if (done && player->data.state == MAL_PLAYER_STATE_PAUSED &&
                 player->context && player->context->data.graph) {
                 AUGraphDisconnectNodeInput(player->context->data.graph,
-                                           player->data.converter_node,
+                                           player->data.converterNode,
                                            0);
                 Boolean updated;
                 AUGraphUpdate(player->context->data.graph, &updated);
@@ -491,74 +491,75 @@ static OSStatus audio_render_callback(void *user_data, AudioUnitRenderActionFlag
     return noErr;
 }
 
-static bool _mal_player_init_bus(mal_player *player) {
-    player->data.mixer_bus = UINT32_MAX;
+static bool _malPlayerInitBus(MalPlayer *player) {
+    player->data.mixerBus = UINT32_MAX;
 
-    mal_context *context = player->context;
-    if (!context || context->data.num_buses == 0) {
+    MalContext *context = player->context;
+    if (!context || context->data.numBuses == 0) {
         return false;
     }
 
     // Find a free bus
-    int num_buses = context->data.num_buses;
-    bool *taken_buses = calloc(num_buses, sizeof(bool));
-    if (!taken_buses) {
+    int numBuses = context->data.numBuses;
+    bool *takenBuses = calloc(numBuses, sizeof(bool));
+    if (!takenBuses) {
         return false;
     }
-    ok_vec_foreach(&context->players, mal_player *curr_player) {
-        if (curr_player != player) {
-            taken_buses[curr_player->data.mixer_bus] = true;
+    ok_vec_foreach(&context->players, MalPlayer *currPlayer) {
+        if (currPlayer != player) {
+            takenBuses[currPlayer->data.mixerBus] = true;
         }
     }
-    for (int i = 0; i < num_buses; i++) {
-        if (!taken_buses[i]) {
-            player->data.mixer_bus = i;
+    for (int i = 0; i < numBuses; i++) {
+        if (!takenBuses[i]) {
+            player->data.mixerBus = i;
             break;
         }
     }
-    free(taken_buses);
-    if (player->data.mixer_bus != UINT32_MAX) {
+    free(takenBuses);
+    if (player->data.mixerBus != UINT32_MAX) {
         return true;
     }
 
     // Try to increase the number of buses (by 8)
-    UInt32 bus_size = sizeof(UInt32);
-    UInt32 new_bus_count = num_buses + 8;
-    OSStatus status = AudioUnitSetProperty(context->data.mixer_unit,
+    UInt32 busSize = sizeof(UInt32);
+    UInt32 newBusCount = numBuses + 8;
+    OSStatus status = AudioUnitSetProperty(context->data.mixerUnit,
                                            kAudioUnitProperty_ElementCount,
                                            kAudioUnitScope_Input,
                                            0,
-                                           &new_bus_count,
-                                           bus_size);
+                                           &newBusCount,
+                                           busSize);
     if (status == noErr) {
-        context->data.num_buses = new_bus_count;
-        player->data.mixer_bus = num_buses;
+        context->data.numBuses = newBusCount;
+        player->data.mixerBus = numBuses;
         return true;
     } else {
         return false;
     }
 }
 
-static bool _mal_player_init(mal_player *player) {
-    if (!_mal_player_init_bus(player)) {
+static bool _malPlayerInit(MalPlayer *player) {
+    if (!_malPlayerInitBus(player)) {
         return false;
     }
 
     // Create converter node
-    AudioComponentDescription converter_desc;
-    converter_desc.componentType = kAudioUnitType_FormatConverter;
-    converter_desc.componentSubType = kAudioUnitSubType_AUConverter;
-    converter_desc.componentManufacturer = kAudioUnitManufacturer_Apple;
+    AudioComponentDescription converterDesc;
+    converterDesc.componentType = kAudioUnitType_FormatConverter;
+    converterDesc.componentSubType = kAudioUnitSubType_AUConverter;
+    converterDesc.componentManufacturer = kAudioUnitManufacturer_Apple;
     OSStatus status = AUGraphAddNode(player->context->data.graph,
-                                     &converter_desc,
-                                     &player->data.converter_node);
+                                     &converterDesc,
+                                     &player->data.converterNode);
     if (status != noErr) {
         MAL_LOG("Couldn't add converter node(err %i)", (int)status);
         return false;
     }
 
     // Get converter audio unit
-    status = AUGraphNodeInfo(player->context->data.graph, player->data.converter_node, NULL, &player->data.converter_unit);
+    status = AUGraphNodeInfo(player->context->data.graph, player->data.converterNode, NULL,
+                             &player->data.converterUnit);
     if (status != noErr) {
         MAL_LOG("Couldn't get converter unit (err %i)", (int)status);
         return false;
@@ -566,54 +567,54 @@ static bool _mal_player_init(mal_player *player) {
 
     // Connect converter to mixer
     status = AUGraphConnectNodeInput(player->context->data.graph,
-                                     player->data.converter_node,
+                                     player->data.converterNode,
                                      0,
-                                     player->context->data.mixer_node,
-                                     player->data.mixer_bus);
+                                     player->context->data.mixerNode,
+                                     player->data.mixerBus);
     if (status != noErr) {
         MAL_LOG("Couldn't connect converter to mixer (err %i)", (int)status);
         return false;
     }
 
-    mal_player_set_gain(player, player->gain); // For macOS
+    malPlayerSetGain(player, player->gain); // For macOS
     return true;
 }
 
-static void _mal_player_dispose(mal_player *player) {
-    if (player->data.converter_node) {
-        AudioUnitUninitialize(player->data.converter_unit);
-        AUGraphRemoveNode(player->context->data.graph, player->data.converter_node);
-        player->data.converter_unit = NULL;
-        player->data.converter_node = 0;
+static void _malPlayerDispose(MalPlayer *player) {
+    if (player->data.converterNode) {
+        AudioUnitUninitialize(player->data.converterUnit);
+        AUGraphRemoveNode(player->context->data.graph, player->data.converterNode);
+        player->data.converterUnit = NULL;
+        player->data.converterNode = 0;
     }
 }
 
-static void _mal_player_did_set_finished_callback(mal_player *player) {
+static void _malPlayerDidSetFinishedCallback(MalPlayer *player) {
     // Do nothing
 }
 
-static bool _mal_player_set_format(mal_player *player, mal_format format) {
+static bool _malPlayerSetFormat(MalPlayer *player, MalFormat format) {
     if (!player->context) {
         return false;
     }
 
-    AudioStreamBasicDescription stream_desc;
-    memset(&stream_desc, 0, sizeof(stream_desc));
-    stream_desc.mFormatID = kAudioFormatLinearPCM;
-    stream_desc.mFramesPerPacket = 1;
-    stream_desc.mSampleRate = format.sample_rate;
-    stream_desc.mBitsPerChannel = format.bit_depth;
-    stream_desc.mChannelsPerFrame = format.num_channels;
-    stream_desc.mBytesPerFrame = (format.bit_depth / 8) * format.num_channels;
-    stream_desc.mBytesPerPacket = stream_desc.mBytesPerFrame;
-    stream_desc.mFormatFlags = (kLinearPCMFormatFlagIsSignedInteger |
-                                kAudioFormatFlagsNativeEndian | kLinearPCMFormatFlagIsPacked);
-    OSStatus status = AudioUnitSetProperty(player->data.converter_unit,
+    AudioStreamBasicDescription streamDesc;
+    memset(&streamDesc, 0, sizeof(streamDesc));
+    streamDesc.mFormatID = kAudioFormatLinearPCM;
+    streamDesc.mFramesPerPacket = 1;
+    streamDesc.mSampleRate = format.sampleRate;
+    streamDesc.mBitsPerChannel = format.bitDepth;
+    streamDesc.mChannelsPerFrame = format.numChannels;
+    streamDesc.mBytesPerFrame = (format.bitDepth / 8) * format.numChannels;
+    streamDesc.mBytesPerPacket = streamDesc.mBytesPerFrame;
+    streamDesc.mFormatFlags = (kLinearPCMFormatFlagIsSignedInteger |
+                               kAudioFormatFlagsNativeEndian | kLinearPCMFormatFlagIsPacked);
+    OSStatus status = AudioUnitSetProperty(player->data.converterUnit,
                                            kAudioUnitProperty_StreamFormat,
                                            kAudioUnitScope_Input,
                                            0,
-                                           &stream_desc,
-                                           sizeof(stream_desc));
+                                           &streamDesc,
+                                           sizeof(streamDesc));
     if (status != noErr) {
         MAL_LOG("Couldn't set stream format (err %i)", (int)status);
         return false;
@@ -622,23 +623,23 @@ static bool _mal_player_set_format(mal_player *player, mal_format format) {
     return true;
 }
 
-static bool _mal_player_set_buffer(mal_player *player, const mal_buffer *buffer) {
+static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer) {
     // Do nothing
     return true;
 }
 
-static void _mal_player_set_mute(mal_player *player, bool mute) {
-    _mal_player_set_gain(player, player->gain);
+static void _malPlayerSetMute(MalPlayer *player, bool mute) {
+    _malPlayerSetGain(player, player->gain);
 }
 
-static void _mal_player_set_gain(mal_player *player, float gain) {
-    if (player && player->context && player->context->data.mixer_unit) {
-        float total_gain = player->mute ? 0.0f : gain;
-        OSStatus status = AudioUnitSetParameter(player->context->data.mixer_unit,
+static void _malPlayerSetGain(MalPlayer *player, float gain) {
+    if (player && player->context && player->context->data.mixerUnit) {
+        float totalGain = player->mute ? 0.0f : gain;
+        OSStatus status = AudioUnitSetParameter(player->context->data.mixerUnit,
                                                 kMultiChannelMixerParam_Volume,
                                                 kAudioUnitScope_Input,
-                                                player->data.mixer_bus,
-                                                total_gain,
+                                                player->data.mixerBus,
+                                                totalGain,
                                                 0);
         if (status != noErr) {
             MAL_LOG("Couldn't set volume (err %i)", (int)status);
@@ -646,16 +647,16 @@ static void _mal_player_set_gain(mal_player *player, float gain) {
     }
 }
 
-static void _mal_player_set_looping(mal_player *player, bool looping) {
+static void _malPlayerSetLooping(MalPlayer *player, bool looping) {
     // Do nothing
 }
 
-static mal_player_state _mal_player_get_state(const mal_player *player) {
+static MalPlayerState _malPlayerGetState(const MalPlayer *player) {
     return player->data.state;
 }
 
-static bool _mal_player_set_state(mal_player *player, mal_player_state old_state,
-                                  mal_player_state state) {
+static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState,
+                                  MalPlayerState state) {
     if (!player->context || !player->context->data.graph) {
         return false;
     }
@@ -664,49 +665,49 @@ static bool _mal_player_set_state(mal_player *player, mal_player_state old_state
         case MAL_PLAYER_STATE_STOPPED:
         default: {
             AUGraphDisconnectNodeInput(player->context->data.graph,
-                                       player->data.converter_node,
+                                       player->data.converterNode,
                                        0);
             Boolean updated;
             AUGraphUpdate(player->context->data.graph, &updated);
-            player->data.next_frame = 0;
+            player->data.nextFrame = 0;
             break;
         }
         case MAL_PLAYER_STATE_PAUSED:
-            if (player->context->data.can_ramp_input_gain) {
+            if (player->context->data.canRampInputGain) {
                 // Fade out
                 player->data.ramp.value = -1;
-                player->data.ramp.frames = player->buffer->format.sample_rate * 0.1;
-                player->data.ramp.frames_position = 0;
+                player->data.ramp.frames = player->buffer->format.sampleRate * 0.1;
+                player->data.ramp.framesPosition = 0;
             } else {
                 AUGraphDisconnectNodeInput(player->context->data.graph,
-                                           player->data.converter_node,
+                                           player->data.converterNode,
                                            0);
                 Boolean updated;
                 AUGraphUpdate(player->context->data.graph, &updated);
             }
             break;
         case MAL_PLAYER_STATE_PLAYING: {
-            if (old_state == MAL_PLAYER_STATE_STOPPED) {
-                AudioUnitReset(player->context->data.mixer_unit, kAudioUnitScope_Input,
-                               player->data.mixer_bus);
+            if (oldState == MAL_PLAYER_STATE_STOPPED) {
+                AudioUnitReset(player->context->data.mixerUnit, kAudioUnitScope_Input,
+                               player->data.mixerBus);
             }
 
-            AURenderCallbackStruct render_callback;
-            memset(&render_callback, 0, sizeof(render_callback));
-            render_callback.inputProc = audio_render_callback;
-            render_callback.inputProcRefCon = player;
+            AURenderCallbackStruct renderCallback;
+            memset(&renderCallback, 0, sizeof(renderCallback));
+            renderCallback.inputProc = audioRenderCallback;
+            renderCallback.inputProcRefCon = player;
             AUGraphSetNodeInputCallback(player->context->data.graph,
-                                        player->data.converter_node,
+                                        player->data.converterNode,
                                         0,
-                                        &render_callback);
+                                        &renderCallback);
             Boolean updated;
             AUGraphUpdate(player->context->data.graph, &updated);
-            if (old_state == MAL_PLAYER_STATE_PAUSED &&
-                player->context->data.can_ramp_input_gain) {
+            if (oldState == MAL_PLAYER_STATE_PAUSED &&
+                player->context->data.canRampInputGain) {
                 // Fade in
                 player->data.ramp.value = 1;
-                player->data.ramp.frames = player->buffer->format.sample_rate * 0.05;
-                player->data.ramp.frames_position = 0;
+                player->data.ramp.frames = player->buffer->format.sampleRate * 0.05;
+                player->data.ramp.framesPosition = 0;
             }
             break;
         }

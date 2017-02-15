@@ -1,7 +1,7 @@
 /*
  mal
  https://github.com/brackeen/mal
- Copyright (c) 2014-2016 David Brackeen
+ Copyright (c) 2014-2017 David Brackeen
  
  This software is provided 'as-is', without any express or implied warranty.
  In no event will the authors be held liable for any damages arising from the
@@ -26,7 +26,7 @@
 #include "mal_audio_coreaudio.h"
 #include <AVFoundation/AVFoundation.h>
 
-static void _mal_check_routes(mal_context *context) {
+static void _malCheckRoutes(MalContext *context) {
     if (context) {
         memset(context->routes, 0, sizeof(context->routes));
         AVAudioSession *session = [AVAudioSession sharedInstance];
@@ -54,59 +54,59 @@ static void _mal_check_routes(mal_context *context) {
     }
 }
 
-static void _mal_notification_handler(CFNotificationCenterRef center, void *observer,
-                                      CFStringRef name, const void *object,
-                                      CFDictionaryRef userInfo) {
+static void _malNotificationHandler(CFNotificationCenterRef center, void *observer,
+                                    CFStringRef name, const void *object,
+                                    CFDictionaryRef userInfo) {
     NSString *nsName = (__bridge NSString *)name;
-    mal_context *context = (mal_context *)observer;
+    MalContext *context = (MalContext *)observer;
     if ([AVAudioSessionInterruptionNotification isEqualToString:nsName]) {
         // NOTE: Test interruption on iOS by activating Siri
         NSDictionary *dict = (__bridge NSDictionary *)userInfo;
         NSNumber *interruptionType = dict[AVAudioSessionInterruptionTypeKey];
         if (interruptionType) {
             if ([interruptionType integerValue] == AVAudioSessionInterruptionTypeBegan) {
-                mal_context_set_active(context, false);
+                malContextSetActive(context, false);
             } else if ([interruptionType integerValue] == AVAudioSessionInterruptionTypeEnded) {
-                mal_context_set_active(context, true);
+                malContextSetActive(context, true);
             }
         }
     } else if ([AVAudioSessionRouteChangeNotification isEqualToString:nsName]) {
-        _mal_check_routes(context);
+        _malCheckRoutes(context);
     } else if ([AVAudioSessionMediaServicesWereResetNotification isEqualToString:nsName]) {
-        _mal_context_reset(context);
+        _malContextReset(context);
     }
 }
 
-static void _mal_add_notification(mal_context *context, CFStringRef name) {
+static void _malAddNotification(MalContext *context, CFStringRef name) {
     CFNotificationCenterAddObserver(CFNotificationCenterGetLocalCenter(),
                                     context,
-                                    &_mal_notification_handler,
+                                    &_malNotificationHandler,
                                     name,
                                     NULL,
                                     CFNotificationSuspensionBehaviorDeliverImmediately);
 }
 
-static void _mal_context_did_create(mal_context *context) {
-    _mal_add_notification(context, (__bridge CFStringRef)AVAudioSessionInterruptionNotification);
-    _mal_add_notification(context, (__bridge CFStringRef)AVAudioSessionRouteChangeNotification);
-    _mal_add_notification(context,
-                          (__bridge CFStringRef)AVAudioSessionMediaServicesWereResetNotification);
+static void _malContextDidCreate(MalContext *context) {
+    _malAddNotification(context, (__bridge CFStringRef)AVAudioSessionInterruptionNotification);
+    _malAddNotification(context, (__bridge CFStringRef)AVAudioSessionRouteChangeNotification);
+    _malAddNotification(context,
+                        (__bridge CFStringRef)AVAudioSessionMediaServicesWereResetNotification);
 }
 
-static void _mal_context_will_dispose(mal_context *context) {
+static void _malContextWillDispose(MalContext *context) {
     CFNotificationCenterRemoveEveryObserver(CFNotificationCenterGetLocalCenter(), context);
 }
 
-static void _mal_context_did_set_active(mal_context *context, const bool active) {
+static void _malContextDidSetActive(MalContext *context, const bool active) {
     AVAudioSession *audioSession = [AVAudioSession sharedInstance];
     NSError *error;
 
     if (active) {
         // Set sample rate
-        if (context->sample_rate > 0) {
-            [audioSession setPreferredSampleRate:context->sample_rate error:&error];
+        if (context->sampleRate > 0) {
+            [audioSession setPreferredSampleRate:context->sampleRate error:&error];
             if (error) {
-                MAL_LOG("Couldn't set sample rate to %f. %s", context->sample_rate,
+                MAL_LOG("Couldn't set sample rate to %f. %s", context->sampleRate,
                         error.localizedDescription.UTF8String);
                 error = nil;
             }
@@ -123,7 +123,7 @@ static void _mal_context_did_set_active(mal_context *context, const bool active)
                     error.localizedDescription.UTF8String);
             error = nil;
         }
-        _mal_check_routes(context);
+        _malCheckRoutes(context);
     }
 
     // NOTE: Setting the audio session to active should happen last

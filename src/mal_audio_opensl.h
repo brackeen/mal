@@ -1,7 +1,7 @@
 /*
  mal
  https://github.com/brackeen/mal
- Copyright (c) 2014-2016 David Brackeen
+ Copyright (c) 2014-2017 David Brackeen
  
  This software is provided 'as-is', without any express or implied warranty.
  In no event will the authors be held liable for any damages arising from the
@@ -40,67 +40,67 @@
 #define SLBufferQueueItf SLAndroidSimpleBufferQueueItf
 #endif
 
-struct _mal_context {
-    SLObjectItf sl_object;
-    SLEngineItf sl_engine;
-    SLObjectItf sl_output_mix_object;
+struct _MalContext {
+    SLObjectItf slObject;
+    SLEngineItf slEngine;
+    SLObjectItf slOutputMixObject;
 #ifdef ANDROID
     ALooper *looper;
-    int looper_message_pipe[2];
+    int looperMessagePipe[2];
 #endif
 };
 
-struct _mal_buffer {
+struct _MalBuffer {
 
 };
 
-struct _mal_player {
-    SLObjectItf sl_object;
-    SLPlayItf sl_play;
-    SLVolumeItf sl_volume;
-    SLBufferQueueItf sl_buffer_queue;
+struct _MalPlayer {
+    SLObjectItf slObject;
+    SLPlayItf slPlay;
+    SLVolumeItf slVolume;
+    SLBufferQueueItf slBufferQueue;
 
-    bool background_paused;
+    bool backgroundPaused;
 };
 
 #define MAL_USE_MUTEX
 #include "mal_audio_abstract.h"
 #include <math.h>
 
-static void _mal_player_update_gain(mal_player *player);
+static void _malPlayerUpdateGain(MalPlayer *player);
 
 // MARK: Context
 
-static bool _mal_context_init(mal_context *context) {
+static bool _malContextInit(MalContext *context) {
     // Create engine
-    SLresult result = slCreateEngine(&context->data.sl_object, 0, NULL, 0, NULL, NULL);
+    SLresult result = slCreateEngine(&context->data.slObject, 0, NULL, 0, NULL, NULL);
     if (result != SL_RESULT_SUCCESS) {
         return false;
     }
 
     // Realize engine
-    result = (*context->data.sl_object)->Realize(context->data.sl_object, SL_BOOLEAN_FALSE);
+    result = (*context->data.slObject)->Realize(context->data.slObject, SL_BOOLEAN_FALSE);
     if (result != SL_RESULT_SUCCESS) {
         return false;
     }
 
     // Get engine interface
-    result = (*context->data.sl_object)->GetInterface(context->data.sl_object, SL_IID_ENGINE,
-                                                      &context->data.sl_engine);
+    result = (*context->data.slObject)->GetInterface(context->data.slObject, SL_IID_ENGINE,
+                                                      &context->data.slEngine);
     if (result != SL_RESULT_SUCCESS) {
         return false;
     }
 
     // Get output mix
-    result = (*context->data.sl_engine)->CreateOutputMix(context->data.sl_engine,
-                                                         &context->data.sl_output_mix_object, 0,
+    result = (*context->data.slEngine)->CreateOutputMix(context->data.slEngine,
+                                                         &context->data.slOutputMixObject, 0,
                                                          NULL, NULL);
     if (result != SL_RESULT_SUCCESS) {
         return false;
     }
 
     // Realize the output mix
-    result = (*context->data.sl_output_mix_object)->Realize(context->data.sl_output_mix_object,
+    result = (*context->data.slOutputMixObject)->Realize(context->data.slOutputMixObject,
                                                             SL_BOOLEAN_FALSE);
     if (result != SL_RESULT_SUCCESS) {
         return false;
@@ -119,59 +119,59 @@ static bool _mal_context_init(mal_context *context) {
     return true;
 }
 
-static void _mal_context_close_looper(mal_context *context) {
+static void _malContextCloseLooper(MalContext *context) {
 #ifdef ANDROID
     if (context && context->data.looper) {
-        ALooper_removeFd(context->data.looper, context->data.looper_message_pipe[0]);
-        close(context->data.looper_message_pipe[0]);
+        ALooper_removeFd(context->data.looper, context->data.looperMessagePipe[0]);
+        close(context->data.looperMessagePipe[0]);
         context->data.looper = NULL;
     }
 #endif
 }
 
-static void _mal_context_dispose(mal_context *context) {
-    if (context->data.sl_output_mix_object) {
-        (*context->data.sl_output_mix_object)->Destroy(context->data.sl_output_mix_object);
-        context->data.sl_output_mix_object = NULL;
+static void _malContextDispose(MalContext *context) {
+    if (context->data.slOutputMixObject) {
+        (*context->data.slOutputMixObject)->Destroy(context->data.slOutputMixObject);
+        context->data.slOutputMixObject = NULL;
     }
-    if (context->data.sl_object) {
-        (*context->data.sl_object)->Destroy(context->data.sl_object);
-        context->data.sl_object = NULL;
-        context->data.sl_engine = NULL;
+    if (context->data.slObject) {
+        (*context->data.slObject)->Destroy(context->data.slObject);
+        context->data.slObject = NULL;
+        context->data.slEngine = NULL;
     }
-    _mal_context_close_looper(context);
+    _malContextCloseLooper(context);
 }
 
 #ifdef ANDROID
-enum looper_message_type {
+enum looperMessageType {
     ON_PLAYER_FINISHED_MAGIC = 0xdff11ffb
 };
 
-struct looper_message {
-    enum looper_message_type type;
-    uint64_t on_finished_id;
+struct looperMessage {
+    enum looperMessageType type;
+    uint64_t onFinishedId;
 };
 
-static int _mal_looper_callback(int fd, int events, void *user) {
-    struct looper_message msg;
+static int _malLooperCallback(int fd, int events, void *user) {
+    struct looperMessage msg;
 
     if ((events & ALOOPER_EVENT_INPUT) != 0) {
         while (read(fd, &msg, sizeof(msg)) == sizeof(msg)) {
             if (msg.type == ON_PLAYER_FINISHED_MAGIC) {
-                _mal_handle_on_finished_callback(msg.on_finished_id);
+                _malHandleOnFinishedCallback(msg.onFinishedId);
             }
         }
     }
 
     if ((events & ALOOPER_EVENT_HANGUP) != 0) {
         // Not sure this is right
-        _mal_context_close_looper((mal_context *)user);
+        _malContextCloseLooper((MalContext *)user);
     }
 
     return 1;
 }
 
-static int _mal_looper_post(int pipe, struct looper_message *msg) {
+static int _malLooperPost(int pipe, struct looperMessage *msg) {
     if (write(pipe, msg, sizeof(*msg)) != sizeof(*msg)) {
         // The pipe is full. Shouldn't happen, ignore
     }
@@ -179,7 +179,7 @@ static int _mal_looper_post(int pipe, struct looper_message *msg) {
 
 #endif
 
-static void _mal_context_set_active(mal_context *context, bool active) {
+static void _malContextSetActive(MalContext *context, bool active) {
     if (context->active != active) {
         context->active = active;
 
@@ -187,20 +187,20 @@ static void _mal_context_set_active(mal_context *context, bool active) {
         if (active) {
             ALooper *looper = ALooper_forThread();
             if (context->data.looper != looper) {
-                _mal_context_close_looper(context);
+                _malContextCloseLooper(context);
 
                 if (looper) {
-                    int result = pipe2(context->data.looper_message_pipe, O_NONBLOCK | O_CLOEXEC);
+                    int result = pipe2(context->data.looperMessagePipe, O_NONBLOCK | O_CLOEXEC);
                     if (result == 0) {
-                        ALooper_addFd(looper, context->data.looper_message_pipe[0],
+                        ALooper_addFd(looper, context->data.looperMessagePipe[0],
                                       LOOPER_ID_USER_MESSAGE, ALOOPER_EVENT_INPUT,
-                                      _mal_looper_callback, context);
+                                      _malLooperCallback, context);
                         context->data.looper = looper;
                     }
                 }
             }
         } else {
-            _mal_context_close_looper(context);
+            _malContextCloseLooper(context);
         }
 #endif
 
@@ -209,31 +209,31 @@ static void _mal_context_set_active(mal_context *context, bool active) {
         // paused, as they are a global resource shared with other apps."
         //
         // Here, we'll pause playing sounds, and destroy unused players.
-        ok_vec_foreach(&context->players, mal_player *player) {
+        ok_vec_foreach(&context->players, MalPlayer *player) {
             if (active) {
-                if (!player->data.sl_object) {
-                    mal_player_set_format(player, player->format);
-                    _mal_player_set_gain(player, player->gain);
-                    _mal_player_set_mute(player, player->mute);
-                } else if (player->data.background_paused &&
-                        mal_player_get_state(player) == MAL_PLAYER_STATE_PAUSED) {
-                    mal_player_set_state(player, MAL_PLAYER_STATE_PLAYING);
+                if (!player->data.slObject) {
+                    malPlayerSetFormat(player, player->format);
+                    _malPlayerSetGain(player, player->gain);
+                    _malPlayerSetMute(player, player->mute);
+                } else if (player->data.backgroundPaused &&
+                           malPlayerGetState(player) == MAL_PLAYER_STATE_PAUSED) {
+                    malPlayerSetState(player, MAL_PLAYER_STATE_PLAYING);
                 }
-                player->data.background_paused = false;
+                player->data.backgroundPaused = false;
             } else {
-                switch (mal_player_get_state(player)) {
+                switch (malPlayerGetState(player)) {
                     case MAL_PLAYER_STATE_STOPPED:
                         MAL_LOCK(player);
-                        _mal_player_dispose(player);
+                        _malPlayerDispose(player);
                         MAL_UNLOCK(player);
-                        player->data.background_paused = false;
+                        player->data.backgroundPaused = false;
                         break;
                     case MAL_PLAYER_STATE_PAUSED:
-                        player->data.background_paused = false;
+                        player->data.backgroundPaused = false;
                         break;
                     case MAL_PLAYER_STATE_PLAYING: {
-                        bool success = mal_player_set_state(player, MAL_PLAYER_STATE_PAUSED);
-                        player->data.background_paused = success;
+                        bool success = malPlayerSetState(player, MAL_PLAYER_STATE_PAUSED);
+                        player->data.backgroundPaused = success;
                         break;
                     }
                 }
@@ -242,37 +242,37 @@ static void _mal_context_set_active(mal_context *context, bool active) {
     }
 }
 
-static void _mal_context_set_mute(mal_context *context, bool mute) {
-    ok_vec_apply(&context->players, _mal_player_update_gain);
+static void _malContextSetMute(MalContext *context, bool mute) {
+    ok_vec_apply(&context->players, _malPlayerUpdateGain);
 }
 
-static void _mal_context_set_gain(mal_context *context, float gain) {
-    ok_vec_apply(&context->players, _mal_player_update_gain);
+static void _malContextSetGain(MalContext *context, float gain) {
+    ok_vec_apply(&context->players, _malPlayerUpdateGain);
 }
 
 // MARK: Buffer
 
-static bool _mal_buffer_init(mal_context *context, mal_buffer *buffer,
-                             const void *copied_data, void *managed_data,
-                             const mal_deallocator_func data_deallocator) {
-    const size_t data_length = ((buffer->format.bit_depth / 8) *
-                                buffer->format.num_channels * buffer->num_frames);
-    if (managed_data) {
-        buffer->managed_data = managed_data;
-        buffer->managed_data_deallocator = data_deallocator;
+static bool _malBufferInit(MalContext *context, MalBuffer *buffer,
+                           const void *copiedData, void *managedData,
+                           const malDeallocatorFunc dataDeallocator) {
+    const size_t dataLength = ((buffer->format.bitDepth / 8) *
+                                buffer->format.numChannels * buffer->numFrames);
+    if (managedData) {
+        buffer->managedData = managedData;
+        buffer->managedDataDeallocator = dataDeallocator;
     } else {
-        void *new_buffer = malloc(data_length);
-        if (!new_buffer) {
+        void *newBuffer = malloc(dataLength);
+        if (!newBuffer) {
             return false;
         }
-        memcpy(new_buffer, copied_data, data_length);
-        buffer->managed_data = new_buffer;
-        buffer->managed_data_deallocator = free;
+        memcpy(newBuffer, copiedData, dataLength);
+        buffer->managedData = newBuffer;
+        buffer->managedDataDeallocator = free;
     }
     return true;
 }
 
-static void _mal_buffer_dispose(mal_buffer *buffer) {
+static void _malBufferDispose(MalBuffer *buffer) {
     // Do nothing
 }
 
@@ -286,39 +286,39 @@ static void _mal_buffer_dispose(mal_buffer *buffer) {
 // The Android team recommends "non-blocking synchronization", but the lock will be uncontended in
 // most cases.
 // Also, Chromium has locks in their OpenSLES-based audio implementation.
-static void _mal_buffer_queue_callback(SLBufferQueueItf queue, void *void_player) {
-    mal_player *player = (mal_player *)void_player;
+static void _malBufferQueueCallback(SLBufferQueueItf queue, void *voidPlayer) {
+    MalPlayer *player = (MalPlayer *)voidPlayer;
     if (player && queue) {
         MAL_LOCK(player);
         if (player->looping && player->buffer &&
-            player->buffer->managed_data &&
-            _mal_player_get_state(player) == MAL_PLAYER_STATE_PLAYING) {
-            const mal_buffer *buffer = player->buffer;
-            const size_t len = (buffer->num_frames * (buffer->format.bit_depth / 8) *
-                                buffer->format.num_channels);
-            (*queue)->Enqueue(queue, buffer->managed_data, len);
-        } else if (player->data.sl_play) {
-            (*player->data.sl_play)->SetPlayState(player->data.sl_play, SL_PLAYSTATE_STOPPED);
-            if (player->on_finished && player->context && player->context->data.looper) {
-                struct looper_message msg = {
-                        .type = ON_PLAYER_FINISHED_MAGIC,
-                        .on_finished_id = player->on_finished_id,
+            player->buffer->managedData &&
+            _malPlayerGetState(player) == MAL_PLAYER_STATE_PLAYING) {
+            const MalBuffer *buffer = player->buffer;
+            const size_t len = (buffer->numFrames * (buffer->format.bitDepth / 8) *
+                                buffer->format.numChannels);
+            (*queue)->Enqueue(queue, buffer->managedData, len);
+        } else if (player->data.slPlay) {
+            (*player->data.slPlay)->SetPlayState(player->data.slPlay, SL_PLAYSTATE_STOPPED);
+            if (player->onFinished && player->context && player->context->data.looper) {
+                struct looperMessage msg = {
+                    .type = ON_PLAYER_FINISHED_MAGIC,
+                    .onFinishedId = player->onFinishedId,
                 };
-                _mal_looper_post(player->context->data.looper_message_pipe[1], &msg);
+                _malLooperPost(player->context->data.looperMessagePipe[1], &msg);
             }
         }
         MAL_UNLOCK(player);
     }
 }
 
-static void _mal_player_update_gain(mal_player *player) {
-    if (player && player->context && player->data.sl_volume) {
+static void _malPlayerUpdateGain(MalPlayer *player) {
+    if (player && player->context && player->data.slVolume) {
         float gain = 0;
         if (!player->context->mute && !player->mute) {
             gain = player->context->gain * player->gain;
         }
         if (gain <= 0) {
-            (*player->data.sl_volume)->SetMute(player->data.sl_volume, SL_BOOLEAN_TRUE);
+            (*player->data.slVolume)->SetMute(player->data.slVolume, SL_BOOLEAN_TRUE);
         } else {
             SLmillibel millibelVolume = (SLmillibel)roundf(2000 * log10f(gain));
             if (millibelVolume < SL_MILLIBEL_MIN) {
@@ -326,141 +326,141 @@ static void _mal_player_update_gain(mal_player *player) {
             } else if (millibelVolume > 0) {
                 millibelVolume = 0;
             }
-            (*player->data.sl_volume)->SetVolumeLevel(player->data.sl_volume, millibelVolume);
-            (*player->data.sl_volume)->SetMute(player->data.sl_volume, SL_BOOLEAN_FALSE);
+            (*player->data.slVolume)->SetVolumeLevel(player->data.slVolume, millibelVolume);
+            (*player->data.slVolume)->SetMute(player->data.slVolume, SL_BOOLEAN_FALSE);
         }
     }
 }
 
-static bool _mal_player_init(mal_player *player) {
+static bool _malPlayerInit(MalPlayer *player) {
     // Do nothing
     return true;
 }
 
-static void _mal_player_dispose(mal_player *player) {
-    if (player->data.sl_object) {
-        (*player->data.sl_object)->Destroy(player->data.sl_object);
-        player->data.sl_object = NULL;
-        player->data.sl_buffer_queue = NULL;
-        player->data.sl_play = NULL;
-        player->data.sl_volume = NULL;
+static void _malPlayerDispose(MalPlayer *player) {
+    if (player->data.slObject) {
+        (*player->data.slObject)->Destroy(player->data.slObject);
+        player->data.slObject = NULL;
+        player->data.slBufferQueue = NULL;
+        player->data.slPlay = NULL;
+        player->data.slVolume = NULL;
     }
 }
 
-static void _mal_player_did_set_finished_callback(mal_player *player) {
+static void _malPlayerDidSetFinishedCallback(MalPlayer *player) {
     // Do nothing
 }
 
-static bool _mal_player_set_format(mal_player *player, mal_format format) {
-    _mal_player_dispose(player);
+static bool _malPlayerSetFormat(MalPlayer *player, MalFormat format) {
+    _malPlayerDispose(player);
     if (!player->context) {
         return false;
     }
 
     const int n = 1;
-    const bool system_is_little_endian = *(char *)&n == 1;
+    const bool systemIsLittleEndian = *(char *)&n == 1;
 
-    SLDataLocator_BufferQueue sl_buffer_queue = {
+    SLDataLocator_BufferQueue slBufferQueue = {
         .locatorType = SL_DATALOCATOR_BUFFERQUEUE,
         .numBuffers = 2
     };
 
-    SLDataFormat_PCM sl_format = {
+    SLDataFormat_PCM slFormat = {
         .formatType = SL_DATAFORMAT_PCM,
-        .numChannels = format.num_channels,
-        .samplesPerSec = (SLuint32)(format.sample_rate * 1000),
-        .bitsPerSample = (format.bit_depth == 8 ? SL_PCMSAMPLEFORMAT_FIXED_8 :
+        .numChannels = format.numChannels,
+        .samplesPerSec = (SLuint32)(format.sampleRate * 1000),
+        .bitsPerSample = (format.bitDepth == 8 ? SL_PCMSAMPLEFORMAT_FIXED_8 :
                           SL_PCMSAMPLEFORMAT_FIXED_16),
-        .containerSize = (format.bit_depth == 8 ? SL_PCMSAMPLEFORMAT_FIXED_8 :
+        .containerSize = (format.bitDepth == 8 ? SL_PCMSAMPLEFORMAT_FIXED_8 :
                           SL_PCMSAMPLEFORMAT_FIXED_16),
-        .channelMask = (format.num_channels == 2 ?
+        .channelMask = (format.numChannels == 2 ?
                         (SL_SPEAKER_FRONT_LEFT | SL_SPEAKER_FRONT_RIGHT) : SL_SPEAKER_FRONT_CENTER),
-        .endianness = (system_is_little_endian ? SL_BYTEORDER_LITTLEENDIAN : SL_BYTEORDER_BIGENDIAN)
+        .endianness = (systemIsLittleEndian ? SL_BYTEORDER_LITTLEENDIAN : SL_BYTEORDER_BIGENDIAN)
     };
 
-    SLDataSource sl_data_source = {&sl_buffer_queue, &sl_format};
-    SLDataLocator_OutputMix sl_output_mix = {SL_DATALOCATOR_OUTPUTMIX,
-        player->context->data.sl_output_mix_object};
-    SLDataSink sl_audio_sink = {&sl_output_mix, NULL};
+    SLDataSource slDataSource = {&slBufferQueue, &slFormat};
+    SLDataLocator_OutputMix slOutputMix = {SL_DATALOCATOR_OUTPUTMIX,
+        player->context->data.slOutputMixObject};
+    SLDataSink slAudioSink = {&slOutputMix, NULL};
 
     // Create the player
     const SLInterfaceID ids[2] = {SL_IID_BUFFERQUEUE, SL_IID_VOLUME};
     const SLboolean req[2] = {SL_BOOLEAN_TRUE, SL_BOOLEAN_TRUE};
     SLresult result =
-    (*player->context->data.sl_engine)->CreateAudioPlayer(player->context->data.sl_engine,
-                                                          &player->data.sl_object, &sl_data_source,
-                                                          &sl_audio_sink, 2, ids, req);
+    (*player->context->data.slEngine)->CreateAudioPlayer(player->context->data.slEngine,
+                                                         &player->data.slObject, &slDataSource,
+                                                         &slAudioSink, 2, ids, req);
     if (result != SL_RESULT_SUCCESS) {
-        player->data.sl_object = NULL;
+        player->data.slObject = NULL;
         return false;
     }
 
     // Realize the player
-    result = (*player->data.sl_object)->Realize(player->data.sl_object, SL_BOOLEAN_FALSE);
+    result = (*player->data.slObject)->Realize(player->data.slObject, SL_BOOLEAN_FALSE);
     if (result != SL_RESULT_SUCCESS) {
-        _mal_player_dispose(player);
+        _malPlayerDispose(player);
         return false;
     }
 
     // Get the play interface
-    result = (*player->data.sl_object)->GetInterface(player->data.sl_object, SL_IID_PLAY,
-                                                     &player->data.sl_play);
+    result = (*player->data.slObject)->GetInterface(player->data.slObject, SL_IID_PLAY,
+                                                    &player->data.slPlay);
     if (result != SL_RESULT_SUCCESS) {
-        _mal_player_dispose(player);
+        _malPlayerDispose(player);
         return false;
     }
 
     // Get buffer queue interface
-    result = (*player->data.sl_object)->GetInterface(player->data.sl_object, SL_IID_BUFFERQUEUE,
-                                                     &player->data.sl_buffer_queue);
+    result = (*player->data.slObject)->GetInterface(player->data.slObject, SL_IID_BUFFERQUEUE,
+                                                    &player->data.slBufferQueue);
     if (result != SL_RESULT_SUCCESS) {
-        _mal_player_dispose(player);
+        _malPlayerDispose(player);
         return false;
     }
 
     // Register buffer queue callback
-    result = (*player->data.sl_buffer_queue)->RegisterCallback(player->data.sl_buffer_queue,
-                                                               _mal_buffer_queue_callback, player);
+    result = (*player->data.slBufferQueue)->RegisterCallback(player->data.slBufferQueue,
+                                                             _malBufferQueueCallback, player);
     if (result != SL_RESULT_SUCCESS) {
-        _mal_player_dispose(player);
+        _malPlayerDispose(player);
         return false;
     }
 
     // Get the volume interface (optional)
-    result = (*player->data.sl_object)->GetInterface(player->data.sl_object, SL_IID_VOLUME,
-                                                     &player->data.sl_volume);
+    result = (*player->data.slObject)->GetInterface(player->data.slObject, SL_IID_VOLUME,
+                                                    &player->data.slVolume);
     if (result != SL_RESULT_SUCCESS) {
-        player->data.sl_volume = NULL;
+        player->data.slVolume = NULL;
     }
 
     player->format = format;
-    _mal_player_update_gain(player);
+    _malPlayerUpdateGain(player);
     return true;
 }
 
-static bool _mal_player_set_buffer(mal_player *player, const mal_buffer *buffer) {
+static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer) {
     // Do nothing
     return true;
 }
 
-static void _mal_player_set_mute(mal_player *player, bool mute) {
-    _mal_player_update_gain(player);
+static void _malPlayerSetMute(MalPlayer *player, bool mute) {
+    _malPlayerUpdateGain(player);
 }
 
-static void _mal_player_set_gain(mal_player *player, float gain) {
-    _mal_player_update_gain(player);
+static void _malPlayerSetGain(MalPlayer *player, float gain) {
+    _malPlayerUpdateGain(player);
 }
 
-static void _mal_player_set_looping(mal_player *player, bool looping) {
+static void _malPlayerSetLooping(MalPlayer *player, bool looping) {
     // Do nothing
 }
 
-static mal_player_state _mal_player_get_state(const mal_player *player) {
-    if (!player->data.sl_play) {
+static MalPlayerState _malPlayerGetState(const MalPlayer *player) {
+    if (!player->data.slPlay) {
         return MAL_PLAYER_STATE_STOPPED;
     } else {
         SLuint32 state;
-        SLresult result = (*player->data.sl_play)->GetPlayState(player->data.sl_play, &state);
+        SLresult result = (*player->data.slPlay)->GetPlayState(player->data.slPlay, &state);
         if (result != SL_RESULT_SUCCESS) {
             return MAL_PLAYER_STATE_STOPPED;
         } else if (state == SL_PLAYSTATE_PAUSED) {
@@ -473,39 +473,39 @@ static mal_player_state _mal_player_get_state(const mal_player *player) {
     }
 }
 
-static bool _mal_player_set_state(mal_player *player, mal_player_state old_state,
-                                  mal_player_state state) {
-    SLuint32 sl_state;
+static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState,
+                               MalPlayerState state) {
+    SLuint32 slState;
     switch (state) {
         case MAL_PLAYER_STATE_STOPPED:
         default:
-            sl_state = SL_PLAYSTATE_STOPPED;
+            slState = SL_PLAYSTATE_STOPPED;
             break;
         case MAL_PLAYER_STATE_PAUSED:
-            sl_state = SL_PLAYSTATE_PAUSED;
+            slState = SL_PLAYSTATE_PAUSED;
             break;
         case MAL_PLAYER_STATE_PLAYING:
-            sl_state = SL_PLAYSTATE_PLAYING;
+            slState = SL_PLAYSTATE_PLAYING;
             break;
     }
 
     // Queue if needed
-    if (old_state != MAL_PLAYER_STATE_PAUSED && sl_state == SL_PLAYSTATE_PLAYING &&
-        player->data.sl_buffer_queue) {
-        const mal_buffer *buffer = player->buffer;
-        if (buffer->managed_data) {
-            const size_t len = (buffer->num_frames * (buffer->format.bit_depth / 8) *
-                                buffer->format.num_channels);
-            (*player->data.sl_buffer_queue)->Enqueue(player->data.sl_buffer_queue,
-                                                     buffer->managed_data, len);
+    if (oldState != MAL_PLAYER_STATE_PAUSED && slState == SL_PLAYSTATE_PLAYING &&
+        player->data.slBufferQueue) {
+        const MalBuffer *buffer = player->buffer;
+        if (buffer->managedData) {
+            const size_t len = (buffer->numFrames * (buffer->format.bitDepth / 8) *
+                                buffer->format.numChannels);
+            (*player->data.slBufferQueue)->Enqueue(player->data.slBufferQueue,
+                                                     buffer->managedData, len);
         }
     }
 
-    (*player->data.sl_play)->SetPlayState(player->data.sl_play, sl_state);
+    (*player->data.slPlay)->SetPlayState(player->data.slPlay, slState);
 
     // Clear buffer queue
-    if (sl_state == SL_PLAYSTATE_STOPPED && player->data.sl_buffer_queue) {
-        (*player->data.sl_buffer_queue)->Clear(player->data.sl_buffer_queue);
+    if (slState == SL_PLAYSTATE_STOPPED && player->data.slBufferQueue) {
+        (*player->data.slBufferQueue)->Clear(player->data.slBufferQueue);
     }
 
     return true;

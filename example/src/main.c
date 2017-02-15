@@ -10,13 +10,13 @@
 #define kTestAudioPause 0
 
 typedef struct {
-    mal_context *context;
-    mal_buffer *buffer;
-    mal_player *players[kMaxPlayers];
+    MalContext *context;
+    MalBuffer *buffer;
+    MalPlayer *players[kMaxPlayers];
 } mal_app;
 
-static void on_finished(void *user_data, mal_player *player) {
-    mal_app *app = user_data;
+static void onFinished(void *userData, MalPlayer *player) {
+    mal_app *app = userData;
     for (int i = 0; i < kMaxPlayers; i++) {
         if (player == app->players[i]) {
             glfmLog("FINISHED %i", i);
@@ -24,39 +24,39 @@ static void on_finished(void *user_data, mal_player *player) {
     }
 }
 
-static void play_sound(mal_app *app, mal_buffer *buffer, float gain) {
+static void play_sound(mal_app *app, MalBuffer *buffer, float gain) {
 #if kTestFreeBufferDuringPlayback
     // This is useful to test buffer freeing during playback
     if (app->buffer) {
-        mal_buffer_free(app->buffer);
+        malBufferFree(app->buffer);
         app->buffer = NULL;
     }
 #elif kTestAudioPause
     for (int i = 0; i < kMaxPlayers; i++) {
         if (app->players[i]) {
-            mal_player_state state = mal_player_get_state(app->players[i]);
+            MalPlayerState state = malPlayerGetState(app->players[i]);
             if (state == MAL_PLAYER_STATE_PLAYING) {
-                mal_player_set_state(app->players[i], MAL_PLAYER_STATE_PAUSED);
+                malPlayerSetState(app->players[i], MAL_PLAYER_STATE_PAUSED);
             } else if (state == MAL_PLAYER_STATE_PAUSED) {
-                mal_player_set_state(app->players[i], MAL_PLAYER_STATE_PLAYING);
+                malPlayerSetState(app->players[i], MAL_PLAYER_STATE_PLAYING);
             }
         }
     }
 #else
     // Stop any looping players
     for (int i = 0; i < kMaxPlayers; i++) {
-        if (app->players[i] && mal_player_get_state(app->players[i]) == MAL_PLAYER_STATE_PLAYING &&
-            mal_player_is_looping(app->players[i])) {
-            mal_player_set_looping(app->players[i], false);
+        if (app->players[i] && malPlayerGetState(app->players[i]) == MAL_PLAYER_STATE_PLAYING &&
+            malPlayerIsLooping(app->players[i])) {
+            malPlayerSetLooping(app->players[i], false);
         }
     }
     // Play new sound
     for (int i = 0; i < kMaxPlayers; i++) {
-        if (app->players[i] && mal_player_get_state(app->players[i]) == MAL_PLAYER_STATE_STOPPED) {
-            mal_player_set_buffer(app->players[i], buffer);
-            mal_player_set_gain(app->players[i], gain);
-            mal_player_set_finished_func(app->players[i], on_finished, app);
-            mal_player_set_state(app->players[i], MAL_PLAYER_STATE_PLAYING);
+        if (app->players[i] && malPlayerGetState(app->players[i]) == MAL_PLAYER_STATE_STOPPED) {
+            malPlayerSetBuffer(app->players[i], buffer);
+            malPlayerSetGain(app->players[i], gain);
+            malPlayerSetFinishedFunc(app->players[i], onFinished, app);
+            malPlayerSetState(app->players[i], MAL_PLAYER_STATE_PLAYING);
             glfmLog("PLAY %i gain=%.2f", i, gain);
             break;
         }
@@ -65,18 +65,18 @@ static void play_sound(mal_app *app, mal_buffer *buffer, float gain) {
 }
 
 static void mal_init(mal_app *app, ok_wav *wav) {
-    app->context = mal_context_create(44100);
+    app->context = malContextCreate(44100);
     if (!app->context) {
         glfmLog("Error: Couldn't create audio context");
     }
-    mal_format format = {
-        .sample_rate = wav->sample_rate,
-        .num_channels = wav->num_channels,
-        .bit_depth = wav->bit_depth};
-    if (!mal_context_format_is_valid(app->context, format)) {
+    MalFormat format = {
+        .sampleRate = wav->sample_rate,
+        .numChannels = wav->num_channels,
+        .bitDepth = wav->bit_depth};
+    if (!malContextIsFormatValid(app->context, format)) {
         glfmLog("Error: Audio format is invalid");
     }
-    app->buffer = mal_buffer_create_no_copy(app->context, format, (uint32_t)wav->num_frames,
+    app->buffer = malBufferCreateNoCopy(app->context, format, (uint32_t)wav->num_frames,
                                             wav->data, free);
     if (!app->buffer) {
         glfmLog("Error: Couldn't create audio buffer");
@@ -85,15 +85,15 @@ static void mal_init(mal_app *app, ok_wav *wav) {
     ok_wav_free(wav);
 
     for (int i = 0; i < kMaxPlayers; i++) {
-        app->players[i] = mal_player_create(app->context, format);
+        app->players[i] = malPlayerCreate(app->context, format);
     }
-    bool success = mal_player_set_buffer(app->players[0], app->buffer);
+    bool success = malPlayerSetBuffer(app->players[0], app->buffer);
     if (!success) {
         glfmLog("Error: Couldn't attach buffer to audio player");
     }
-    mal_player_set_gain(app->players[0], 0.25f);
-    mal_player_set_looping(app->players[0], true);
-    success = mal_player_set_state(app->players[0], MAL_PLAYER_STATE_PLAYING);
+    malPlayerSetGain(app->players[0], 0.25f);
+    malPlayerSetLooping(app->players[0], true);
+    success = malPlayerSetState(app->players[0], MAL_PLAYER_STATE_PLAYING);
     if (!success) {
         glfmLog("Error: Couldn't play audio");
     }
@@ -102,18 +102,18 @@ static void mal_init(mal_app *app, ok_wav *wav) {
 // Be a good app citizen - set mal to inactive when pausing.
 static void on_app_pause(GLFMDisplay *display) {
     mal_app *app = glfmGetUserData(display);
-    mal_context_set_active(app->context, false);
+    malContextSetActive(app->context, false);
 }
 
 static void on_app_resume(GLFMDisplay *display) {
     mal_app *app = glfmGetUserData(display);
-    mal_context_set_active(app->context, true);
+    malContextSetActive(app->context, true);
 }
 
 // GLFM functions
 
-static int glfm_asset_input_func(void *user_data, unsigned char *buffer, const int count) {
-    GLFMAsset *asset = user_data;
+static int glfm_asset_input_func(void *userData, unsigned char *buffer, const int count) {
+    GLFMAsset *asset = userData;
     if (buffer && count > 0) {
         return (int)glfmAssetRead(asset, buffer, count);
     } else if (glfmAssetSeek(asset, count, SEEK_CUR) == 0) {
