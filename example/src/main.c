@@ -112,15 +112,12 @@ static void on_app_resume(GLFMDisplay *display) {
 
 // GLFM functions
 
-static int glfm_asset_input_func(void *userData, unsigned char *buffer, const int count) {
-    GLFMAsset *asset = userData;
-    if (buffer && count > 0) {
-        return (int)glfmAssetRead(asset, buffer, count);
-    } else if (glfmAssetSeek(asset, count, SEEK_CUR) == 0) {
-        return count;
-    } else {
-        return 0;
-    }
+static size_t glfmAssetRead2(void *asset, uint8_t *buffer, size_t count) {
+    return glfmAssetRead((GLFMAsset *)asset, buffer, count);
+}
+
+static bool glfmAssetSeek2(void *asset, long offset) {
+    return glfmAssetSeek((GLFMAsset *)asset, offset, SEEK_CUR) == 0;
 }
 
 static GLboolean on_touch(GLFMDisplay *display, const int touch, const GLFMTouchPhase phase,
@@ -160,7 +157,7 @@ void glfmMain(GLFMDisplay *display) {
     glfmSetAppResumingFunc(display, on_app_resume);
 
     GLFMAsset *asset = glfmAssetOpen("sound.wav");
-    ok_wav *wav = ok_wav_read(asset, glfm_asset_input_func, true);
+    ok_wav *wav = ok_wav_read_from_callbacks(asset, glfmAssetRead2, glfmAssetSeek2, true);
     glfmAssetClose(asset);
 
     if (!wav->data) {
