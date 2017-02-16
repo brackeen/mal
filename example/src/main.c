@@ -13,10 +13,10 @@ typedef struct {
     MalContext *context;
     MalBuffer *buffer;
     MalPlayer *players[kMaxPlayers];
-} mal_app;
+} MalApp;
 
 static void onFinished(void *userData, MalPlayer *player) {
-    mal_app *app = userData;
+    MalApp *app = userData;
     for (int i = 0; i < kMaxPlayers; i++) {
         if (player == app->players[i]) {
             glfmLog("FINISHED %i", i);
@@ -24,7 +24,7 @@ static void onFinished(void *userData, MalPlayer *player) {
     }
 }
 
-static void play_sound(mal_app *app, MalBuffer *buffer, float gain) {
+static void playSound(MalApp *app, MalBuffer *buffer, float gain) {
 #if kTestFreeBufferDuringPlayback
     // This is useful to test buffer freeing during playback
     if (app->buffer) {
@@ -64,7 +64,7 @@ static void play_sound(mal_app *app, MalBuffer *buffer, float gain) {
 #endif
 }
 
-static void mal_init(mal_app *app, ok_wav *wav) {
+static void malInit(MalApp *app, ok_wav *wav) {
     app->context = malContextCreate(44100);
     if (!app->context) {
         glfmLog("Error: Couldn't create audio context");
@@ -77,7 +77,7 @@ static void mal_init(mal_app *app, ok_wav *wav) {
         glfmLog("Error: Audio format is invalid");
     }
     app->buffer = malBufferCreateNoCopy(app->context, format, (uint32_t)wav->num_frames,
-                                            wav->data, free);
+                                        wav->data, free);
     if (!app->buffer) {
         glfmLog("Error: Couldn't create audio buffer");
     }
@@ -100,13 +100,13 @@ static void mal_init(mal_app *app, ok_wav *wav) {
 }
 
 // Be a good app citizen - set mal to inactive when pausing.
-static void on_app_pause(GLFMDisplay *display) {
-    mal_app *app = glfmGetUserData(display);
+static void onAppPause(GLFMDisplay *display) {
+    MalApp *app = glfmGetUserData(display);
     malContextSetActive(app->context, false);
 }
 
-static void on_app_resume(GLFMDisplay *display) {
-    mal_app *app = glfmGetUserData(display);
+static void onAppResume(GLFMDisplay *display) {
+    MalApp *app = glfmGetUserData(display);
     malContextSetActive(app->context, true);
 }
 
@@ -120,27 +120,27 @@ static bool glfmAssetSeek2(void *asset, long offset) {
     return glfmAssetSeek((GLFMAsset *)asset, offset, SEEK_CUR) == 0;
 }
 
-static GLboolean on_touch(GLFMDisplay *display, const int touch, const GLFMTouchPhase phase,
-                          const int x, const int y) {
+static GLboolean onTouch(GLFMDisplay *display, const int touch, const GLFMTouchPhase phase,
+                         const int x, const int y) {
     if (phase == GLFMTouchPhaseBegan) {
         int height = glfmGetDisplayHeight(display);
-        mal_app *app = glfmGetUserData(display);
-        play_sound(app, app->buffer, 0.05f + 0.60f * (height - y) / height);
+        MalApp *app = glfmGetUserData(display);
+        playSound(app, app->buffer, 0.05f + 0.60f * (height - y) / height);
     }
     return GL_TRUE;
 }
 
-static void on_surface_created(GLFMDisplay *display, const int width, const int height) {
+static void onSurfaceCreated(GLFMDisplay *display, const int width, const int height) {
     glViewport(0, 0, width, height);
 }
 
-static void on_frame(GLFMDisplay *display, const double frameTime) {
+static void onFrame(GLFMDisplay *display, const double frameTime) {
     glClearColor(0.6f, 0.0f, 0.4f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 }
 
 void glfmMain(GLFMDisplay *display) {
-    mal_app *app = calloc(1, sizeof(mal_app));
+    MalApp *app = calloc(1, sizeof(MalApp));
 
     glfmSetDisplayConfig(display,
                          GLFMColorFormatRGBA8888,
@@ -149,12 +149,12 @@ void glfmMain(GLFMDisplay *display) {
                          GLFMMultisampleNone,
                          GLFMUserInterfaceChromeNavigation);
     glfmSetUserData(display, app);
-    glfmSetSurfaceCreatedFunc(display, on_surface_created);
-    glfmSetSurfaceResizedFunc(display, on_surface_created);
-    glfmSetMainLoopFunc(display, on_frame);
-    glfmSetTouchFunc(display, on_touch);
-    glfmSetAppPausingFunc(display, on_app_pause);
-    glfmSetAppResumingFunc(display, on_app_resume);
+    glfmSetSurfaceCreatedFunc(display, onSurfaceCreated);
+    glfmSetSurfaceResizedFunc(display, onSurfaceCreated);
+    glfmSetMainLoopFunc(display, onFrame);
+    glfmSetTouchFunc(display, onTouch);
+    glfmSetAppPausingFunc(display, onAppPause);
+    glfmSetAppResumingFunc(display, onAppResume);
 
     GLFMAsset *asset = glfmAssetOpen("sound.wav");
     ok_wav *wav = ok_wav_read_from_callbacks(asset, glfmAssetRead2, glfmAssetSeek2, true);
@@ -163,6 +163,6 @@ void glfmMain(GLFMDisplay *display) {
     if (!wav->data) {
         glfmLog("Error: %s", wav->error_message);
     } else {
-        mal_init(app, wav);
+        malInit(app, wav);
     }
 }
