@@ -1,7 +1,7 @@
 /*
  ok-lib
  https://github.com/brackeen/ok-lib
- Copyright (c) 2016 David Brackeen
+ Copyright (c) 2016-2017 David Brackeen
 
  This software is provided 'as-is', without any express or implied warranty.
  In no event will the authors be held liable for any damages arising from the
@@ -89,7 +89,7 @@
 /**
  A value that indicates that a value could not be found.
  */
-static const size_t OK_NOT_FOUND = SIZE_MAX;
+static const size_t OK_NOT_FOUND = (~(size_t)0);
 
 /**
  Declares a generic `ok_vec` struct or typedef.
@@ -125,7 +125,7 @@ static const size_t OK_NOT_FOUND = SIZE_MAX;
  @param vec Pointer to the vector.
  */
 #define ok_vec_deinit(vec) \
-    free((vec)->values)
+    free((void *)(vec)->values)
 
 /**
  Removes all elements from the vector, setting the count to 0. The capacity of the vector is not
@@ -362,7 +362,7 @@ static const size_t OK_NOT_FOUND = SIZE_MAX;
  `qsort`.
  */
 #define ok_vec_sort(vec, compare_func) \
-    qsort((vec)->values, (vec)->count, sizeof(*((vec)->values)), compare_func)
+    qsort((void *)(vec)->values, (vec)->count, sizeof(*((vec)->values)), compare_func)
 
 /**
  Ensures that a vector has enough space for additional elements.
@@ -592,7 +592,7 @@ static const size_t OK_NOT_FOUND = SIZE_MAX;
 #define ok_map_get(map, key) ( \
     (map)->entry.k = (key), \
     __ok_map_get((map)->m, &(map)->entry.k, (map)->key_hash_func((map)->entry.k), \
-                 &(map)->entry.v, sizeof((map)->entry.v)), \
+                 (void *)&(map)->entry.v, sizeof((map)->entry.v)), \
     (map)->entry.v \
 )
 
@@ -661,8 +661,9 @@ static const size_t OK_NOT_FOUND = SIZE_MAX;
  */
 #define ok_map_foreach(map, key_var, value_var) \
     for (uint8_t _keep = 1, _keep2 = true, *_i = NULL; _keep && \
-        (_i = (uint8_t *)__ok_map_next((map)->m, _i, &(map)->entry.k, sizeof((map)->entry.k), \
-                                   &(map)->entry.v, sizeof((map)->entry.v))); \
+        ((_i = (uint8_t *)__ok_map_next((map)->m, _i, (void *)&(map)->entry.k, \
+                                        sizeof((map)->entry.k), (void *)&(map)->entry.v, \
+                                        sizeof((map)->entry.v))) != NULL); \
         _keep = !_keep, _keep2 = !_keep2) \
     for (key_var = (map)->entry.k; _keep && _keep2; _keep2 = !_keep2) \
     for (value_var = (map)->entry.v; _keep; _keep = !_keep)
@@ -833,9 +834,9 @@ OK_LIB_API void *__ok_map_next(const struct __ok_map *map, void *iterator, void 
 
 #ifdef OK_LIB_DEFINE
 
-#ifdef __clang__
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunused-function"
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
 #endif
 
 // Hash functions from Wang http://www.cris.com/~Ttwang/tech/inthash.htm
@@ -1138,7 +1139,7 @@ OK_LIB_API size_t __ok_map_count(const struct __ok_map *map) {
 }
 
 OK_LIB_API size_t __ok_map_capacity(const struct __ok_map *map) {
-    return map ? (1 << map->capacity_n) : OK_MAP_MIN_CAPACITY;
+    return map ? (1u << map->capacity_n) : OK_MAP_MIN_CAPACITY;
 }
 
 OK_LIB_API bool __ok_map_contains(const struct __ok_map *map, const void *key,
@@ -1272,8 +1273,8 @@ OK_LIB_API bool __ok_map_remove(struct __ok_map *map, const void *key, ok_hash_t
     return true;
 }
 
-#ifdef __clang__
-#pragma clang diagnostic pop
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
 #endif
 
 #endif // OK_LIB_DEFINE
