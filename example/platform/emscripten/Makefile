@@ -17,7 +17,7 @@ SOURCES := $(GLFM_ROOT)/src/glfm_platform_emscripten.c \
            $(wildcard $(APP_ROOT)/src/*.c)
 
 build: init
-	. emsdk_set_env.sh; emcc -Wall -O2 -std=c99 --memory-init-file 0 \
+	. emsdk_set_env.sh; emcc -Wall -O2 -std=c99 --memory-init-file 0 -D_POSIX_SOURCE \
 	--shell-file shell.html \
 	--pre-js emscripten-pre.js \
 	--preload-file $(APP_ROOT)/assets@/ $(INCLUDES) -o $(BIN)/$(OUT_NAME).html \
@@ -25,7 +25,7 @@ build: init
 
 init:
 	mkdir -p $(BIN)
-	
+
 clean:
 	rm -f $(BIN)/$(OUT_NAME).html
 	rm -f $(BIN)/$(OUT_NAME).data

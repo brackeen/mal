@@ -2,7 +2,7 @@
 #include "glfm.h"
 #include "mal.h"
 #include "ok_wav.h"
-#include <stdio.h> // For SEEK_CUR
+#include <stdio.h>
 #include <stdlib.h>
 
 #define kMaxPlayers 16
@@ -19,7 +19,7 @@ static void onFinished(void *userData, MalPlayer *player) {
     MalApp *app = userData;
     for (int i = 0; i < kMaxPlayers; i++) {
         if (player == app->players[i]) {
-            glfmLog("FINISHED %i", i);
+            printf("FINISHED %i\n", i);
         }
     }
 }
@@ -57,7 +57,7 @@ static void playSound(MalApp *app, MalBuffer *buffer, float gain) {
             malPlayerSetGain(app->players[i], gain);
             malPlayerSetFinishedFunc(app->players[i], onFinished, app);
             malPlayerSetState(app->players[i], MAL_PLAYER_STATE_PLAYING);
-            glfmLog("PLAY %i gain=%.2f", i, gain);
+            printf("PLAY %i gain=%.2f\n", i, gain);
             break;
         }
     }
@@ -67,19 +67,19 @@ static void playSound(MalApp *app, MalBuffer *buffer, float gain) {
 static void malInit(MalApp *app, ok_wav *wav) {
     app->context = malContextCreate(44100);
     if (!app->context) {
-        glfmLog("Error: Couldn't create audio context");
+        printf("Error: Couldn't create audio context\n");
     }
     MalFormat format = {
         .sampleRate = wav->sample_rate,
         .numChannels = wav->num_channels,
         .bitDepth = wav->bit_depth};
     if (!malContextIsFormatValid(app->context, format)) {
-        glfmLog("Error: Audio format is invalid");
+        printf("Error: Audio format is invalid\n");
     }
     app->buffer = malBufferCreateNoCopy(app->context, format, (uint32_t)wav->num_frames,
                                         wav->data, free);
     if (!app->buffer) {
-        glfmLog("Error: Couldn't create audio buffer");
+        printf("Error: Couldn't create audio buffer\n");
     }
     wav->data = NULL; // Audio buffer is now managed by mal, don't free it
     ok_wav_free(wav);
@@ -89,13 +89,13 @@ static void malInit(MalApp *app, ok_wav *wav) {
     }
     bool success = malPlayerSetBuffer(app->players[0], app->buffer);
     if (!success) {
-        glfmLog("Error: Couldn't attach buffer to audio player");
+        printf("Error: Couldn't attach buffer to audio player\n");
     }
     malPlayerSetGain(app->players[0], 0.25f);
     malPlayerSetLooping(app->players[0], true);
     success = malPlayerSetState(app->players[0], MAL_PLAYER_STATE_PLAYING);
     if (!success) {
-        glfmLog("Error: Couldn't play audio");
+        printf("Error: Couldn't play audio\n");
     }
 }
 
@@ -112,22 +112,13 @@ static void onAppResume(GLFMDisplay *display) {
 
 // GLFM functions
 
-static size_t glfmAssetRead2(void *asset, uint8_t *buffer, size_t count) {
-    return glfmAssetRead((GLFMAsset *)asset, buffer, count);
-}
-
-static bool glfmAssetSeek2(void *asset, long offset) {
-    return glfmAssetSeek((GLFMAsset *)asset, offset, SEEK_CUR) == 0;
-}
-
-static GLboolean onTouch(GLFMDisplay *display, const int touch, const GLFMTouchPhase phase,
-                         const int x, const int y) {
+static bool onTouch(GLFMDisplay *display, int touch, GLFMTouchPhase phase, int x, int y) {
     if (phase == GLFMTouchPhaseBegan) {
         int height = glfmGetDisplayHeight(display);
         MalApp *app = glfmGetUserData(display);
         playSound(app, app->buffer, 0.05f + 0.60f * (height - y) / height);
     }
-    return GL_TRUE;
+    return true;
 }
 
 static void onSurfaceCreated(GLFMDisplay *display, const int width, const int height) {
@@ -143,6 +134,7 @@ void glfmMain(GLFMDisplay *display) {
     MalApp *app = calloc(1, sizeof(MalApp));
 
     glfmSetDisplayConfig(display,
+                         GLFMRenderingAPIOpenGLES2,
                          GLFMColorFormatRGBA8888,
                          GLFMDepthFormatNone,
                          GLFMStencilFormatNone,
@@ -156,12 +148,12 @@ void glfmMain(GLFMDisplay *display) {
     glfmSetAppPausingFunc(display, onAppPause);
     glfmSetAppResumingFunc(display, onAppResume);
 
-    GLFMAsset *asset = glfmAssetOpen("sound.wav");
-    ok_wav *wav = ok_wav_read_from_callbacks(asset, glfmAssetRead2, glfmAssetSeek2, true);
-    glfmAssetClose(asset);
+    FILE *file = fopen("sound.wav", "rb");
+    ok_wav *wav = ok_wav_read(file, true);
+    fclose(file);
 
     if (!wav->data) {
-        glfmLog("Error: %s", wav->error_message);
+        printf("Error: %s\n", wav->error_message);
     } else {
         malInit(app, wav);
     }
