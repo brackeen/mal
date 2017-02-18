@@ -21,7 +21,7 @@
 #if defined(__APPLE__)
 #include <TargetConditionals.h>
 #endif
-#if TARGET_OS_IPHONE
+#if TARGET_OS_IOS == 1
 
 #include "mal_audio_coreaudio.h"
 #include <AVFoundation/AVFoundation.h>

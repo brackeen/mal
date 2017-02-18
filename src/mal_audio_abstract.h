@@ -36,8 +36,7 @@
 #    define MAL_UNLOCK(player) do { } while(0)
 #endif
 
-//#define MAL_DEBUG_LOG
-#ifdef MAL_DEBUG_LOG
+#ifndef NDEBUG
 #  ifdef ANDROID
 #    include <android/log.h>
 #    define MAL_LOG(...) __android_log_print(ANDROID_LOG_INFO, "mal", __VA_ARGS__)
