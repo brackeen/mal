@@ -9,6 +9,9 @@ set(MAL_SRC src/mal_audio_abstract.h src/ok_lib.h)
 
 if (CMAKE_SYSTEM_NAME MATCHES "Emscripten")
     set(MAL_SRC ${MAL_SRC} src/mal_platform_emscripten.c src/mal_audio_webaudio.h)
+    if (CMAKE_C_COMPILER_ID MATCHES "Clang")
+        set(MAL_COMPILE_FLAGS -Wno-dollar-in-identifier-extension)
+    endif()
 elseif (CMAKE_SYSTEM_NAME MATCHES "Android")
     set(MAL_SRC ${MAL_SRC} src/mal_platform_android.c src/mal_audio_opensl.h)
 else() # Assume iOS

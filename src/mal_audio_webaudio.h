@@ -2,13 +2,13 @@
  mal
  https://github.com/brackeen/mal
  Copyright (c) 2014-2017 David Brackeen
- 
+
  This software is provided 'as-is', without any express or implied warranty.
  In no event will the authors be held liable for any damages arising from the
  use of this software. Permission is granted to anyone to use this software
  for any purpose, including commercial applications, and to alter it and
  redistribute it freely, subject to the following restrictions:
- 
+
  1. The origin of this software must not be misrepresented; you must not
     claim that you wrote the original software. If you use this software in a
     product, an acknowledgment in the product documentation would be appreciated
@@ -18,8 +18,8 @@
  3. This notice may not be removed or altered from any source distribution.
  */
 
-#ifndef _MAL_AUDIO_WEBAUDIO_H_
-#define _MAL_AUDIO_WEBAUDIO_H_
+#ifndef MAL_AUDIO_WEBAUDIO_H
+#define MAL_AUDIO_WEBAUDIO_H
 
 #include <emscripten/emscripten.h>
 
@@ -89,10 +89,13 @@ static void _malContextDispose(MalContext *context) {
 }
 
 static void _malContextSetActive(MalContext *context, bool active) {
+    (void)context;
+    (void)active;
     // Do nothing
 }
 
 static void _malContextSetMute(MalContext *context, bool mute) {
+    (void)mute;
     _malContextSetGain(context, context->gain);
 }
 
@@ -214,6 +217,8 @@ static void _malPlayerDidSetFinishedCallback(MalPlayer *player) {
 }
 
 static bool _malPlayerSetFormat(MalPlayer *player, MalFormat format) {
+    (void)player;
+    (void)format;
     // Do nothing - format determined by attached buffer
     return true;
 }
@@ -232,6 +237,7 @@ static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer) {
 }
 
 static void _malPlayerSetMute(MalPlayer *player, bool mute) {
+    (void)mute;
     _malPlayerSetGain(player, player->gain);
 }
 
@@ -286,6 +292,7 @@ static MalPlayerState _malPlayerGetState(const MalPlayer *player) {
 
 static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState,
                                MalPlayerState state) {
+    (void)oldState;
     MalContext *context = player->context;
     if (!context || !context->data.contextId || !player->data.playerId) {
         return false;

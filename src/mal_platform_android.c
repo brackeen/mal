@@ -23,14 +23,18 @@
 #include "mal_audio_opensl.h"
 
 static void _malContextDidCreate(MalContext *context) {
+    (void)context;
     // Do nothing
 }
 
 static void _malContextWillDispose(MalContext *context) {
+    (void)context;
     // Do nothing
 }
 
 static void _malContextDidSetActive(MalContext *context, bool active) {
+    (void)context;
+    (void)active;
     // Do nothing
 }
 

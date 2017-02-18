@@ -2,13 +2,13 @@
  mal
  https://github.com/brackeen/mal
  Copyright (c) 2014-2017 David Brackeen
- 
+
  This software is provided 'as-is', without any express or implied warranty.
  In no event will the authors be held liable for any damages arising from the
  use of this software. Permission is granted to anyone to use this software
  for any purpose, including commercial applications, and to alter it and
  redistribute it freely, subject to the following restrictions:
- 
+
  1. The origin of this software must not be misrepresented; you must not
     claim that you wrote the original software. If you use this software in a
     product, an acknowledgment in the product documentation would be appreciated
@@ -18,14 +18,14 @@
  3. This notice may not be removed or altered from any source distribution.
  */
 
-#ifndef _MAL_AUDIO_OPENSL_H_
-#define _MAL_AUDIO_OPENSL_H_
+#ifndef MAL_AUDIO_OPENSL_H
+#define MAL_AUDIO_OPENSL_H
 
 #include <SLES/OpenSLES.h>
 #include <stdbool.h>
 #ifdef ANDROID
 #include <android/looper.h>
-#define _GNU_SOURCE
+#define _GNU_SOURCE // For pipe2
 #include <fcntl.h>
 #include <unistd.h>
 #define LOOPER_ID_USER_MESSAGE 0x1ffbdff1
@@ -51,7 +51,7 @@ struct _MalContext {
 };
 
 struct _MalBuffer {
-
+    int dummy;
 };
 
 struct _MalPlayer {
@@ -171,7 +171,7 @@ static int _malLooperCallback(int fd, int events, void *user) {
     return 1;
 }
 
-static int _malLooperPost(int pipe, struct looperMessage *msg) {
+static void _malLooperPost(int pipe, struct looperMessage *msg) {
     if (write(pipe, msg, sizeof(*msg)) != sizeof(*msg)) {
         // The pipe is full. Shouldn't happen, ignore
     }
@@ -243,10 +243,12 @@ static void _malContextSetActive(MalContext *context, bool active) {
 }
 
 static void _malContextSetMute(MalContext *context, bool mute) {
+    (void)mute;
     ok_vec_apply(&context->players, _malPlayerUpdateGain);
 }
 
 static void _malContextSetGain(MalContext *context, float gain) {
+    (void)gain;
     ok_vec_apply(&context->players, _malPlayerUpdateGain);
 }
 
@@ -255,6 +257,8 @@ static void _malContextSetGain(MalContext *context, float gain) {
 static bool _malBufferInit(MalContext *context, MalBuffer *buffer,
                            const void *copiedData, void *managedData,
                            const malDeallocatorFunc dataDeallocator) {
+    (void)context;
+    (void)buffer->data.dummy;
     const size_t dataLength = ((buffer->format.bitDepth / 8) *
                                 buffer->format.numChannels * buffer->numFrames);
     if (managedData) {
@@ -273,6 +277,7 @@ static bool _malBufferInit(MalContext *context, MalBuffer *buffer,
 }
 
 static void _malBufferDispose(MalBuffer *buffer) {
+    (void)buffer;
     // Do nothing
 }
 
@@ -294,8 +299,8 @@ static void _malBufferQueueCallback(SLBufferQueueItf queue, void *voidPlayer) {
             player->buffer->managedData &&
             _malPlayerGetState(player) == MAL_PLAYER_STATE_PLAYING) {
             const MalBuffer *buffer = player->buffer;
-            const size_t len = (buffer->numFrames * (buffer->format.bitDepth / 8) *
-                                buffer->format.numChannels);
+            const uint32_t len = (uint32_t)(buffer->numFrames * (buffer->format.bitDepth / 8) *
+                    buffer->format.numChannels);
             (*queue)->Enqueue(queue, buffer->managedData, len);
         } else if (player->data.slPlay) {
             (*player->data.slPlay)->SetPlayState(player->data.slPlay, SL_PLAYSTATE_STOPPED);
@@ -333,6 +338,7 @@ static void _malPlayerUpdateGain(MalPlayer *player) {
 }
 
 static bool _malPlayerInit(MalPlayer *player) {
+    (void)player;
     // Do nothing
     return true;
 }
@@ -348,6 +354,7 @@ static void _malPlayerDispose(MalPlayer *player) {
 }
 
 static void _malPlayerDidSetFinishedCallback(MalPlayer *player) {
+    (void)player;
     // Do nothing
 }
 
@@ -439,19 +446,25 @@ static bool _malPlayerSetFormat(MalPlayer *player, MalFormat format) {
 }
 
 static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer) {
+    (void)player;
+    (void)buffer;
     // Do nothing
     return true;
 }
 
 static void _malPlayerSetMute(MalPlayer *player, bool mute) {
+    (void)mute;
     _malPlayerUpdateGain(player);
 }
 
 static void _malPlayerSetGain(MalPlayer *player, float gain) {
+    (void)gain;
     _malPlayerUpdateGain(player);
 }
 
 static void _malPlayerSetLooping(MalPlayer *player, bool looping) {
+    (void)player;
+    (void)looping;
     // Do nothing
 }
 
@@ -473,8 +486,7 @@ static MalPlayerState _malPlayerGetState(const MalPlayer *player) {
     }
 }
 
-static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState,
-                               MalPlayerState state) {
+static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPlayerState state) {
     SLuint32 slState;
     switch (state) {
         case MAL_PLAYER_STATE_STOPPED:
@@ -494,8 +506,8 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState,
         player->data.slBufferQueue) {
         const MalBuffer *buffer = player->buffer;
         if (buffer->managedData) {
-            const size_t len = (buffer->numFrames * (buffer->format.bitDepth / 8) *
-                                buffer->format.numChannels);
+            const uint32_t len = (uint32_t)(buffer->numFrames * (buffer->format.bitDepth / 8) *
+                    buffer->format.numChannels);
             (*player->data.slBufferQueue)->Enqueue(player->data.slBufferQueue,
                                                      buffer->managedData, len);
         }

@@ -18,8 +18,8 @@
  3. This notice may not be removed or altered from any source distribution.
  */
 
-#ifndef _MAL_AUDIO_COREAUDIO_H_
-#define _MAL_AUDIO_COREAUDIO_H_
+#ifndef MAL_AUDIO_COREAUDIO_H
+#define MAL_AUDIO_COREAUDIO_H
 
 #include "mal.h"
 #include <AudioToolbox/AudioToolbox.h>
@@ -44,7 +44,7 @@ struct _MalContext {
 };
 
 struct _MalBuffer {
-
+    int dummy;
 };
 
 struct _MalPlayer {
@@ -302,7 +302,7 @@ static void _malContextSetGain(MalContext *context, float gain) {
 }
 
 static bool _malRamp(MalContext *context, AudioUnitScope scope, AudioUnitElement bus,
-                      uint32_t inFrames, double gain, struct _MalRamp *ramp) {
+                     uint32_t inFrames, float gain, struct _MalRamp *ramp) {
     uint32_t t = ramp->frames;
     uint32_t p1 = ramp->framesPosition;
     uint32_t p2 = p1 + inFrames;
@@ -358,7 +358,7 @@ static OSStatus renderNotification(void *userData, AudioUnitRenderActionFlags *f
         }
     }
     return noErr;
-};
+}
 
 // MARK: Buffer
 
@@ -405,7 +405,7 @@ static OSStatus audioRenderCallback(void *userData, AudioUnitRenderActionFlags *
         state == MAL_PLAYER_STATE_STOPPED ||
         player->data.nextFrame >= player->buffer->numFrames) {
         // Silence for end of playback, or because the player is paused.
-        for (int i = 0; i < data->mNumberBuffers; i++) {
+        for (uint32_t i = 0; i < data->mNumberBuffers; i++) {
             memset(data->mBuffers[i].mData, 0, data->mBuffers[i].mDataByteSize);
         }
 
@@ -436,11 +436,12 @@ static OSStatus audioRenderCallback(void *userData, AudioUnitRenderActionFlags *
         const uint32_t numFrames = player->buffer->numFrames;
         const uint32_t frameSize = ((player->buffer->format.bitDepth / 8) *
                                     player->buffer->format.numChannels);
-        for (int i = 0; i < data->mNumberBuffers; i++) {
-            void *dst = data->mBuffers[i].mData;
+        for (uint32_t i = 0; i < data->mNumberBuffers; i++) {
+            uint8_t *dst = data->mBuffers[i].mData;
             uint32_t dstRemaining = data->mBuffers[i].mDataByteSize;
 
-            void *src = player->buffer->managedData + player->data.nextFrame * frameSize;
+            uint8_t *src = player->buffer->managedData;
+            src += player->data.nextFrame * frameSize;
             while (dstRemaining > 0) {
                 uint32_t playerFrames = numFrames - player->data.nextFrame;
                 uint32_t maxFrames = dstRemaining / frameSize;

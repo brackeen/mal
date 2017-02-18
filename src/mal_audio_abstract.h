@@ -18,11 +18,12 @@
  3. This notice may not be removed or altered from any source distribution.
  */
 
-#ifndef _MAL_AUDIO_ABSTRACT_H_
-#define _MAL_AUDIO_ABSTRACT_H_
+#ifndef MAL_AUDIO_ABSTRACT_H
+#define MAL_AUDIO_ABSTRACT_H
 
 #include "mal.h"
 #include "ok_lib.h"
+#include <math.h>
 
 // If MAL_USE_MUTEX is defined, modifications to MalPlayer objects are locked.
 // Define MAL_USE_MUTEX if a player's buffer data is read on a different thread than the main
@@ -201,6 +202,7 @@ void malContextSetGain(MalContext *context, const float gain) {
 }
 
 bool malContextIsFormatValid(const MalContext *context, const MalFormat format) {
+    (void)context;
     // TODO: Move to subsystem
     return ((format.bitDepth == 8 || format.bitDepth == 16) &&
             (format.numChannels == 1 || format.numChannels == 2) &&
@@ -249,9 +251,10 @@ void malContextFree(MalContext *context) {
 }
 
 bool malFormatsEqual(const MalFormat format1, const MalFormat format2) {
+    static double sampleRateEpsilon = 0.0001;
     return (format1.bitDepth == format2.bitDepth &&
             format1.numChannels == format2.numChannels &&
-            format1.sampleRate == format2.sampleRate);
+            fabs(format1.sampleRate - format2.sampleRate) <= sampleRateEpsilon);
 }
 
 // MARK: Buffer

@@ -18,8 +18,8 @@
  3. This notice may not be removed or altered from any source distribution.
  */
 
-#ifndef _MAL_H_
-#define _MAL_H_
+#ifndef MAL_H
+#define MAL_H
 
 /**
  * @file
