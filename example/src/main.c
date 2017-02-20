@@ -11,7 +11,7 @@
 
 typedef struct {
     MalContext *context;
-    MalBuffer *buffer;
+    MalBuffer *buffer[2];
     MalPlayer *players[kMaxPlayers];
 } MalApp;
 
@@ -53,6 +53,7 @@ static void playSound(MalApp *app, MalBuffer *buffer, float gain) {
     // Play new sound
     for (int i = 0; i < kMaxPlayers; i++) {
         if (app->players[i] && malPlayerGetState(app->players[i]) == MAL_PLAYER_STATE_STOPPED) {
+            malPlayerSetFormat(app->players[i], malBufferGetFormat(buffer));
             malPlayerSetBuffer(app->players[i], buffer);
             malPlayerSetGain(app->players[i], gain);
             malPlayerSetFinishedFunc(app->players[i], onFinished, app);
@@ -64,39 +65,61 @@ static void playSound(MalApp *app, MalBuffer *buffer, float gain) {
 #endif
 }
 
-static void malInit(MalApp *app, ok_wav *wav) {
+static bool malInit(MalApp *app) {
     app->context = malContextCreate(44100);
     if (!app->context) {
         printf("Error: Couldn't create audio context\n");
+        return false;
     }
-    MalFormat format = {
-        .sampleRate = wav->sample_rate,
-        .numChannels = wav->num_channels,
-        .bitDepth = wav->bit_depth};
-    if (!malContextIsFormatValid(app->context, format)) {
-        printf("Error: Audio format is invalid\n");
+
+    char *sound_files[2] = { "sound-22k-mono.wav", "sound-44k-stereo.wav" };
+    for (int i = 0; i < 2; i++) {
+        FILE *file = fopen(sound_files[i], "rb");
+        ok_wav *wav = ok_wav_read(file, true);
+        fclose(file);
+
+        if (!wav->data) {
+            printf("Error: %s\n", wav->error_message);
+            ok_wav_free(wav);
+            return false;
+        }
+
+        MalFormat format = {
+            .sampleRate = wav->sample_rate,
+            .numChannels = wav->num_channels,
+            .bitDepth = wav->bit_depth};
+        if (!malContextIsFormatValid(app->context, format)) {
+            printf("Error: Audio format is invalid\n");
+            ok_wav_free(wav);
+            return false;
+        }
+        app->buffer[i] = malBufferCreateNoCopy(app->context, format, (uint32_t)wav->num_frames,
+                                               wav->data, free);
+
+        wav->data = NULL; // Audio buffer is now managed by mal, don't free it
+        ok_wav_free(wav);
+        if (!app->buffer[i]) {
+            printf("Error: Couldn't create audio buffer\n");
+            return false;
+        }
     }
-    app->buffer = malBufferCreateNoCopy(app->context, format, (uint32_t)wav->num_frames,
-                                        wav->data, free);
-    if (!app->buffer) {
-        printf("Error: Couldn't create audio buffer\n");
-    }
-    wav->data = NULL; // Audio buffer is now managed by mal, don't free it
-    ok_wav_free(wav);
 
     for (int i = 0; i < kMaxPlayers; i++) {
-        app->players[i] = malPlayerCreate(app->context, format);
+        app->players[i] = malPlayerCreate(app->context, malBufferGetFormat(app->buffer[0]));
     }
-    bool success = malPlayerSetBuffer(app->players[0], app->buffer);
+    bool success = malPlayerSetBuffer(app->players[0], app->buffer[0]);
     if (!success) {
         printf("Error: Couldn't attach buffer to audio player\n");
+        return false;
     }
     malPlayerSetGain(app->players[0], 0.25f);
     malPlayerSetLooping(app->players[0], true);
     success = malPlayerSetState(app->players[0], MAL_PLAYER_STATE_PLAYING);
     if (!success) {
         printf("Error: Couldn't play audio\n");
+        return false;
     }
+    return true;
 }
 
 // Be a good app citizen - set mal to inactive when pausing.
@@ -114,9 +137,11 @@ static void onAppResume(GLFMDisplay *display) {
 
 static bool onTouch(GLFMDisplay *display, int touch, GLFMTouchPhase phase, int x, int y) {
     if (phase == GLFMTouchPhaseBegan) {
+        int width = glfmGetDisplayWidth(display);
         int height = glfmGetDisplayHeight(display);
         MalApp *app = glfmGetUserData(display);
-        playSound(app, app->buffer, 0.05f + 0.60f * (height - y) / height);
+        int index = x < width/2 ? 0 : 1;
+        playSound(app, app->buffer[index], 0.05f + 0.60f * (height - y) / height);
     }
     return true;
 }
@@ -133,6 +158,11 @@ static void onFrame(GLFMDisplay *display, const double frameTime) {
 void glfmMain(GLFMDisplay *display) {
     MalApp *app = calloc(1, sizeof(MalApp));
 
+    bool success = malInit(app);
+    if (!success) {
+        return;
+    }
+
     glfmSetDisplayConfig(display,
                          GLFMRenderingAPIOpenGLES2,
                          GLFMColorFormatRGBA8888,
@@ -147,14 +177,4 @@ void glfmMain(GLFMDisplay *display) {
     glfmSetTouchFunc(display, onTouch);
     glfmSetAppPausingFunc(display, onAppPause);
     glfmSetAppResumingFunc(display, onAppResume);
-
-    FILE *file = fopen("sound.wav", "rb");
-    ok_wav *wav = ok_wav_read(file, true);
-    fclose(file);
-
-    if (!wav->data) {
-        printf("Error: %s\n", wav->error_message);
-    } else {
-        malInit(app, wav);
-    }
 }
