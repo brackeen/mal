@@ -1,0 +1,3 @@
+[submodule "example/glfm"]
+	path = example/glfm
+	url = https://github.com/brackeen/glfm.git
