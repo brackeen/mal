@@ -26,20 +26,20 @@
 #define min(a, b) ((a) < (b) ? (a) : (b))
 #endif
 
-enum encoding {
-    ENCODING_UNKNOWN,
-    ENCODING_PCM,
-    ENCODING_ULAW,
-    ENCODING_ALAW,
-    ENCODING_APPLE_IMA_ADPCM,
-    ENCODING_MS_IMA_ADPCM,
-    ENCODING_MS_ADPCM,
+enum ok_wav_encoding {
+    OK_WAV_ENCODING_UNKNOWN,
+    OK_WAV_ENCODING_PCM,
+    OK_WAV_ENCODING_ULAW,
+    OK_WAV_ENCODING_ALAW,
+    OK_WAV_ENCODING_APPLE_IMA_ADPCM,
+    OK_WAV_ENCODING_MS_IMA_ADPCM,
+    OK_WAV_ENCODING_MS_ADPCM,
 };
 
 typedef struct {
     ok_wav *wav;
 
-    enum encoding encoding;
+    enum ok_wav_encoding encoding;
 
     // For ADPCM formats
     uint32_t block_size;
@@ -52,7 +52,7 @@ typedef struct {
     void *input_data;
     ok_wav_read_func input_read_func;
     ok_wav_seek_func input_seek_func;
-} pcm_decoder;
+} ok_wav_decoder;
 
 static void ok_wav_error(ok_wav *wav, const char *message) {
     if (wav) {
@@ -65,7 +65,7 @@ static void ok_wav_error(ok_wav *wav, const char *message) {
     }
 }
 
-static bool ok_read(pcm_decoder *decoder, uint8_t *buffer, size_t length) {
+static bool ok_read(ok_wav_decoder *decoder, uint8_t *buffer, size_t length) {
     if (decoder->input_read_func(decoder->input_data, buffer, length) == length) {
         return true;
     } else {
@@ -74,7 +74,7 @@ static bool ok_read(pcm_decoder *decoder, uint8_t *buffer, size_t length) {
     }
 }
 
-static bool ok_seek(pcm_decoder *decoder, long length) {
+static bool ok_seek(ok_wav_decoder *decoder, long length) {
     if (decoder->input_seek_func(decoder->input_data, length)) {
         return true;
     } else {
@@ -95,8 +95,8 @@ static bool ok_file_seek_func(void *user_data, long count) {
 
 #endif
 
-static void decode_file(ok_wav *wav, void *input_data, ok_wav_read_func read_func,
-                        ok_wav_seek_func seek_func, bool convert_to_system_endian);
+static void ok_wav_decode(ok_wav *wav, void *input_data, ok_wav_read_func read_func,
+                          ok_wav_seek_func seek_func, bool convert_to_system_endian);
 
 // MARK: Public API
 
@@ -105,7 +105,7 @@ static void decode_file(ok_wav *wav, void *input_data, ok_wav_read_func read_fun
 ok_wav *ok_wav_read(FILE *file, bool convert_to_system_endian) {
     ok_wav *wav = calloc(1, sizeof(ok_wav));
     if (file) {
-        decode_file(wav, file, ok_file_read_func, ok_file_seek_func, convert_to_system_endian);
+        ok_wav_decode(wav, file, ok_file_read_func, ok_file_seek_func, convert_to_system_endian);
     } else {
         ok_wav_error(wav, "File not found");
     }
@@ -118,7 +118,7 @@ ok_wav *ok_wav_read_from_callbacks(void *user_data, ok_wav_read_func read_func,
                                    ok_wav_seek_func seek_func, bool convert_to_system_endian) {
     ok_wav *wav = calloc(1, sizeof(ok_wav));
     if (read_func && seek_func) {
-        decode_file(wav, user_data, read_func, seek_func, convert_to_system_endian);
+        ok_wav_decode(wav, user_data, read_func, seek_func, convert_to_system_endian);
     } else {
         ok_wav_error(wav, "Invalid argument: read_func and seek_func must not be NULL");
     }
@@ -139,7 +139,7 @@ static inline uint16_t readBE16(const uint8_t *data) {
 }
 
 static inline uint32_t readBE32(const uint8_t *data) {
-    return (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3];
+    return (uint32_t)((data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]);
 }
 
 static inline uint64_t readBE64(const uint8_t *data) {
@@ -159,7 +159,7 @@ static inline uint16_t readLE16(const uint8_t *data) {
 }
 
 static inline uint32_t readLE32(const uint8_t *data) {
-    return (data[3] << 24) | (data[2] << 16) | (data[1] << 8) | data[0];
+    return (uint32_t)((data[3] << 24) | (data[2] << 16) | (data[1] << 8) | data[0]);
 }
 
 // MARK: Decoding
@@ -167,7 +167,7 @@ static inline uint32_t readLE32(const uint8_t *data) {
 // See g711.c commonly available on the internet
 // http://web.mit.edu/audio/src/build/i386_linux2/sox-11gamma-cb/g711.c
 
-static const int16_t ulaw_table[256] = {
+static const int16_t ok_wav_ulaw_table[256] = {
     -32124, -31100, -30076, -29052, -28028, -27004, -25980, -24956,
     -23932, -22908, -21884, -20860, -19836, -18812, -17788, -16764,
     -15996, -15484, -14972, -14460, -13948, -13436, -12924, -12412,
@@ -202,7 +202,7 @@ static const int16_t ulaw_table[256] = {
     56, 48, 40, 32, 24, 16, 8, 0,
 };
 
-static const int16_t alaw_table[256] = {
+static const int16_t ok_wav_alaw_table[256] = {
     -5504, -5248, -6016, -5760, -4480, -4224, -4992, -4736,
     -7552, -7296, -8064, -7808, -6528, -6272, -7040, -6784,
     -2752, -2624, -3008, -2880, -2240, -2112, -2496, -2368,
@@ -237,8 +237,8 @@ static const int16_t alaw_table[256] = {
     944, 912, 1008, 976, 816, 784, 880, 848,
 };
 
-static void decode_logarithmic_pcm_data(pcm_decoder *decoder, const int16_t table[256]) {
-    static const unsigned int buffer_size = 1024;
+static void ok_wav_decode_logarithmic_pcm_data(ok_wav_decoder *decoder, const int16_t table[256]) {
+    static const size_t buffer_size = 1024;
 
     ok_wav *wav = decoder->wav;
 
@@ -262,12 +262,12 @@ static void decode_logarithmic_pcm_data(pcm_decoder *decoder, const int16_t tabl
     // Decode
     int16_t *output = wav->data;
     while (input_data_length > 0) {
-        int bytes_to_read = (int)min(input_data_length, buffer_size);
+        size_t bytes_to_read = (size_t)min(input_data_length, buffer_size);
         if (!ok_read(decoder, buffer, bytes_to_read)) {
             goto done;
         }
         input_data_length -= bytes_to_read;
-        for (int i = 0; i < bytes_to_read; i++) {
+        for (uint64_t i = 0; i < bytes_to_read; i++) {
             *output++ = table[buffer[i]];
         }
     }
@@ -281,12 +281,14 @@ static void decode_logarithmic_pcm_data(pcm_decoder *decoder, const int16_t tabl
 done:
     free(buffer);
 }
-struct ima_state {
+
+struct ok_wav_ima_state {
     int32_t predictor;
     int8_t step_index;
 };
 
-static int16_t decode_ima_adpcm_nibble(struct ima_state *channel_state, uint8_t nibble) {
+static int16_t ok_wav_decode_ima_adpcm_nibble(struct ok_wav_ima_state *channel_state,
+                                              uint8_t nibble) {
     static const int ima_index_table[16] = {
         -1, -1, -1, -1, 2, 4, 6, 8,
         -1, -1, -1, -1, 2, 4, 6, 8
@@ -342,17 +344,17 @@ static int16_t decode_ima_adpcm_nibble(struct ima_state *channel_state, uint8_t 
 // See https://wiki.multimedia.cx/index.php/Apple_QuickTime_IMA_ADPCM
 // and https://wiki.multimedia.cx/index.php?title=IMA_ADPCM
 // and http://www.drdobbs.com/database/algorithm-alley/184410326
-static void decode_apple_ima_adpcm_data(pcm_decoder *decoder) {
+static void ok_wav_decode_apple_ima_adpcm_data(ok_wav_decoder *decoder) {
     ok_wav *wav = decoder->wav;
-    struct ima_state *channel_states = NULL;
+    struct ok_wav_ima_state *channel_states = NULL;
     uint8_t *block = NULL;
-    const int num_channels = wav->num_channels;
+    uint8_t num_channels = wav->num_channels;
 
     // Allocate buffers
-    const uint64_t max_output_frames = (wav->num_frames + 1) & ~1;
+    const uint64_t max_output_frames = (wav->num_frames + 1) & ~1u;
     const uint64_t output_data_length = max_output_frames * sizeof(int16_t) * num_channels;
     const size_t platform_data_length = (size_t)output_data_length;
-    channel_states = calloc(wav->num_channels, sizeof(struct ima_state));
+    channel_states = calloc(num_channels, sizeof(struct ok_wav_ima_state));
     if (!channel_states) {
         ok_wav_error(wav, "Couldn't allocate channel_state buffer");
         goto done;
@@ -374,7 +376,7 @@ static void decode_apple_ima_adpcm_data(pcm_decoder *decoder) {
     uint64_t remaining_frames = wav->num_frames;
     int16_t *output = wav->data;
     while (remaining_frames > 0) {
-        int frames = (int)min(remaining_frames, decoder->frames_per_block);
+        uint64_t frames = min(remaining_frames, decoder->frames_per_block);
         if (!ok_read(decoder, block, decoder->block_size)) {
             goto done;
         }
@@ -382,7 +384,7 @@ static void decode_apple_ima_adpcm_data(pcm_decoder *decoder) {
         // Each input block contains one channel. Convert to signed 16-bit and interleave.
         uint8_t *packet = block;
         for (int channel = 0; channel < num_channels; channel++) {
-            struct ima_state *channel_state = channel_states + channel;
+            struct ok_wav_ima_state *channel_state = channel_states + channel;
 
             // Each block starts with a 2-byte preamble
             uint16_t preamble = readBE16(packet);
@@ -398,9 +400,9 @@ static void decode_apple_ima_adpcm_data(pcm_decoder *decoder) {
             int16_t *channel_output = output + channel;
             int16_t *channel_output_end = channel_output + num_channels * frames;
             while (channel_output < channel_output_end) {
-                *channel_output = decode_ima_adpcm_nibble(channel_state, (*input) & 0x0f);
+                *channel_output = ok_wav_decode_ima_adpcm_nibble(channel_state, (*input) & 0x0f);
                 channel_output += num_channels;
-                *channel_output = decode_ima_adpcm_nibble(channel_state, (*input) >> 4);
+                *channel_output = ok_wav_decode_ima_adpcm_nibble(channel_state, (*input) >> 4);
                 channel_output += num_channels;
                 input++;
             }
@@ -425,17 +427,17 @@ done:
 
 // Similar to Apple's IMA ADPCM.
 // See https://wiki.multimedia.cx/index.php?title=Microsoft_IMA_ADPCM
-static void decode_ms_ima_adpcm_data(pcm_decoder *decoder) {
+static void ok_wav_decode_ms_ima_adpcm_data(ok_wav_decoder *decoder) {
     ok_wav *wav = decoder->wav;
-    struct ima_state *channel_states = NULL;
+    struct ok_wav_ima_state *channel_states = NULL;
     uint8_t *block = NULL;
-    const int num_channels = wav->num_channels;
+    uint8_t num_channels = wav->num_channels;
 
     // Allocate buffers
     const uint64_t max_output_frames = wav->num_frames + 7; // 1 frame, then 8 frames at once
     const uint64_t output_data_length = max_output_frames * sizeof(int16_t) * num_channels;
     const size_t platform_data_length = (size_t)output_data_length;
-    channel_states = calloc(wav->num_channels, sizeof(struct ima_state));
+    channel_states = calloc(num_channels, sizeof(struct ok_wav_ima_state));
     if (!channel_states) {
         ok_wav_error(wav, "Couldn't allocate channel_state buffer");
         goto done;
@@ -457,8 +459,8 @@ static void decode_ms_ima_adpcm_data(pcm_decoder *decoder) {
     uint64_t remaining_frames = wav->num_frames;
     int16_t *output = wav->data;
     while (remaining_frames > 0) {
-        const int block_frames = (int)min(remaining_frames, decoder->frames_per_block);
-        int frames = block_frames;
+        const uint64_t block_frames = min(remaining_frames, decoder->frames_per_block);
+        int64_t frames = (int64_t)block_frames;
         if (!ok_read(decoder, block, decoder->block_size)) {
             goto done;
         }
@@ -466,9 +468,9 @@ static void decode_ms_ima_adpcm_data(pcm_decoder *decoder) {
         // Preamble - 2 bytes for predictor, 1 bytes for index, 1 empty byte
         uint8_t *input = block;
         for (int channel = 0; channel < num_channels; channel++) {
-            int16_t sample = (wav->little_endian ? readLE16(input) : readBE16(input));
+            int16_t sample = (int16_t)(wav->little_endian ? readLE16(input) : readBE16(input));
             channel_states[channel].predictor = sample;
-            channel_states[channel].step_index = input[2];
+            channel_states[channel].step_index = (int8_t)input[2];
             input += 4;
 
             *output++ = sample;
@@ -478,12 +480,13 @@ static void decode_ms_ima_adpcm_data(pcm_decoder *decoder) {
         // Frames - 8 frames (4 bytes) for each channel
         while (frames > 0) {
             for (int channel = 0; channel < num_channels; channel++) {
-                struct ima_state *channel_state = channel_states + channel;
+                struct ok_wav_ima_state *channel_state = channel_states + channel;
                 int16_t *channel_output = output + channel; 
                 for (int i = 0; i < 4; i++) {
-                    *channel_output = decode_ima_adpcm_nibble(channel_state, (*input) & 0x0f);
+                    *channel_output = ok_wav_decode_ima_adpcm_nibble(channel_state,
+                                                                     (*input) & 0x0f);
                     channel_output += num_channels;
-                    *channel_output = decode_ima_adpcm_nibble(channel_state, (*input) >> 4);
+                    *channel_output = ok_wav_decode_ima_adpcm_nibble(channel_state, (*input) >> 4);
                     channel_output += num_channels;
                     input++;
                 }
@@ -506,7 +509,7 @@ done:
     free(channel_states);
 }
 
-struct ms_adpcm_state {
+struct ok_wav_ms_adpcm_state {
     int32_t coeff1;
     int32_t coeff2;
     uint16_t delta;
@@ -514,7 +517,8 @@ struct ms_adpcm_state {
     int16_t sample2;
 };
 
-static int16_t decode_ms_adpcm_nibble(struct ms_adpcm_state *channel_state, uint8_t nibble) {
+static int16_t ok_wav_decode_ms_adpcm_nibble(struct ok_wav_ms_adpcm_state *channel_state,
+                                             uint8_t nibble) {
     static const uint16_t adaptation_table[16] = {
         230, 230, 230, 230, 307, 409, 512, 614,
         768, 614, 512, 409, 307, 230, 230, 230
@@ -552,7 +556,7 @@ static int16_t decode_ms_adpcm_nibble(struct ms_adpcm_state *channel_state, uint
 }
 
 // See https://wiki.multimedia.cx/?title=Microsoft_ADPCM
-static void decode_ms_adpcm_data(pcm_decoder *decoder) {
+static void ok_wav_decode_ms_adpcm_data(ok_wav_decoder *decoder) {
     static const int adaptation_coeff1[7] = {
         256, 512, 0, 192, 240, 460, 392
     };
@@ -562,16 +566,16 @@ static void decode_ms_adpcm_data(pcm_decoder *decoder) {
     };
 
     ok_wav *wav = decoder->wav;
-    struct ms_adpcm_state *channel_states = NULL;
+    struct ok_wav_ms_adpcm_state *channel_states = NULL;
     uint8_t *block = NULL;
-    const int num_channels = wav->num_channels;
+    uint8_t num_channels = wav->num_channels;
     const bool is_le = wav->little_endian;
 
     // Allocate buffers
-    const uint64_t max_output_frames = (wav->num_frames + 1) & ~1;
+    const uint64_t max_output_frames = (wav->num_frames + 1) & ~1u;
     const uint64_t output_data_length = max_output_frames * sizeof(int16_t) * num_channels;
     const size_t platform_data_length = (size_t)output_data_length;
-    channel_states = calloc(wav->num_channels, sizeof(struct ms_adpcm_state));
+    channel_states = calloc(num_channels, sizeof(struct ok_wav_ms_adpcm_state));
     if (!channel_states) {
         ok_wav_error(wav, "Couldn't allocate channel_state buffer");
         goto done;
@@ -593,8 +597,8 @@ static void decode_ms_adpcm_data(pcm_decoder *decoder) {
     uint64_t remaining_frames = wav->num_frames;
     int16_t *output = wav->data;
     while (remaining_frames > 0) {
-        const int block_frames = (int)min(remaining_frames, decoder->frames_per_block);
-        int frames = block_frames;
+        uint64_t block_frames = min(remaining_frames, decoder->frames_per_block);
+        int64_t frames = (int64_t)block_frames;
         if (!ok_read(decoder, block, decoder->block_size)) {
             goto done;
         }
@@ -612,11 +616,11 @@ static void decode_ms_adpcm_data(pcm_decoder *decoder) {
             input += 2;
         }
         for (int channel = 0; channel < num_channels; channel++) {
-            channel_states[channel].sample1 = (is_le ? readLE16(input) : readBE16(input));
+            channel_states[channel].sample1 = (int16_t)(is_le ? readLE16(input) : readBE16(input));
             input += 2;
         }
         for (int channel = 0; channel < num_channels; channel++) {
-            channel_states[channel].sample2 = (is_le ? readLE16(input) : readBE16(input));
+            channel_states[channel].sample2 = (int16_t)(is_le ? readLE16(input) : readBE16(input));
             input += 2;
         }
 
@@ -630,22 +634,23 @@ static void decode_ms_adpcm_data(pcm_decoder *decoder) {
         frames -= 2;
 
         // Frames (interleaved)
-        int samples = frames * num_channels;
+        int64_t samples = frames * num_channels;
         if (num_channels <= 2) {
-            struct ms_adpcm_state *channel_state1 = channel_states;
-            struct ms_adpcm_state *channel_state2 = channel_states + (num_channels - 1);
+            struct ok_wav_ms_adpcm_state *channel_state1 = channel_states;
+            struct ok_wav_ms_adpcm_state *channel_state2 = channel_states + (num_channels - 1);
             while (samples > 0) {
-                *output++ = decode_ms_adpcm_nibble(channel_state1, (*input) >> 4);
-                *output++ = decode_ms_adpcm_nibble(channel_state2, (*input) & 0x0f);
+                *output++ = ok_wav_decode_ms_adpcm_nibble(channel_state1, (*input) >> 4);
+                *output++ = ok_wav_decode_ms_adpcm_nibble(channel_state2, (*input) & 0x0f);
                 input++;
                 samples -= 2;
             }
         } else {
             int channel = 0;
             while (samples > 0) {
-                *output++ = decode_ms_adpcm_nibble(channel_states + channel, (*input) >> 4);
+                *output++ = ok_wav_decode_ms_adpcm_nibble(channel_states + channel, (*input) >> 4);
                 channel = (channel + 1) % num_channels;
-                *output++ = decode_ms_adpcm_nibble(channel_states + channel, (*input) & 0x0f);
+                *output++ = ok_wav_decode_ms_adpcm_nibble(channel_states + channel,
+                                                          (*input) & 0x0f);
                 channel = (channel + 1) % num_channels;
                 input++;
                 samples -= 2;
@@ -666,11 +671,11 @@ done:
     free(channel_states);
 }
 
-static void decode_pcm_data(pcm_decoder *decoder) {
+static void ok_wav_decode_pcm_data(ok_wav_decoder *decoder) {
     ok_wav *wav = decoder->wav;
     uint64_t data_length = wav->num_frames * wav->num_channels * (wav->bit_depth / 8);
-    int platform_data_length = (int)data_length;
-    if (platform_data_length > 0 && (size_t)platform_data_length == data_length) {
+    size_t platform_data_length = (size_t)data_length;
+    if (platform_data_length > 0 && platform_data_length == data_length) {
         wav->data = malloc(platform_data_length);
     }
     if (!wav->data) {
@@ -749,12 +754,12 @@ static void decode_pcm_data(pcm_decoder *decoder) {
 
 // MARK: Container file formats (WAV, CAF)
 
-static bool valid_bit_depth(const ok_wav *wav, enum encoding encoding) {
-    if (encoding == ENCODING_ULAW || encoding == ENCODING_ALAW) {
+static bool ok_wav_valid_bit_depth(const ok_wav *wav, enum ok_wav_encoding encoding) {
+    if (encoding == OK_WAV_ENCODING_ULAW || encoding == OK_WAV_ENCODING_ALAW) {
         return (wav->bit_depth == 8 && wav->is_float == false);
-    } else if (encoding == ENCODING_APPLE_IMA_ADPCM) {
+    } else if (encoding == OK_WAV_ENCODING_APPLE_IMA_ADPCM) {
         return wav->is_float == false;
-    } else if (encoding == ENCODING_MS_IMA_ADPCM || encoding == ENCODING_MS_ADPCM) {
+    } else if (encoding == OK_WAV_ENCODING_MS_IMA_ADPCM || encoding == OK_WAV_ENCODING_MS_ADPCM) {
         return (wav->bit_depth == 4 && wav->is_float == false);
     } else {
         if (wav->is_float) {
@@ -767,16 +772,16 @@ static bool valid_bit_depth(const ok_wav *wav, enum encoding encoding) {
     }
 }
 
-static void decode_data(pcm_decoder *decoder, uint64_t data_length) {
+static void ok_wav_decode_data(ok_wav_decoder *decoder, uint64_t data_length) {
     ok_wav *wav = decoder->wav;
     if (wav->sample_rate <= 0 || wav->num_channels <= 0) {
         ok_wav_error(wav, "Invalid file (header not found)");
         return;
     }
 
-    if (decoder->encoding == ENCODING_APPLE_IMA_ADPCM ||
-        decoder->encoding == ENCODING_MS_IMA_ADPCM ||
-        decoder->encoding == ENCODING_MS_ADPCM) {
+    if (decoder->encoding == OK_WAV_ENCODING_APPLE_IMA_ADPCM ||
+        decoder->encoding == OK_WAV_ENCODING_MS_IMA_ADPCM ||
+        decoder->encoding == OK_WAV_ENCODING_MS_ADPCM) {
         if (decoder->block_size  == 0) {
             ok_wav_error(wav, "Invalid block size");
             return;
@@ -798,31 +803,31 @@ static void decode_data(pcm_decoder *decoder, uint64_t data_length) {
         }
     }
     switch (decoder->encoding) {
-        case ENCODING_UNKNOWN:
+        case OK_WAV_ENCODING_UNKNOWN:
             // Do nothing
             break;
-        case ENCODING_PCM:
-            decode_pcm_data(decoder);
+        case OK_WAV_ENCODING_PCM:
+            ok_wav_decode_pcm_data(decoder);
             break;
-        case ENCODING_ALAW:
-            decode_logarithmic_pcm_data(decoder, alaw_table);
+        case OK_WAV_ENCODING_ALAW:
+            ok_wav_decode_logarithmic_pcm_data(decoder, ok_wav_alaw_table);
             break;
-        case ENCODING_ULAW:
-            decode_logarithmic_pcm_data(decoder, ulaw_table);
+        case OK_WAV_ENCODING_ULAW:
+            ok_wav_decode_logarithmic_pcm_data(decoder, ok_wav_ulaw_table);
             break;
-        case ENCODING_APPLE_IMA_ADPCM:
-            decode_apple_ima_adpcm_data(decoder);
+        case OK_WAV_ENCODING_APPLE_IMA_ADPCM:
+            ok_wav_decode_apple_ima_adpcm_data(decoder);
             break;
-        case ENCODING_MS_IMA_ADPCM:
-            decode_ms_ima_adpcm_data(decoder);
+        case OK_WAV_ENCODING_MS_IMA_ADPCM:
+            ok_wav_decode_ms_ima_adpcm_data(decoder);
             break;
-        case ENCODING_MS_ADPCM:
-            decode_ms_adpcm_data(decoder);
+        case OK_WAV_ENCODING_MS_ADPCM:
+            ok_wav_decode_ms_adpcm_data(decoder);
             break;
     }
 }
 
-static void decode_wav_file(pcm_decoder *decoder, bool is_little_endian) {
+static void ok_wav_decode_wav_file(ok_wav_decoder *decoder, bool is_little_endian) {
     ok_wav *wav = decoder->wav;
     wav->little_endian = is_little_endian;
 
@@ -876,30 +881,31 @@ static void decode_wav_file(pcm_decoder *decoder, bool is_little_endian) {
             }
 
             if (format == 1) {
-                decoder->encoding = ENCODING_PCM;
+                decoder->encoding = OK_WAV_ENCODING_PCM;
             } else if (format == 2) {
-                decoder->encoding = ENCODING_MS_ADPCM;
+                decoder->encoding = OK_WAV_ENCODING_MS_ADPCM;
             } else if (format == 3) {
-                decoder->encoding = ENCODING_PCM;
+                decoder->encoding = OK_WAV_ENCODING_PCM;
                 wav->is_float = true;
             } else if (format == 6) {
-                decoder->encoding = ENCODING_ALAW;
+                decoder->encoding = OK_WAV_ENCODING_ALAW;
             } else if (format == 7) {
-                decoder->encoding = ENCODING_ULAW;
+                decoder->encoding = OK_WAV_ENCODING_ULAW;
             } else if (format == 0x11) {
-                decoder->encoding = ENCODING_MS_IMA_ADPCM;
+                decoder->encoding = OK_WAV_ENCODING_MS_IMA_ADPCM;
             } else {
-                decoder->encoding = ENCODING_UNKNOWN;
+                decoder->encoding = OK_WAV_ENCODING_UNKNOWN;
             }
 
-            if (chunk_length >= 20 && (decoder->encoding == ENCODING_MS_ADPCM ||
-                                       decoder->encoding == ENCODING_MS_IMA_ADPCM)) {
+            if (chunk_length >= 20 && (decoder->encoding == OK_WAV_ENCODING_MS_ADPCM ||
+                                       decoder->encoding == OK_WAV_ENCODING_MS_IMA_ADPCM)) {
                 decoder->frames_per_block = (is_little_endian ? readLE16(chunk_data + 18) :
                                              readBE16(chunk_data + 18));
             }
 
-            bool validFormat = (decoder->encoding != ENCODING_UNKNOWN &&
-                                valid_bit_depth(wav, decoder->encoding) && wav->num_channels > 0);
+            bool validFormat = (decoder->encoding != OK_WAV_ENCODING_UNKNOWN &&
+                                ok_wav_valid_bit_depth(wav, decoder->encoding) &&
+                                wav->num_channels > 0);
             if (!validFormat) {
                 ok_wav_error(wav, "Invalid WAV format. Must be PCM, and a bit depth of "
                                   "8, 16, 32, 48, or 64-bit.");
@@ -914,23 +920,23 @@ static void decode_wav_file(pcm_decoder *decoder, bool is_little_endian) {
                 wav->num_frames = is_little_endian ? readLE32(chunk_data) : readBE32(chunk_data);
                 chunk_length -= 4;
             }
-            if (!ok_seek(decoder, chunk_length)) {
+            if (!ok_seek(decoder, (long)chunk_length)) {
                 return;
             }
         } else if (memcmp("data", chunk_header, 4) == 0) {
-            decode_data(decoder, chunk_length);
+            ok_wav_decode_data(decoder, chunk_length);
             return;
         } else {
             // Skip ignored chunk
             //printf("Ignoring chunk '%.4s'\n", chunk_header);
-            if (!ok_seek(decoder, chunk_length)) {
+            if (!ok_seek(decoder, (long)chunk_length)) {
                 return;
             }
         }
     }
 }
 
-static void decode_caf_file(pcm_decoder *decoder) {
+static void ok_wav_decode_caf_file(ok_wav_decoder *decoder) {
     ok_wav *wav = decoder->wav;
     uint8_t header[4];
     if (!ok_read(decoder, header, sizeof(header))) {
@@ -949,7 +955,7 @@ static void decode_caf_file(pcm_decoder *decoder) {
         if (!ok_read(decoder, chunk_header, sizeof(chunk_header))) {
             return;
         }
-        const int64_t chunk_length = readBE64(chunk_header + 4);
+        const int64_t chunk_length = (int64_t)readBE64(chunk_header + 4);
 
         if (memcmp("desc", chunk_header, 4) == 0) {
             // Read desc chunk
@@ -984,19 +990,19 @@ static void decode_caf_file(pcm_decoder *decoder) {
             wav->bit_depth = (uint8_t)bits_per_channel;
 
             if (memcmp("lpcm", format_id, 4) == 0) {
-                decoder->encoding = ENCODING_PCM;
+                decoder->encoding = OK_WAV_ENCODING_PCM;
             } else if (memcmp("ulaw", format_id, 4) == 0) {
-                decoder->encoding = ENCODING_ULAW;
+                decoder->encoding = OK_WAV_ENCODING_ULAW;
             } else if (memcmp("alaw", format_id, 4) == 0) {
-                decoder->encoding = ENCODING_ALAW;
+                decoder->encoding = OK_WAV_ENCODING_ALAW;
             } else if (memcmp("ima4", format_id, 4) == 0) {
-                decoder->encoding = ENCODING_APPLE_IMA_ADPCM;
+                decoder->encoding = OK_WAV_ENCODING_APPLE_IMA_ADPCM;
             } else {
-                decoder->encoding = ENCODING_UNKNOWN;
+                decoder->encoding = OK_WAV_ENCODING_UNKNOWN;
             }
 
             bool valid_bytes_per_packet;
-            if (decoder->encoding == ENCODING_APPLE_IMA_ADPCM) {
+            if (decoder->encoding == OK_WAV_ENCODING_APPLE_IMA_ADPCM) {
                 if (wav->num_channels > 0) {
                     decoder->frames_per_block = frames_per_packet;
                     decoder->block_size = bytes_per_packet;
@@ -1010,11 +1016,11 @@ static void decode_caf_file(pcm_decoder *decoder) {
                 valid_bytes_per_packet = (frames_per_packet == 1 && bytes_per_packet == bpp);
             }
 
-            bool valid_format = (decoder->encoding != ENCODING_UNKNOWN &&
+            bool valid_format = (decoder->encoding != OK_WAV_ENCODING_UNKNOWN &&
                                  (wav->sample_rate > 0) &&
                                  (wav->num_channels > 0) &&
                                  valid_bytes_per_packet &&
-                                 (valid_bit_depth(wav, decoder->encoding)));
+                                 (ok_wav_valid_bit_depth(wav, decoder->encoding)));
             if (!valid_format) {
                 ok_wav_error(wav, "Invalid CAF format. Must be PCM, mono or stereo, and "
                                   "8-, 16-, 24- or 32-bit.)");
@@ -1030,7 +1036,7 @@ static void decode_caf_file(pcm_decoder *decoder) {
                 return;
             }
             // Read the data and return (skip any remaining chunks)
-            decode_data(decoder, chunk_length - 4);
+            ok_wav_decode_data(decoder, (uint64_t)(chunk_length - 4));
             return;
         } else if (memcmp("pakt", chunk_header, 4) == 0) {
             // Read pakt chunk
@@ -1054,12 +1060,12 @@ static void decode_caf_file(pcm_decoder *decoder) {
     }
 }
 
-static void decode_file(ok_wav *wav, void *input_data, ok_wav_read_func read_func,
-                        ok_wav_seek_func seek_func, bool convert_to_system_endian) {
+static void ok_wav_decode(ok_wav *wav, void *input_data, ok_wav_read_func read_func,
+                          ok_wav_seek_func seek_func, bool convert_to_system_endian) {
     if (!wav) {
         return;
     }
-    pcm_decoder *decoder = calloc(1, sizeof(pcm_decoder));
+    ok_wav_decoder *decoder = calloc(1, sizeof(ok_wav_decoder));
     if (!decoder) {
         ok_wav_error(wav, "Couldn't allocate decoder.");
         return;
@@ -1075,11 +1081,11 @@ static void decode_file(ok_wav *wav, void *input_data, ok_wav_read_func read_fun
     if (ok_read(decoder, header, sizeof(header))) {
         //printf("File '%.4s'\n", header);
         if (memcmp("RIFF", header, 4) == 0) {
-            decode_wav_file(decoder, true);
+            ok_wav_decode_wav_file(decoder, true);
         } else if (memcmp("RIFX", header, 4) == 0) {
-            decode_wav_file(decoder, false);
+            ok_wav_decode_wav_file(decoder, false);
         } else if (memcmp("caff", header, 4) == 0) {
-            decode_caf_file(decoder);
+            ok_wav_decode_caf_file(decoder);
         } else {
             ok_wav_error(wav, "Not a PCM WAV or CAF file.");
         }
