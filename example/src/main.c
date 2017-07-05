@@ -135,7 +135,7 @@ static void onAppResume(GLFMDisplay *display) {
 
 // GLFM functions
 
-static bool onTouch(GLFMDisplay *display, int touch, GLFMTouchPhase phase, int x, int y) {
+static bool onTouch(GLFMDisplay *display, int touch, GLFMTouchPhase phase, double x, double y) {
     if (phase == GLFMTouchPhaseBegan) {
         int width = glfmGetDisplayWidth(display);
         int height = glfmGetDisplayHeight(display);
