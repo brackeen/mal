@@ -87,7 +87,8 @@ static bool malInit(MalApp *app) {
         MalFormat format = {
             .sampleRate = wav->sample_rate,
             .numChannels = wav->num_channels,
-            .bitDepth = wav->bit_depth};
+            .bitDepth = wav->bit_depth
+        };
         if (!malContextIsFormatValid(app->context, format)) {
             printf("Error: Audio format is invalid\n");
             ok_wav_free(wav);
@@ -140,17 +141,17 @@ static bool onTouch(GLFMDisplay *display, int touch, GLFMTouchPhase phase, doubl
         int width = glfmGetDisplayWidth(display);
         int height = glfmGetDisplayHeight(display);
         MalApp *app = glfmGetUserData(display);
-        int index = x < width/2 ? 0 : 1;
+        int index = x < width / 2 ? 0 : 1;
         playSound(app, app->buffer[index], 0.05f + 0.60f * (height - y) / height);
     }
     return true;
 }
 
-static void onSurfaceCreated(GLFMDisplay *display, const int width, const int height) {
+static void onSurfaceCreated(GLFMDisplay *display, int width, int height) {
     glViewport(0, 0, width, height);
 }
 
-static void onFrame(GLFMDisplay *display, const double frameTime) {
+static void onFrame(GLFMDisplay *display, double frameTime) {
     glClearColor(0.6f, 0.0f, 0.4f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 }
