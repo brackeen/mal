@@ -22,7 +22,7 @@
 #if defined(__APPLE__)
 #include <TargetConditionals.h>
 #endif
-#if TARGET_OS_IOS == 1
+#if TARGET_OS_IOS || TARGET_OS_TV
 
 #include "mal_audio_coreaudio.h"
 #include <AVFoundation/AVFoundation.h>

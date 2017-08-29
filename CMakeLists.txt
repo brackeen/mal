@@ -44,7 +44,9 @@ elseif (IOS)
     target_link_libraries(mal "-framework Foundation -framework AudioToolbox -framework AVFoundation")
     set_target_properties(mal PROPERTIES
         ARCHIVE_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/MAL.build/lib # For Archiving
+        XCODE_ATTRIBUTE_SUPPORTED_PLATFORMS "iphoneos iphonesimulator appletvos appletvsimulator"
         XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET 8.0
+        XCODE_ATTRIBUTE_TVOS_DEPLOYMENT_TARGET 9.0
         XCODE_ATTRIBUTE_CLANG_ENABLE_OBJC_ARC YES
     )
 endif()
