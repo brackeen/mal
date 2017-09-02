@@ -1,5 +1,13 @@
 
+#if defined(MAL_EXAMPLE_WITH_GLFM)
 #include "glfm.h"
+#elif defined(MAL_EXAMPLE_WITH_GLFW)
+#include <glad/glad.h>
+#include <GLFW/glfw3.h>
+#else
+#error Mal example has no window layer
+#endif
+
 #include "mal.h"
 #include "ok_wav.h"
 #include <stdio.h>
@@ -65,7 +73,7 @@ static void playSound(MalApp *app, MalBuffer *buffer, float gain) {
 #endif
 }
 
-static bool malInit(MalApp *app) {
+static bool malExampleInit(MalApp *app) {
     app->context = malContextCreate(44100);
     if (!app->context) {
         printf("Error: Couldn't create audio context\n");
@@ -123,6 +131,20 @@ static bool malInit(MalApp *app) {
     return true;
 }
 
+static void malExampleFree(MalApp *app) {
+    malBufferFree(app->buffer[0]);
+    malBufferFree(app->buffer[1]);
+    for (int i = 0; i < kMaxPlayers; i++) {
+        malPlayerFree(app->players[i]);
+    }
+    malContextFree(app->context);
+    free(app);
+}
+
+#if defined(MAL_EXAMPLE_WITH_GLFM)
+
+// MARK: GLFM functions
+
 // Be a good app citizen - set mal to inactive when pausing.
 static void onAppPause(GLFMDisplay *display) {
     MalApp *app = glfmGetUserData(display);
@@ -133,8 +155,6 @@ static void onAppResume(GLFMDisplay *display) {
     MalApp *app = glfmGetUserData(display);
     malContextSetActive(app->context, true);
 }
-
-// GLFM functions
 
 static bool onTouch(GLFMDisplay *display, int touch, GLFMTouchPhase phase, double x, double y) {
     if (phase == GLFMTouchPhaseBegan) {
@@ -159,7 +179,7 @@ static void onFrame(GLFMDisplay *display, double frameTime) {
 void glfmMain(GLFMDisplay *display) {
     MalApp *app = calloc(1, sizeof(MalApp));
 
-    bool success = malInit(app);
+    bool success = malExampleInit(app);
     if (!success) {
         return;
     }
@@ -179,3 +199,68 @@ void glfmMain(GLFMDisplay *display) {
     glfmSetAppPausingFunc(display, onAppPause);
     glfmSetAppResumingFunc(display, onAppResume);
 }
+
+#elif defined(MAL_EXAMPLE_WITH_GLFW)
+
+static void onError(int error, const char *description) {
+    printf("Error: %s\n", description);
+}
+
+static void onMouseClick(GLFWwindow *window, int button, int action, int mods) {
+    if (action == GLFW_PRESS) {
+        int viewWidth;
+        int viewHeight;
+        glfwGetWindowSize(window, &viewWidth, &viewHeight);
+        double x, y;
+        glfwGetCursorPos(window, &x, &y);
+
+        MalApp *app = glfwGetWindowUserPointer(window);
+        int index = x < viewWidth / 2 ? 0 : 1;
+        playSound(app, app->buffer[index], 0.05f + 0.60f * (viewHeight - y) / viewHeight);
+    }
+}
+
+int main(void) {
+    MalApp *app = calloc(1, sizeof(MalApp));
+    bool success = malExampleInit(app);
+    if (!success) {
+        exit(EXIT_FAILURE);
+    }
+
+    GLFWwindow *window;
+    glfwSetErrorCallback(onError);
+    if (!glfwInit()) {
+        exit(EXIT_FAILURE);
+    }
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 2);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+    window = glfwCreateWindow(640, 480, "MAL Example", NULL, NULL);
+    if (!window) {
+        glfwTerminate();
+        exit(EXIT_FAILURE);
+    }
+    glfwMakeContextCurrent(window);
+    gladLoadGLLoader((GLADloadproc) glfwGetProcAddress);
+    glfwSwapInterval(1);
+
+    glfwSetWindowUserPointer(window, app);
+    glfwSetMouseButtonCallback(window, onMouseClick);
+
+    while (!glfwWindowShouldClose(window)) {
+        int width, height;
+        glfwGetFramebufferSize(window, &width, &height);
+        glViewport(0, 0, width, height);
+        glClearColor(0.6f, 0.0f, 0.4f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        glfwSwapBuffers(window);
+        glfwPollEvents();
+    }
+    glfwDestroyWindow(window);
+    glfwTerminate();
+
+    malExampleFree(app);
+    exit(EXIT_SUCCESS);
+}
+
+#endif

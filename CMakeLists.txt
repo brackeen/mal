@@ -14,10 +14,15 @@ if (CMAKE_SYSTEM_NAME MATCHES "Emscripten")
     endif()
 elseif (CMAKE_SYSTEM_NAME MATCHES "Android")
     set(MAL_SRC ${MAL_SRC} src/mal_platform_android.c src/mal_audio_opensl.h)
-else() # Assume iOS
-    set(IOS TRUE)
-    set(MAL_SRC ${MAL_SRC} src/mal_platform_ios.m src/mal_audio_coreaudio.h)
-    set(CMAKE_OSX_SYSROOT "iphoneos")
+elseif (CMAKE_SYSTEM_NAME MATCHES "Darwin")
+    if (IOS)
+        set(MAL_SRC ${MAL_SRC} src/mal_platform_ios.m src/mal_audio_coreaudio.h)
+        set(CMAKE_OSX_SYSROOT "iphoneos")
+    else()
+        set(MAL_SRC ${MAL_SRC} src/mal_platform_macos.m src/mal_audio_coreaudio.h)
+    endif()
+else()
+    message(FATAL_ERROR "CMAKE_SYSTEM_NAME must be set to Emscripten, Android, or Darwin. Current value is ${CMAKE_SYSTEM_NAME}")
 endif()
 
 add_library(mal ${MAL_SRC} ${MAL_HEADERS})
@@ -40,15 +45,22 @@ if (CMAKE_SYSTEM_NAME MATCHES "Android")
     find_library(android-lib android)
     find_library(OpenSLES-lib OpenSLES)
     target_link_libraries(mal ${log-lib} ${android-lib} ${OpenSLES-lib})
-elseif (IOS)
-    target_link_libraries(mal "-framework Foundation -framework AudioToolbox -framework AVFoundation")
-    set_target_properties(mal PROPERTIES
-        ARCHIVE_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/MAL.build/lib # For Archiving
-        XCODE_ATTRIBUTE_SUPPORTED_PLATFORMS "iphoneos iphonesimulator appletvos appletvsimulator"
-        XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET 8.0
-        XCODE_ATTRIBUTE_TVOS_DEPLOYMENT_TARGET 9.0
-        XCODE_ATTRIBUTE_CLANG_ENABLE_OBJC_ARC YES
-    )
+elseif (CMAKE_SYSTEM_NAME MATCHES "Darwin")
+    if (IOS)
+        target_link_libraries(mal "-framework Foundation -framework AudioToolbox -framework AVFoundation")
+        set_target_properties(mal PROPERTIES
+            ARCHIVE_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/MAL.build/lib # For Archiving
+            XCODE_ATTRIBUTE_SUPPORTED_PLATFORMS "iphoneos iphonesimulator appletvos appletvsimulator"
+            XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET 8.0
+            XCODE_ATTRIBUTE_TVOS_DEPLOYMENT_TARGET 9.0
+            XCODE_ATTRIBUTE_CLANG_ENABLE_OBJC_ARC YES
+        )
+    else()
+        find_library(AUDIOTOOLBOX_FRAMEWORK AudioToolbox)
+        mark_as_advanced(AUDIOTOOLBOX_FRAMEWORK)
+        list(APPEND mal_libraries "${AUDIOTOOLBOX_FRAMEWORK}")
+        target_link_libraries(mal ${mal_libraries})
+    endif()
 endif()
 
 if (MAL_BUILD_EXAMPLE)
