@@ -583,7 +583,7 @@ static bool _malPlayerInit(MalPlayer *player) {
 }
 
 static void _malPlayerDispose(MalPlayer *player) {
-    if (player->data.converterNode) {
+    if (player->context && player->data.converterNode) {
         AudioUnitUninitialize(player->data.converterUnit);
         AUGraphRemoveNode(player->context->data.graph, player->data.converterNode);
         player->data.converterUnit = NULL;
