@@ -28,15 +28,15 @@
 
 // TODO: macOS version is incomplete
 
-static void _mal_context_did_create(mal_context *context) {
+static void _malContextDidCreate(MalContext *context) {
     // Do nothing
 }
 
-static void _mal_context_will_dispose(mal_context *context) {
+static void _malContextWillDispose(MalContext *context) {
     // Do nothing
 }
 
-static void _mal_context_did_set_active(mal_context *context, bool active) {
+static void _malContextDidSetActive(MalContext *context, bool active) {
     // Do nothing
 }
 
