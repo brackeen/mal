@@ -27,7 +27,7 @@ static void onFinished(void *userData, MalPlayer *player) {
     MalApp *app = userData;
     for (int i = 0; i < kMaxPlayers; i++) {
         if (player == app->players[i]) {
-            printf("FINISHED %i\n", i);
+            printf("FINISHED player=%i\n", i);
         }
     }
 }
@@ -66,7 +66,7 @@ static void playSound(MalApp *app, MalBuffer *buffer, float gain) {
             malPlayerSetGain(app->players[i], gain);
             malPlayerSetFinishedFunc(app->players[i], onFinished, app);
             malPlayerSetState(app->players[i], MAL_PLAYER_STATE_PLAYING);
-            printf("PLAY %i gain=%.2f\n", i, gain);
+            printf("PLAY player=%i gain=%.2f\n", i, gain);
             break;
         }
     }
