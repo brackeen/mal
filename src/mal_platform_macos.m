@@ -137,7 +137,13 @@ static OSStatus _malNotificationHandler(AudioObjectID inObjectID,
                                         const AudioObjectPropertyAddress inAddresses[],
                                         void *inClientData) {
     MalContext *context = inClientData;
-    _malCheckRoutes(context);
+
+    // Perform on main queue and wait until finished, so it is always executed before
+    // _malContextWillDispose()
+    dispatch_sync(dispatch_get_main_queue(), ^{
+        _malCheckRoutes(context);
+    });
+
     return noErr;
 }
 
