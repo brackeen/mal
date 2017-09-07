@@ -26,6 +26,24 @@
 #include <IOKit/audio/IOAudioTypes.h> // For terminal types
 #include "mal_audio_coreaudio.h"
 
+static AudioDeviceID _malGetDeviceId() {
+    OSStatus status = noErr;
+    AudioDeviceID defaultOutputDeviceID = kAudioDeviceUnknown;
+    UInt32 propertySize = sizeof(defaultOutputDeviceID);
+    AudioObjectPropertyAddress  propertyAddress;
+    propertyAddress.mSelector = kAudioHardwarePropertyDefaultOutputDevice;
+    propertyAddress.mScope = kAudioObjectPropertyScopeGlobal;
+    propertyAddress.mElement = kAudioObjectPropertyElementMaster;
+
+    status = AudioObjectGetPropertyData(kAudioObjectSystemObject, &propertyAddress, 0, NULL,
+                                        &propertySize, &defaultOutputDeviceID);
+    if (status != noErr) {
+        return kAudioDeviceUnknown;
+    } else {
+        return defaultOutputDeviceID;
+    }
+}
+
 static void _malCheckRoutes(MalContext *context) {
     if (!context) {
         return;
@@ -43,13 +61,8 @@ static void _malCheckRoutes(MalContext *context) {
     OSStatus status = noErr;
 
     // Get current output device
-    propertyAddress.mSelector = kAudioHardwarePropertyDefaultOutputDevice;
-    propertyAddress.mScope = kAudioObjectPropertyScopeGlobal;
-    propertyAddress.mElement = kAudioObjectPropertyElementMaster;
-    propertySize = sizeof(defaultOutputDeviceID);
-    status = AudioObjectGetPropertyData(kAudioObjectSystemObject, &propertyAddress, 0, NULL,
-                                        &propertySize, &defaultOutputDeviceID);
-    if (status != noErr) {
+    defaultOutputDeviceID = _malGetDeviceId();
+    if (defaultOutputDeviceID == kAudioDeviceUnknown) {
         goto done;
     }
 
@@ -149,6 +162,21 @@ static OSStatus _malNotificationHandler(AudioObjectID inObjectID,
 
 static void _malContextDidCreate(MalContext *context) {
     AudioObjectPropertyAddress  propertyAddress;
+
+    // Set rate
+    if (context->sampleRate > 0) {
+        Float64 sampleRate = (Float64)context->sampleRate;
+        AudioDeviceID defaultOutputDeviceID = _malGetDeviceId();
+        if (defaultOutputDeviceID != kAudioDeviceUnknown) {
+            propertyAddress.mSelector = kAudioDevicePropertyNominalSampleRate;
+            propertyAddress.mScope = kAudioDevicePropertyScopeOutput;
+            propertyAddress.mElement = kAudioObjectPropertyElementMaster;
+            AudioObjectSetPropertyData(defaultOutputDeviceID, &propertyAddress,
+                                       0, NULL, sizeof(sampleRate), &sampleRate);
+        }
+    }
+
+    // Set device listener
     propertyAddress.mSelector = kAudioHardwarePropertyDefaultOutputDevice;
     propertyAddress.mScope = kAudioObjectPropertyScopeGlobal;
     propertyAddress.mElement = kAudioObjectPropertyElementMaster;
