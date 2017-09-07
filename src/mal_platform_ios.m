@@ -98,7 +98,7 @@ static void _malContextWillDispose(MalContext *context) {
     CFNotificationCenterRemoveEveryObserver(CFNotificationCenterGetLocalCenter(), context);
 }
 
-static void _malContextDidSetActive(MalContext *context, const bool active) {
+static void _malContextDidSetActive(MalContext *context, bool active) {
     AVAudioSession *audioSession = [AVAudioSession sharedInstance];
     NSError *error;
 
@@ -113,7 +113,7 @@ static void _malContextDidSetActive(MalContext *context, const bool active) {
             }
         }
         // Set Category
-        // allowBackgroundMusic might need to be an option
+        // TODO: Make allowBackgroundMusic an option
         bool allowBackgroundMusic = true;
         NSString *category = (allowBackgroundMusic ? AVAudioSessionCategoryAmbient :
                               AVAudioSessionCategorySoloAmbient);
