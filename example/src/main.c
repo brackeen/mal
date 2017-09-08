@@ -221,12 +221,6 @@ static void onMouseClick(GLFWwindow *window, int button, int action, int mods) {
 }
 
 int main(void) {
-    MalApp *app = calloc(1, sizeof(MalApp));
-    bool success = malExampleInit(app);
-    if (!success) {
-        exit(EXIT_FAILURE);
-    }
-
     GLFWwindow *window;
     glfwSetErrorCallback(onError);
     if (!glfwInit()) {
@@ -243,6 +237,11 @@ int main(void) {
     gladLoadGLLoader((GLADloadproc) glfwGetProcAddress);
     glfwSwapInterval(1);
 
+    MalApp *app = calloc(1, sizeof(MalApp));
+    bool success = malExampleInit(app);
+    if (!success) {
+        exit(EXIT_FAILURE);
+    }
     glfwSetWindowUserPointer(window, app);
     glfwSetMouseButtonCallback(window, onMouseClick);
 
