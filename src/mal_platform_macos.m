@@ -145,16 +145,29 @@ done:
     free(streamIds);
 }
 
-static OSStatus _malNotificationHandler(AudioObjectID inObjectID,
-                                        UInt32 inNumberAddresses,
-                                        const AudioObjectPropertyAddress inAddresses[],
-                                        void *inClientData) {
+static OSStatus _malOnDeviceChangedHandler(AudioObjectID inObjectID,
+                                           UInt32 inNumberAddresses,
+                                           const AudioObjectPropertyAddress inAddresses[],
+                                           void *inClientData) {
     MalContext *context = inClientData;
 
-    // Perform on main queue and wait until finished, so it is always executed before
-    // _malContextWillDispose()
-    dispatch_sync(dispatch_get_main_queue(), ^{
+    // TODO: Cancel if _malContextWillDispose called
+    dispatch_async(dispatch_get_main_queue(), ^{
         _malCheckRoutes(context);
+    });
+
+    return noErr;
+}
+
+static OSStatus _malOnRestartHandler(AudioObjectID inObjectID,
+                                     UInt32 inNumberAddresses,
+                                     const AudioObjectPropertyAddress inAddresses[],
+                                     void *inClientData) {
+    MalContext *context = inClientData;
+
+    // TODO: Cancel if _malContextWillDispose called
+    dispatch_async(dispatch_get_main_queue(), ^{
+        _malContextReset(context);
     });
 
     return noErr;
@@ -182,7 +195,12 @@ static void _malContextDidCreate(MalContext *context) {
     propertyAddress.mElement = kAudioObjectPropertyElementMaster;
 
     AudioObjectAddPropertyListener(kAudioObjectSystemObject, &propertyAddress,
-                                   &_malNotificationHandler, context);
+                                   &_malOnDeviceChangedHandler, context);
+
+    // Set restart listener
+    propertyAddress.mSelector = kAudioHardwarePropertyServiceRestarted;
+    AudioObjectAddPropertyListener(kAudioObjectSystemObject, &propertyAddress,
+                                   &_malOnRestartHandler, context);
 }
 
 static void _malContextWillDispose(MalContext *context) {
@@ -192,7 +210,11 @@ static void _malContextWillDispose(MalContext *context) {
     propertyAddress.mElement = kAudioObjectPropertyElementMaster;
 
     AudioObjectRemovePropertyListener(kAudioObjectSystemObject, &propertyAddress,
-                                      &_malNotificationHandler, context);
+                                      &_malOnDeviceChangedHandler, context);
+
+    propertyAddress.mSelector = kAudioHardwarePropertyServiceRestarted;
+    AudioObjectRemovePropertyListener(kAudioObjectSystemObject, &propertyAddress,
+                                      &_malOnRestartHandler, context);
 }
 
 static void _malContextDidSetActive(MalContext *context, bool active) {
