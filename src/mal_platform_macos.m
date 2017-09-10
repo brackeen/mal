@@ -26,21 +26,24 @@
 #include <IOKit/audio/IOAudioTypes.h> // For terminal types
 #include "mal_audio_coreaudio.h"
 
-static AudioDeviceID _malGetDeviceId() {
+static UInt32 _malGetPropertyUInt32(AudioObjectID object,
+                                    AudioObjectPropertySelector selector,
+                                    AudioObjectPropertyScope scope,
+                                    UInt32 defaultValue) {
     OSStatus status = noErr;
-    AudioDeviceID defaultOutputDeviceID = kAudioDeviceUnknown;
-    UInt32 propertySize = sizeof(defaultOutputDeviceID);
+    UInt32 propertyValue = defaultValue;
+    UInt32 propertySize = sizeof(propertyValue);
     AudioObjectPropertyAddress  propertyAddress;
-    propertyAddress.mSelector = kAudioHardwarePropertyDefaultOutputDevice;
-    propertyAddress.mScope = kAudioObjectPropertyScopeGlobal;
+    propertyAddress.mSelector = selector;
+    propertyAddress.mScope = scope;
     propertyAddress.mElement = kAudioObjectPropertyElementMaster;
 
-    status = AudioObjectGetPropertyData(kAudioObjectSystemObject, &propertyAddress, 0, NULL,
-                                        &propertySize, &defaultOutputDeviceID);
+    status = AudioObjectGetPropertyData(object, &propertyAddress, 0, NULL,
+                                        &propertySize, &propertyValue);
     if (status != noErr) {
-        return kAudioDeviceUnknown;
+        return defaultValue;
     } else {
-        return defaultOutputDeviceID;
+        return propertyValue;
     }
 }
 
@@ -61,26 +64,23 @@ static void _malCheckRoutes(MalContext *context) {
     OSStatus status = noErr;
 
     // Get current output device
-    defaultOutputDeviceID = _malGetDeviceId();
+    defaultOutputDeviceID = _malGetPropertyUInt32(kAudioObjectSystemObject,
+                                                  kAudioHardwarePropertyDefaultOutputDevice,
+                                                  kAudioObjectPropertyScopeGlobal,
+                                                  kAudioDeviceUnknown);
     if (defaultOutputDeviceID == kAudioDeviceUnknown) {
         goto done;
     }
 
-    // Get transport type
-    propertyAddress.mSelector = kAudioDevicePropertyTransportType;
-    propertyAddress.mScope = kAudioObjectPropertyScopeOutput;
-    propertyAddress.mElement = kAudioObjectPropertyElementMaster;
-    propertySize = sizeof(transportType);
-    status = AudioObjectGetPropertyData(defaultOutputDeviceID, &propertyAddress, 0, NULL,
-                                        &propertySize, &transportType);
-    if (status == noErr) {
-        // Quick exit if wireless
-        if (transportType == kAudioDeviceTransportTypeBluetooth ||
-            transportType == kAudioDeviceTransportTypeBluetoothLE ||
-            transportType == kAudioDeviceTransportTypeAirPlay) {
-            context->routes[MAL_ROUTE_WIRELESS] = true;
-            goto done;
-        }
+    // Get transport type - quick exit if wireless
+    transportType = _malGetPropertyUInt32(defaultOutputDeviceID, kAudioDevicePropertyTransportType,
+                                          kAudioObjectPropertyScopeOutput,
+                                          kAudioDeviceTransportTypeUnknown);
+    if (transportType == kAudioDeviceTransportTypeBluetooth ||
+        transportType == kAudioDeviceTransportTypeBluetoothLE ||
+        transportType == kAudioDeviceTransportTypeAirPlay) {
+        context->routes[MAL_ROUTE_WIRELESS] = true;
+        goto done;
     }
 
     // Get stream count
@@ -112,16 +112,9 @@ static void _malCheckRoutes(MalContext *context) {
 
     // Get routes
     for (UInt32 i = 0; i < streamCount; i++) {
-        propertyAddress.mSelector = kAudioStreamPropertyTerminalType;
-        propertyAddress.mScope = kAudioObjectPropertyScopeOutput;
-        propertyAddress.mElement = kAudioObjectPropertyElementMaster;
-        propertySize = sizeof(terminalType);
-
-        status = AudioObjectGetPropertyData(streamIds[i], &propertyAddress, 0, NULL,
-                                            &propertySize, &terminalType);
-        if (status != noErr) {
-            continue;
-        }
+        terminalType = _malGetPropertyUInt32(streamIds[i], kAudioStreamPropertyTerminalType,
+                                             kAudioObjectPropertyScopeOutput,
+                                             kAudioStreamTerminalTypeUnknown);
 
         // Some devices use the terminal type enums defined in IOKit/audio/IOAudioTypes.h,
         // others use the terminal type enums defined in CoreAudio/AudioHardwareBase.h.
@@ -136,7 +129,7 @@ static void _malCheckRoutes(MalContext *context) {
                    terminalType == kAudioStreamTerminalTypeHDMI ||
                    terminalType == kAudioStreamTerminalTypeDisplayPort) {
             context->routes[MAL_ROUTE_LINEOUT] = true;
-        } else {
+        } else if (terminalType != kAudioStreamTerminalTypeUnknown) {
             context->routes[MAL_ROUTE_SPEAKER] = true;
         }
     }
@@ -179,7 +172,11 @@ static void _malContextDidCreate(MalContext *context) {
     // Set rate
     if (context->sampleRate > 0) {
         Float64 sampleRate = (Float64)context->sampleRate;
-        AudioDeviceID defaultOutputDeviceID = _malGetDeviceId();
+        AudioDeviceID defaultOutputDeviceID;
+        defaultOutputDeviceID = _malGetPropertyUInt32(kAudioObjectSystemObject,
+                                                      kAudioHardwarePropertyDefaultOutputDevice,
+                                                      kAudioObjectPropertyScopeGlobal,
+                                                      kAudioDeviceUnknown);
         if (defaultOutputDeviceID != kAudioDeviceUnknown) {
             propertyAddress.mSelector = kAudioDevicePropertyNominalSampleRate;
             propertyAddress.mScope = kAudioDevicePropertyScopeOutput;
