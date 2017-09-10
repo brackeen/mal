@@ -152,6 +152,23 @@ static OSStatus _malOnDeviceChangedHandler(AudioObjectID inObjectID,
     return noErr;
 }
 
+static void _malTryRestart(MalContext *context, int remaining_attempts) {
+    AudioDeviceID defaultOutputDeviceID;
+    defaultOutputDeviceID = _malGetPropertyUInt32(kAudioObjectSystemObject,
+                                                  kAudioHardwarePropertyDefaultOutputDevice,
+                                                  kAudioObjectPropertyScopeGlobal,
+                                                  kAudioDeviceUnknown);
+    if (defaultOutputDeviceID != kAudioDeviceUnknown) {
+        _malContextReset(context);
+    } else if (remaining_attempts > 0) {
+        // TODO: Cancel if _malContextWillDispose called
+        dispatch_async(dispatch_get_main_queue(), ^{
+            _malTryRestart(context, remaining_attempts - 1);
+        });
+    }
+}
+
+// Test with `sudo killall coreaudiod`
 static OSStatus _malOnRestartHandler(AudioObjectID inObjectID,
                                      UInt32 inNumberAddresses,
                                      const AudioObjectPropertyAddress inAddresses[],
@@ -160,7 +177,7 @@ static OSStatus _malOnRestartHandler(AudioObjectID inObjectID,
 
     // TODO: Cancel if _malContextWillDispose called
     dispatch_async(dispatch_get_main_queue(), ^{
-        _malContextReset(context);
+        _malTryRestart(context, 100);
     });
 
     return noErr;
