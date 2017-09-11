@@ -145,6 +145,9 @@ static void _malCheckRoutes(MalContext *context) {
     UInt32 terminalType;
     OSStatus status = noErr;
 
+    // TODO: Check all devices? There may be multiple output devices.
+    // kAudioHardwarePropertyDevices
+
     // Get current output device
     defaultOutputDeviceID = _malGetPropertyUInt32(kAudioObjectSystemObject,
                                                   kAudioHardwarePropertyDefaultOutputDevice,
