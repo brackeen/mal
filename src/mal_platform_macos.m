@@ -26,6 +26,88 @@
 #include <IOKit/audio/IOAudioTypes.h> // For terminal types
 #include "mal_audio_coreaudio.h"
 
+static void _malCheckRoutes(MalContext *context);
+static bool _malAttemptRestart(MalContext *context);
+
+// MARK: Notifications
+
+typedef enum {
+    MAL_NOTIFICATION_TYPE_DEVICE_CHANGED = 0,
+    MAL_NOTIFICATION_TYPE_RESTART
+} MalNotificationType;
+
+struct MalNotification {
+    MalContext *context;
+    MalNotificationType type;
+    uintptr_t data;
+};
+
+typedef struct ok_vec_of(struct MalNotification) MalNotificationVec;
+
+static MalNotificationVec _malPendingNotifications = { 0 };
+
+static void _malCancelNotifications(MalContext *context) {
+    pthread_mutex_lock(&globalMutex);
+    for (size_t i = 0; i < _malPendingNotifications.count;) {
+        struct MalNotification *notification = ok_vec_get_ptr(&_malPendingNotifications, i);
+        if (notification->context == context) {
+            ok_vec_remove_at(&_malPendingNotifications, i);
+        } else {
+            i++;
+        }
+    }
+    pthread_mutex_unlock(&globalMutex);
+}
+
+static void _malHandleNotifications() {
+    pthread_mutex_lock(&globalMutex);
+    for (size_t i = 0; i < _malPendingNotifications.count;) {
+        struct MalNotification *notification = ok_vec_get_ptr(&_malPendingNotifications, i);
+        bool handled = true;
+        if (notification->type == MAL_NOTIFICATION_TYPE_DEVICE_CHANGED) {
+            _malCheckRoutes(notification->context);
+        } else if (notification->type == MAL_NOTIFICATION_TYPE_RESTART) {
+            handled = _malAttemptRestart(notification->context);
+            if (!handled) {
+                // Give up after 100 attempts
+                notification->data++;
+                if (notification->data >= 100) {
+                    handled = true;
+                }
+            }
+        }
+
+        if (handled) {
+            ok_vec_remove_at(&_malPendingNotifications, i);
+        } else {
+            i++;
+        }
+    }
+    if (_malPendingNotifications.count > 0) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            _malHandleNotifications();
+        });
+    }
+    pthread_mutex_unlock(&globalMutex);
+}
+
+
+static void _malAddNotification(MalContext *context, MalNotificationType type) {
+    pthread_mutex_lock(&globalMutex);
+    struct MalNotification *notification = ok_vec_push_new(&_malPendingNotifications);
+    if (notification) {
+        notification->context = context;
+        notification->type = type;
+        notification->data = 0;
+    }
+    dispatch_async(dispatch_get_main_queue(), ^{
+        _malHandleNotifications();
+    });
+    pthread_mutex_unlock(&globalMutex);
+}
+
+// MARK: macOS helpers
+
 static UInt32 _malGetPropertyUInt32(AudioObjectID object,
                                     AudioObjectPropertySelector selector,
                                     AudioObjectPropertyScope scope,
@@ -138,21 +220,7 @@ done:
     free(streamIds);
 }
 
-static OSStatus _malOnDeviceChangedHandler(AudioObjectID inObjectID,
-                                           UInt32 inNumberAddresses,
-                                           const AudioObjectPropertyAddress inAddresses[],
-                                           void *inClientData) {
-    MalContext *context = inClientData;
-
-    // TODO: Cancel if _malContextWillDispose called
-    dispatch_async(dispatch_get_main_queue(), ^{
-        _malCheckRoutes(context);
-    });
-
-    return noErr;
-}
-
-static void _malTryRestart(MalContext *context, int remaining_attempts) {
+static bool _malAttemptRestart(MalContext *context) {
     AudioDeviceID defaultOutputDeviceID;
     defaultOutputDeviceID = _malGetPropertyUInt32(kAudioObjectSystemObject,
                                                   kAudioHardwarePropertyDefaultOutputDevice,
@@ -160,13 +228,21 @@ static void _malTryRestart(MalContext *context, int remaining_attempts) {
                                                   kAudioDeviceUnknown);
     if (defaultOutputDeviceID != kAudioDeviceUnknown) {
         _malContextReset(context);
-    } else if (remaining_attempts > 0) {
-        // TODO: Cancel if _malContextWillDispose called
-        dispatch_async(dispatch_get_main_queue(), ^{
-            _malTryRestart(context, remaining_attempts - 1);
-        });
+        return true;
+    } else {
+        return false;
     }
 }
+
+static OSStatus _malOnDeviceChangedHandler(AudioObjectID inObjectID,
+                                           UInt32 inNumberAddresses,
+                                           const AudioObjectPropertyAddress inAddresses[],
+                                           void *inClientData) {
+    MalContext *context = inClientData;
+    _malAddNotification(context, MAL_NOTIFICATION_TYPE_DEVICE_CHANGED);
+    return noErr;
+}
+
 
 // Test with `sudo killall coreaudiod`
 static OSStatus _malOnRestartHandler(AudioObjectID inObjectID,
@@ -174,12 +250,7 @@ static OSStatus _malOnRestartHandler(AudioObjectID inObjectID,
                                      const AudioObjectPropertyAddress inAddresses[],
                                      void *inClientData) {
     MalContext *context = inClientData;
-
-    // TODO: Cancel if _malContextWillDispose called
-    dispatch_async(dispatch_get_main_queue(), ^{
-        _malTryRestart(context, 100);
-    });
-
+    _malAddNotification(context, MAL_NOTIFICATION_TYPE_RESTART);
     return noErr;
 }
 
@@ -229,6 +300,8 @@ static void _malContextWillDispose(MalContext *context) {
     propertyAddress.mSelector = kAudioHardwarePropertyServiceRestarted;
     AudioObjectRemovePropertyListener(kAudioObjectSystemObject, &propertyAddress,
                                       &_malOnRestartHandler, context);
+
+    _malCancelNotifications(context);
 }
 
 static void _malContextDidSetActive(MalContext *context, bool active) {
