@@ -100,7 +100,7 @@ static void _malContextWillDispose(MalContext *context) {
 
 static void _malContextDidSetActive(MalContext *context, bool active) {
     AVAudioSession *audioSession = [AVAudioSession sharedInstance];
-    NSError *error;
+    NSError *error = nil;
 
     if (active) {
         // Set sample rate
