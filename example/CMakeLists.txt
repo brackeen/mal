@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.6.0) # Might run on earlier versions. Probably requires 3.4 or 3.5
 
-if ((CMAKE_SYSTEM_NAME MATCHES "Emscripten") OR (CMAKE_SYSTEM_NAME MATCHES "Android") OR ((CMAKE_SYSTEM_NAME MATCHES "Darwin") AND IOS))
+if ((CMAKE_SYSTEM_NAME MATCHES "Emscripten") OR
+    (CMAKE_SYSTEM_NAME MATCHES "Android") OR 
+    ((CMAKE_SYSTEM_NAME MATCHES "Darwin") AND IOS))
+
     add_definitions(-DMAL_EXAMPLE_WITH_GLFM)
     add_subdirectory(glfm)
     link_libraries(glfm)
@@ -18,7 +21,7 @@ if ((CMAKE_SYSTEM_NAME MATCHES "Emscripten") OR (CMAKE_SYSTEM_NAME MATCHES "Andr
     file(GLOB GLFM_APP_SRC src/*.c)
     source_group("src" FILES ${GLFM_APP_SRC})
     include(GLFMAppTarget)
-elseif (CMAKE_SYSTEM_NAME MATCHES "Darwin")
+elseif ((CMAKE_SYSTEM_NAME MATCHES "Darwin") OR (CMAKE_SYSTEM_NAME MATCHES "Windows"))
     add_definitions(-DMAL_EXAMPLE_WITH_GLFW)
     set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "Build the GLFW example programs")
     set(GLFW_BUILD_TESTS OFF CACHE BOOL "Build the GLFW test programs")
@@ -32,6 +35,12 @@ elseif (CMAKE_SYSTEM_NAME MATCHES "Darwin")
     add_executable(mal_example ${mal_example_files})
     source_group("src" FILES ${mal_example_files})
     target_link_libraries(mal_example mal glfw)
+
+    if (CMAKE_C_COMPILER_ID MATCHES "MSVC")
+        # Use main() instead of WinMain()
+        set_target_properties(mal_example PROPERTIES 
+                              LINK_FLAGS "/SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup")
+    endif()
 
     # Copy assets to build dir
     add_custom_command(TARGET mal_example POST_BUILD
