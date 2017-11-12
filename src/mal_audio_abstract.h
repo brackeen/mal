@@ -170,7 +170,7 @@ MalContext *malContextCreate(double outputSampleRate) {
     return context;
 }
 
-void malContextSetActive(MalContext *context, const bool active) {
+void malContextSetActive(MalContext *context, bool active) {
     if (context) {
         MAL_LOCK(context);
         _malContextSetActive(context, active);
@@ -184,7 +184,7 @@ bool malContextGetMute(const MalContext *context) {
     return context ? context->mute : false;
 }
 
-void malContextSetMute(MalContext *context, const bool mute) {
+void malContextSetMute(MalContext *context, bool mute) {
     if (context) {
         context->mute = mute;
         _malContextSetMute(context, mute);
@@ -195,14 +195,14 @@ float malContextGetGain(const MalContext *context) {
     return context ? context->gain : 1.0f;
 }
 
-void malContextSetGain(MalContext *context, const float gain) {
+void malContextSetGain(MalContext *context, float gain) {
     if (context) {
         context->gain = gain;
         _malContextSetGain(context, gain);
     }
 }
 
-bool malContextIsFormatValid(const MalContext *context, const MalFormat format) {
+bool malContextIsFormatValid(const MalContext *context, MalFormat format) {
     (void)context;
     // TODO: Move to subsystem
     return ((format.bitDepth == 8 || format.bitDepth == 16) &&
@@ -251,7 +251,7 @@ void malContextFree(MalContext *context) {
     }
 }
 
-bool malFormatsEqual(const MalFormat format1, const MalFormat format2) {
+bool malFormatsEqual(MalFormat format1, MalFormat format2) {
     static double sampleRateEpsilon = 0.0001;
     return (format1.bitDepth == format2.bitDepth &&
             format1.numChannels == format2.numChannels &&
@@ -287,14 +287,13 @@ static MalBuffer *_malBufferCreateInternal(MalContext *context, const MalFormat 
     return buffer;
 }
 
-MalBuffer *malBufferCreate(MalContext *context, const MalFormat format,
-                           const uint32_t numFrames, const void *data) {
+MalBuffer *malBufferCreate(MalContext *context, MalFormat format, uint32_t numFrames,
+                           const void *data) {
     return _malBufferCreateInternal(context, format, numFrames, data, NULL, NULL);
 }
 
-MalBuffer *malBufferCreateNoCopy(MalContext *context, const MalFormat format,
-                                 const uint32_t numFrames, void *data,
-                                 const malDeallocatorFunc dataDeallocator) {
+MalBuffer *malBufferCreateNoCopy(MalContext *context, MalFormat format, uint32_t numFrames,
+                                 void *data, malDeallocatorFunc dataDeallocator) {
     return _malBufferCreateInternal(context, format, numFrames, NULL, data, dataDeallocator);
 }
 
@@ -339,7 +338,7 @@ void malBufferFree(MalBuffer *buffer) {
 
 // MARK: Player
 
-MalPlayer *malPlayerCreate(MalContext *context, const MalFormat format) {
+MalPlayer *malPlayerCreate(MalContext *context, MalFormat format) {
     // Check params
     if (!context || !malContextIsFormatValid(context, format)) {
         return NULL;
