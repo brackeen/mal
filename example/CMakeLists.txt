@@ -37,9 +37,9 @@ elseif ((CMAKE_SYSTEM_NAME MATCHES "Darwin") OR (CMAKE_SYSTEM_NAME MATCHES "Wind
     target_link_libraries(mal_example mal glfw)
 
     if (CMAKE_C_COMPILER_ID MATCHES "MSVC")
-        # Use main() instead of WinMain()
-        set_target_properties(mal_example PROPERTIES 
-                              LINK_FLAGS "/SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup")
+        # Hide the console
+        #set_target_properties(mal_example PROPERTIES 
+        #                      LINK_FLAGS "/SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup")
     endif()
 
     # Copy assets to build dir
