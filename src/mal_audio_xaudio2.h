@@ -22,6 +22,12 @@
 #ifndef MAL_AUDIO_XAUDIO2_H
 #define MAL_AUDIO_XAUDIO2_H
 
+// Use XAudio2 2.7 for Windows 7 compatability
+// Install DirectX SDK (June 2010) from https://www.microsoft.com/en-us/download/details.aspx?id=6812
+// Include "C:\Program Files (x86)\Microsoft DirectX SDK (June 2010)\Include"
+// Note, xaudio2.h does not compile as C and must be compiled as C++.
+#include <xaudio2.h>
+
 struct _MalContext {
     int dummy;
 };

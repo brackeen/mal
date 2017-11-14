@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 2.8.7)
 
-project(MAL C)
+project(MAL)
 
 option(MAL_BUILD_EXAMPLE "Build the MAL example" OFF)
 
@@ -8,7 +8,7 @@ set(MAL_HEADERS include/mal.h)
 set(MAL_SRC src/mal_audio_abstract.h src/ok_lib.h)
 
 if (CMAKE_SYSTEM_NAME MATCHES "Windows")
-    set(MAL_SRC ${MAL_SRC} src/mal_platform_windows.c src/mal_audio_xaudio2.h)
+    set(MAL_SRC ${MAL_SRC} src/mal_platform_windows.cpp src/mal_audio_xaudio2.h)
 elseif (CMAKE_SYSTEM_NAME MATCHES "Emscripten")
     set(MAL_SRC ${MAL_SRC} src/mal_platform_emscripten.c src/mal_audio_webaudio.h)
     if (CMAKE_C_COMPILER_ID MATCHES "Clang")
@@ -41,6 +41,9 @@ elseif (CMAKE_C_COMPILER_ID MATCHES "GNU")
 elseif (CMAKE_C_COMPILER_ID MATCHES "MSVC")
     # Disable `padding` warning
     set_target_properties(mal PROPERTIES COMPILE_FLAGS "/Wall /wd4820 ${MAL_COMPILE_FLAGS}")
+    # Use XAudio2 2.7 for Windows 7 compatability
+    # Install DirectX SDK (June 2010) from https://www.microsoft.com/en-us/download/details.aspx?id=6812
+    include_directories("C:\\Program Files (x86)\\Microsoft DirectX SDK (June 2010)\\Include\\")
 endif()
 
 if (CMAKE_SYSTEM_NAME MATCHES "Android")
