@@ -148,7 +148,7 @@ struct MalPlayer {
 // MARK: Context
 
 MalContext *malContextCreate(double outputSampleRate) {
-    MalContext *context = calloc(1, sizeof(MalContext));
+    MalContext *context = (MalContext *)calloc(1, sizeof(MalContext));
     if (context) {
 #ifdef MAL_USE_MUTEX
         pthread_mutex_init(&context->mutex, NULL);
@@ -270,7 +270,7 @@ static MalBuffer *_malBufferCreateInternal(MalContext *context, const MalFormat 
         !oneNonNullData) {
         return NULL;
     }
-    MalBuffer *buffer = calloc(1, sizeof(MalBuffer));
+    MalBuffer *buffer = (MalBuffer *)calloc(1, sizeof(MalBuffer));
     if (buffer) {
         ok_vec_push(&context->buffers, buffer);
         buffer->context = context;
@@ -343,7 +343,7 @@ MalPlayer *malPlayerCreate(MalContext *context, MalFormat format) {
     if (!context || !malContextIsFormatValid(context, format)) {
         return NULL;
     }
-    MalPlayer *player = calloc(1, sizeof(MalPlayer));
+    MalPlayer *player = (MalPlayer *)calloc(1, sizeof(MalPlayer));
     if (player) {
 #ifdef MAL_USE_MUTEX
         pthread_mutex_init(&player->mutex, NULL);
@@ -416,7 +416,7 @@ void malPlayerSetFinishedFunc(MalPlayer *player, malPlaybackFinishedFunc onFinis
         pthread_mutex_lock(&globalMutex);
 #endif
         if (!globalActiveCallbacks) {
-            globalActiveCallbacks = malloc(sizeof(*globalActiveCallbacks));
+            globalActiveCallbacks = (MalCallbackMap *)malloc(sizeof(MalCallbackMap));
             ok_map_init_custom(globalActiveCallbacks, ok_uint64_hash, ok_64bit_equals);
         }
         if (player->onFinishedId) {
