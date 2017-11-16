@@ -82,9 +82,16 @@ static bool malExampleInit(MalApp *app) {
 
     char *sound_files[2] = { "sound-22k-mono.wav", "sound-44k-stereo.wav" };
     for (int i = 0; i < 2; i++) {
+#if defined(WIN32)
+        FILE *file = NULL;
+        fopen_s(&file, sound_files[i], "rb");
+#else
         FILE *file = fopen(sound_files[i], "rb");
+#endif
         ok_wav *wav = ok_wav_read(file, true);
-        fclose(file);
+        if (file) {
+            fclose(file);
+        }
 
         if (!wav->data) {
             printf("Error: %s\n", wav->error_message);
@@ -221,6 +228,20 @@ static void onMouseClick(GLFWwindow *window, int button, int action, int mods) {
 }
 
 int main(void) {
+#ifdef WIN32
+    // Set the current working directory to the exe path
+    TCHAR path[MAX_PATH];
+    DWORD length = GetModuleFileName(NULL, path, MAX_PATH);
+    if (length > 0) {
+        for (DWORD i = length - 1; i > 0; i--) {
+            if (path[i] == '\\') {
+                path[i + 1] = 0;
+                SetCurrentDirectory(path);
+                break;
+            }
+        }
+    }
+#endif
     GLFWwindow *window;
     glfwSetErrorCallback(onError);
     if (!glfwInit()) {
@@ -238,10 +259,7 @@ int main(void) {
     glfwSwapInterval(1);
 
     MalApp *app = calloc(1, sizeof(MalApp));
-    bool success = malExampleInit(app);
-    if (!success) {
-        exit(EXIT_FAILURE);
-    }
+    malExampleInit(app);
     glfwSetWindowUserPointer(window, app);
     glfwSetMouseButtonCallback(window, onMouseClick);
 
