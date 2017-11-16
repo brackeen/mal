@@ -223,7 +223,7 @@ static void onMouseClick(GLFWwindow *window, int button, int action, int mods) {
 
         MalApp *app = glfwGetWindowUserPointer(window);
         int index = x < viewWidth / 2 ? 0 : 1;
-        playSound(app, app->buffer[index], 0.05f + 0.60f * (viewHeight - y) / viewHeight);
+        playSound(app, app->buffer[index], 0.05f + 0.60f * (viewHeight - (float)y) / viewHeight);
     }
 }
 
