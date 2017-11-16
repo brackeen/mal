@@ -3,19 +3,20 @@
  https://github.com/brackeen/ok-lib
  Copyright (c) 2016-2017 David Brackeen
 
- This software is provided 'as-is', without any express or implied warranty.
- In no event will the authors be held liable for any damages arising from the
- use of this software. Permission is granted to anyone to use this software
- for any purpose, including commercial applications, and to alter it and
- redistribute it freely, subject to the following restrictions:
+ Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+ associated documentation files (the "Software"), to deal in the Software without restriction,
+ including without limitation the rights to use, copy, modify, merge, publish, distribute,
+ sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+ furnished to do so, subject to the following conditions:
 
- 1. The origin of this software must not be misrepresented; you must not
-    claim that you wrote the original software. If you use this software in a
-    product, an acknowledgment in the product documentation would be appreciated
-    but is not required.
- 2. Altered source versions must be plainly marked as such, and must not be
-    misrepresented as being the original software.
- 3. This notice may not be removed or altered from any source distribution.
+ The above copyright notice and this permission notice shall be included in all copies or
+ substantial portions of the Software.
+
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT
+ NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+ DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT
+ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
 #ifndef OK_LIB_H
@@ -87,11 +88,6 @@
 // MARK: Vector
 
 /**
- A value that indicates that a value could not be found.
- */
-static const size_t OK_NOT_FOUND = (~(size_t)0);
-
-/**
  Declares a generic `ok_vec` struct or typedef.
  
  For example, and array of `int`s can be declared as a typedef:
@@ -107,7 +103,7 @@ static const size_t OK_NOT_FOUND = (~(size_t)0);
  @return `{ value_type *values; size_t count; size_t capacity; }`
  */
 #define ok_vec_of(value_type) \
-    { value_type *values; size_t count; size_t capacity; size_t _index; value_type _value; }
+    { value_type *values; size_t count; size_t capacity; }
 
 /**
  Inits a vector.
@@ -237,32 +233,19 @@ static const size_t OK_NOT_FOUND = (~(size_t)0);
  @param index `size_t` The index at which to insert the element. If the index is greater than or
  equal to number of elements in the vector, the value is added to the end, like #ok_vec_push().
  @param value The value to insert.
- @return `true` if the value was successfully inserted into the vector, `false` otherwise (out of 
- memory error).
  */
-#define ok_vec_insert_at(vec, index, value) ( \
-    (vec)->_index = (index), \
-    ok_vec_ensure_capacity(vec, 1) ? ( \
-        (((vec)->_index + 1 < (vec)->count) ? \
-            memmove((vec)->values + (vec)->_index + 1, (vec)->values + (vec)->_index, \
-                    ((vec)->count - (vec)->_index - 1) * sizeof((vec)->_value)) : \
-            NULL), \
-        (vec)->values[(vec)->_index] = (value), \
-        (vec)->count++, \
-        true) : false \
-)
-
-/**
- Gets the index of the first element that equals the specified value.
-
- @param vec Pointer to the vector.
- @param value The value to find.
- @return `size_t` the index of the value in the vector, or #OK_NOT_FOUND if not found.
- */
-#define ok_vec_index_of(vec, value) ( \
-    (vec)->_value = value, \
-    __ok_vec_index_of((vec)->values, &(vec)->_value, sizeof((vec)->_value), (vec)->count) \
-)
+#define ok_vec_insert_at(vec, index, value) \
+    do { \
+        if (ok_vec_ensure_capacity(vec, 1)) { \
+            size_t _i1 = (index); \
+            if (_i1 + 1 < (vec)->count) { \
+                memmove((vec)->values + _i1 + 1, (vec)->values + _i1, \
+                        ((vec)->count - _i1 - 1) * sizeof(*(vec)->values)); \
+            } \
+            (vec)->values[_i1] = (value); \
+            (vec)->count++; \
+        } \
+    } while (0)
 
 /**
  Removes an element at the specified location in the vector.
@@ -270,29 +253,37 @@ static const size_t OK_NOT_FOUND = (~(size_t)0);
  @param vec Pointer to the vector.
  @param index `size_t` The index of the element to remove. If the index is greater than or
  equal to number of elements in the vector, the size of the vector is reduced by one.
- @return The new size of the vector.
  */
-#define ok_vec_remove_at(vec, index) ( \
-    (vec)->_index = (index), \
-    (((vec)->_index + 1 < (vec)->count) ? \
-        memmove((vec)->values + (vec)->_index, (vec)->values + (vec)->_index + 1, \
-                ((vec)->count - (vec)->_index - 1) * sizeof((vec)->_value)) : \
-        NULL), \
-    ((vec)->count > 0 ? (vec)->count-- : 0) \
-)
+#define ok_vec_remove_at(vec, index) \
+    do { \
+        size_t _i2 = (index); \
+        if (_i2 + 1 < (vec)->count) { \
+            memmove((vec)->values + _i2, (vec)->values + _i2 + 1, \
+                    ((vec)->count - _i2 - 1) * sizeof(*(vec)->values)); \
+        } \
+        if ((vec)->count > 0) { \
+            (vec)->count--; \
+        } \
+    } while (0)
 
 /**
  Removes the first element in the vector that equals the specified value.
 
+ This function uses the equality operator `==` to test for equal values, which will fail to 
+ compile if values are structs.
+
  @param vec Pointer to the vector.
  @param value The value to find and remove.
- @return `size_t` the index of the removed element, or #OK_NOT_FOUND if not found.
  */
-#define ok_vec_remove(vec, value) ( \
-    (vec)->_index = ok_vec_index_of(vec, value), \
-    (((vec)->_index != OK_NOT_FOUND) ? ok_vec_remove_at(vec, (vec)->_index) : 0),  \
-    (vec)->_index \
-)
+#define ok_vec_remove(vec, value) \
+    do { \
+        for (size_t _i3 = 0; _i3 < (vec)->count; _i3++) { \
+            if ((vec)->values[_i3] == (value)) { \
+                ok_vec_remove_at(vec, _i3); \
+                break; \
+            } \
+        } \
+    } while (0)
 
 /**
  Foreach macro that iterates over the values in the vector.
@@ -304,7 +295,7 @@ static const size_t OK_NOT_FOUND = (~(size_t)0);
 
  Example:
 
- ok_vec_foreach(map, char *value) {
+ ok_vec_foreach(vec, char *value) {
      printf("Value: %s\n", value);
  }
 
@@ -312,8 +303,29 @@ static const size_t OK_NOT_FOUND = (~(size_t)0);
  @param var   The value type and name.
  */
 #define ok_vec_foreach(vec, var) \
-    for (size_t _keep = 1, _i = 0, _len = (vec)->count; _keep && _i < _len; _keep = !_keep, _i++) \
-    for (var = *((vec)->values + _i); _keep; _keep = !_keep)
+    for (size_t _keep = 1, _i = 0, _len = (vec)->count; _keep && _i < _len; _keep = 1 - _keep, _i++) \
+    for (var = *((vec)->values + _i); _keep; _keep = 1 - _keep)
+
+/**
+ Foreach macro that iterates over the values in the vector, in reverse order.
+
+ The vector should not be modified during iteration. A call to #ok_vec_push()
+ during iteration could cause as crash.
+
+ The `break` and `continue` keywords are supported during iteration.
+
+ Example:
+
+ ok_vec_foreach_rev(vec, char *value) {
+     printf("Value: %s\n", value);
+ }
+
+ @param vec   Pointer to the vector.
+ @param var   The value type and name.
+ */
+#define ok_vec_foreach_rev(vec, var) \
+    for (size_t _keep = 1, _i = 0, _len = (vec)->count; _keep && _i < _len; _keep = 1 - _keep, _i++) \
+    for (var = *((vec)->values + (_len - _i - 1)); _keep; _keep = 1 - _keep)
 
 /**
  Foreach macro that iterates over pointers to the values in the vector.
@@ -325,7 +337,7 @@ static const size_t OK_NOT_FOUND = (~(size_t)0);
 
  Example:
 
- ok_vec_foreach_ptr(map, char **value) {
+ ok_vec_foreach_ptr(vec, char **value) {
      printf("Value: %s\n", *value);
  }
 
@@ -333,8 +345,29 @@ static const size_t OK_NOT_FOUND = (~(size_t)0);
  @param var   The value type and name.
  */
 #define ok_vec_foreach_ptr(vec, var) \
-    for (size_t _keep = 1, _i = 0, _len = (vec)->count; _keep && _i < _len; _keep = !_keep, _i++) \
-    for (var = (vec)->values + _i; _keep; _keep = !_keep)
+    for (size_t _keep = 1, _i = 0, _len = (vec)->count; _keep && _i < _len; _keep = 1 - _keep, _i++) \
+    for (var = (vec)->values + _i; _keep; _keep = 1 - _keep)
+
+/**
+ Foreach macro that iterates over pointers to the values in the vector.
+
+ The vector should not be modified during iteration. A call to #ok_vec_push()
+ during iteration could cause as crash.
+
+ The `break` and `continue` keywords are supported during iteration.
+
+ Example:
+
+ ok_vec_foreach_ptr_rev(vec, char **value) {
+     printf("Value: %s\n", *value);
+ }
+
+ @param vec   Pointer to the vector.
+ @param var   The value type and name.
+ */
+#define ok_vec_foreach_ptr_rev(vec, var) \
+    for (size_t _keep = 1, _i = 0, _len = (vec)->count; _keep && _i < _len; _keep = 1 - _keep, _i++) \
+    for (var = (vec)->values + (_len - _i - 1); _keep; _keep = 1 - _keep)
 
 /**
  Applies a function to each element in a vector.
@@ -373,8 +406,8 @@ static const size_t OK_NOT_FOUND = (~(size_t)0);
  */
 #define ok_vec_ensure_capacity(vec, additional_count) \
     (((vec)->count + (size_t)(additional_count) <= (vec)->capacity) ? true : \
-    __ok_vec_realloc((void **)&(vec)->values, (vec)->count + (size_t)(additional_count), \
-                     sizeof(*(vec)->values), &(vec)->capacity))
+    _ok_vec_realloc((void **)&(vec)->values, (vec)->count + (size_t)(additional_count), \
+                    sizeof(*(vec)->values), &(vec)->capacity))
 
 // MARK: Map
 
@@ -405,7 +438,7 @@ static const size_t OK_NOT_FOUND = (~(size_t)0);
         value_type v; \
     } entry; \
     OK_MUTABLE value_type *v_ptr; \
-    struct __ok_map *m; \
+    struct _ok_map *m; \
     ok_hash_t (*key_hash_func)(key_type); \
 }
 
@@ -484,10 +517,10 @@ static const size_t OK_NOT_FOUND = (~(size_t)0);
 #define ok_map_init_custom_with_capacity(map, hash_func, equals_func, capacity) ( \
     memset((map), 0, sizeof(*(map))), \
     (map)->key_hash_func = hash_func, \
-    (((map)->m = __ok_map_create(capacity, equals_func, \
-                                 (size_t)ok_ptr_diff(&(map)->entry.k, &(map)->entry), \
-                                 (size_t)ok_ptr_diff(&(map)->entry.v, &(map)->entry), \
-                                 sizeof((map)->entry))) != NULL) \
+    (((map)->m = _ok_map_create(capacity, equals_func, \
+                                ok_offsetof(&(map)->entry, &(map)->entry.k), \
+                                ok_offsetof(&(map)->entry, &(map)->entry.v), \
+                                sizeof((map)->entry))) != NULL) \
 )
 
 /**
@@ -496,7 +529,7 @@ static const size_t OK_NOT_FOUND = (~(size_t)0);
  @param map Pointer to the map.
  */
 #define ok_map_deinit(map) \
-    __ok_map_free((map)->m)
+    _ok_map_free((map)->m)
 
 /**
  Gets the number of elements in the map.
@@ -506,7 +539,7 @@ static const size_t OK_NOT_FOUND = (~(size_t)0);
  @return size_t The number of elements in the map.
  */
 #define ok_map_count(map) \
-    __ok_map_count((map)->m)
+    _ok_map_count((map)->m)
 
 /**
  Gets the capacity of a hash map. The capacity never shrinks.
@@ -516,7 +549,7 @@ static const size_t OK_NOT_FOUND = (~(size_t)0);
  @return size_t The capacity.
  */
 #define ok_map_capacity(map) \
-    __ok_map_capacity((map) ? (map)->m : NULL)
+    _ok_map_capacity((map) ? (map)->m : NULL)
 
 /**
  Puts a key-value pair into the map. If the key already exists in the map, it is replaced with
@@ -531,9 +564,9 @@ static const size_t OK_NOT_FOUND = (~(size_t)0);
 #define ok_map_put(map, key, value) ( \
     (map)->entry.k = (key), \
     (map)->entry.v = (value), \
-    __ok_map_put(&(map)->m, &(map)->entry.k, sizeof((map)->entry.k), \
-                 (map)->key_hash_func((map)->entry.k), \
-                 &(map)->entry.v, sizeof((map)->entry.v)) \
+    _ok_map_put(&(map)->m, &(map)->entry.k, sizeof((map)->entry.k), \
+                (map)->key_hash_func((map)->entry.k), \
+                &(map)->entry.v, sizeof((map)->entry.v)) \
 )
 
 /**
@@ -556,9 +589,9 @@ static const size_t OK_NOT_FOUND = (~(size_t)0);
  */
 #define ok_map_put_and_get_ptr(map, key) ( \
     (map)->entry.k = (key), \
-    __ok_map_put_and_get_ptr(&(map)->m, &(map)->entry.k, sizeof((map)->entry.k), \
-                     (map)->key_hash_func((map)->entry.k), \
-                     (void **)&(map)->v_ptr, sizeof((map)->entry.v)), \
+    _ok_map_put_and_get_ptr(&(map)->m, &(map)->entry.k, sizeof((map)->entry.k), \
+                            (map)->key_hash_func((map)->entry.k), \
+                            (void **)&(map)->v_ptr, sizeof((map)->entry.v)), \
     (map)->v_ptr \
 )
 
@@ -575,8 +608,8 @@ static const size_t OK_NOT_FOUND = (~(size_t)0);
 #define ok_map_put_all(map, from_map) (\
     ((sizeof((map)->entry) == sizeof((from_map)->entry) && \
     (map)->key_hash_func == (from_map)->key_hash_func) ? \
-    __ok_map_put_all(&(map)->m, (from_map)->m, sizeof((map)->entry.k), \
-                     sizeof((map)->entry.v)) : \
+    _ok_map_put_all(&(map)->m, (from_map)->m, sizeof((map)->entry.k), \
+                    sizeof((map)->entry.v)) : \
     false) \
 )
 
@@ -591,8 +624,8 @@ static const size_t OK_NOT_FOUND = (~(size_t)0);
  */
 #define ok_map_get(map, key) ( \
     (map)->entry.k = (key), \
-    __ok_map_get((map)->m, &(map)->entry.k, (map)->key_hash_func((map)->entry.k), \
-                 (void *)&(map)->entry.v, sizeof((map)->entry.v)), \
+    _ok_map_get((map)->m, &(map)->entry.k, (map)->key_hash_func((map)->entry.k), \
+                (void *)&(map)->entry.v, sizeof((map)->entry.v)), \
     (map)->entry.v \
 )
 
@@ -609,8 +642,8 @@ static const size_t OK_NOT_FOUND = (~(size_t)0);
  */
 #define ok_map_get_ptr(map, key) ( \
     (map)->entry.k = (key), \
-    __ok_map_get_ptr((map)->m, &(map)->entry.k, (map)->key_hash_func((map)->entry.k), \
-                     (void **)&(map)->v_ptr), \
+    _ok_map_get_ptr((map)->m, &(map)->entry.k, (map)->key_hash_func((map)->entry.k), \
+                    (void **)&(map)->v_ptr), \
     (map)->v_ptr \
 )
 
@@ -624,7 +657,7 @@ static const size_t OK_NOT_FOUND = (~(size_t)0);
  */
 #define ok_map_contains(map, key) ( \
     (map)->entry.k = (key), \
-    __ok_map_contains((map)->m, &(map)->entry.k, (map)->key_hash_func((map)->entry.k)) \
+    _ok_map_contains((map)->m, &(map)->entry.k, (map)->key_hash_func((map)->entry.k)) \
 )
 
 /**
@@ -637,7 +670,7 @@ static const size_t OK_NOT_FOUND = (~(size_t)0);
  */
 #define ok_map_remove(map, key) ( \
     (map)->entry.k = (key), \
-    __ok_map_remove((map)->m, &(map)->entry.k, (map)->key_hash_func((map)->entry.k)) \
+    _ok_map_remove((map)->m, &(map)->entry.k, (map)->key_hash_func((map)->entry.k)) \
 )
 
 /**
@@ -660,13 +693,13 @@ static const size_t OK_NOT_FOUND = (~(size_t)0);
  @param value_var The value type and name.
  */
 #define ok_map_foreach(map, key_var, value_var) \
-    for (uint8_t _keep = 1, _keep2 = true, *_i = NULL; _keep && \
-        ((_i = (uint8_t *)__ok_map_next((map)->m, _i, (void *)&(map)->entry.k, \
-                                        sizeof((map)->entry.k), (void *)&(map)->entry.v, \
-                                        sizeof((map)->entry.v))) != NULL); \
-        _keep = !_keep, _keep2 = !_keep2) \
-    for (key_var = (map)->entry.k; _keep && _keep2; _keep2 = !_keep2) \
-    for (value_var = (map)->entry.v; _keep; _keep = !_keep)
+    for (size_t _keep = 1, _keep2 = 1, *_i = NULL; _keep && \
+        ((_i = (size_t *)_ok_map_next((map)->m, _i, (void *)&(map)->entry.k, \
+                                      sizeof((map)->entry.k), (void *)&(map)->entry.v, \
+                                      sizeof((map)->entry.v))) != NULL); \
+        _keep = 1 - _keep, _keep2 = 1 - _keep2) \
+    for (key_var = (map)->entry.k; _keep && _keep2; _keep2 = 1 - _keep2) \
+    for (value_var = (map)->entry.v; _keep; _keep = 1 - _keep)
 
 // MARK: Declarations: Hash functions
 
@@ -688,17 +721,19 @@ typedef uint32_t ok_hash_t;
        float        : ok_float_hash, \
        double       : ok_double_hash, \
        char *       : ok_str_hash, \
-       const char * : ok_const_str_hash)
+       const char * : ok_const_str_hash, \
+       void *       : ok_ptr_hash, \
+       const void * : ok_const_ptr_hash)
 #  else
 // Force compile error if type is not 'char *`
-#    define ok_default_hash(key) (ok_static_assert(sizeof(__is_char(*key)) == sizeof(bool) && \
+#    define ok_default_hash(key) (ok_static_assert(sizeof(_ok_is_char(*key)) == sizeof(bool) && \
                                                    sizeof(*key) == sizeof(char), \
                                                    "Only works with `char *` type"), \
                                                    ok_const_str_hash)
 #  endif
 #endif
 
-static inline bool __is_char(char);
+static inline bool _ok_is_char(char);
 
 /// Gets the hash for a uint8_t.
 OK_LIB_API ok_hash_t ok_uint8_hash(uint8_t key);
@@ -781,62 +816,63 @@ OK_LIB_API bool ok_str_equals(const void *a, const void *b);
 
 // @cond private
 
-#define ok_ptr_offset(ptr, offset) ((uint8_t *)(ptr) + (offset))
-#define ok_ptr_diff(ptr, base_ptr) ((uint8_t *)(ptr) - (uint8_t *)(base_ptr))
+#define ok_ptr_inc(ptr, offset) ((uint8_t *)(ptr) + (offset))
+#define ok_offsetof(base_ptr, ptr) ((size_t)((uint8_t *)(ptr) - (uint8_t *)(base_ptr)))
 
-struct __ok_map;
+struct _ok_map;
 
-OK_LIB_API bool __ok_vec_realloc(void **values, size_t min_capacity, size_t element_size,
-                                 size_t *capacity);
+OK_LIB_API bool _ok_vec_realloc(void **values, size_t min_capacity, size_t element_size,
+                                size_t *capacity);
 
-OK_LIB_API size_t __ok_vec_index_of(void *values, void *value, size_t element_size, size_t count);
+OK_LIB_API struct _ok_map *_ok_map_create(size_t initial_capacity,
+                                          bool (*key_equals_func)(const void *key1,
+                                                                  const void *key2),
+                                          size_t key_offset, size_t value_offset,
+                                          size_t bucket_stride);
 
-OK_LIB_API struct __ok_map *__ok_map_create(size_t initial_capacity,
-                                            bool (*key_equals_func)(const void *key1,
-                                                                    const void *key2),
-                                            size_t key_offset, size_t value_offset,
-                                            size_t bucket_stride);
+OK_LIB_API void _ok_map_free(struct _ok_map *map);
 
-OK_LIB_API void __ok_map_free(struct __ok_map *map);
+OK_LIB_API size_t _ok_map_count(const struct _ok_map *map);
 
-OK_LIB_API size_t __ok_map_count(const struct __ok_map *map);
+OK_LIB_API size_t _ok_map_capacity(const struct _ok_map *map);
 
-OK_LIB_API size_t __ok_map_capacity(const struct __ok_map *map);
-
-OK_LIB_API bool __ok_map_contains(const struct __ok_map *map, const void *key,
+OK_LIB_API bool _ok_map_contains(const struct _ok_map *map, const void *key,
                                   ok_hash_t key_hash);
 
-OK_LIB_API bool __ok_map_put(struct __ok_map **map, const void *key,
-                             size_t key_size, ok_hash_t key_hash,
-                             const void *value, size_t value_size);
+OK_LIB_API bool _ok_map_put(struct _ok_map **map, const void *key,
+                            size_t key_size, ok_hash_t key_hash,
+                            const void *value, size_t value_size);
 
-OK_LIB_API void __ok_map_put_and_get_ptr(struct __ok_map **map, const void *key,
-                                         size_t key_size, ok_hash_t key_hash,
-                                         void **value_ptr, size_t value_size);
+OK_LIB_API void _ok_map_put_and_get_ptr(struct _ok_map **map, const void *key,
+                                        size_t key_size, ok_hash_t key_hash,
+                                        void **value_ptr, size_t value_size);
 
-OK_LIB_API bool __ok_map_put_all(struct __ok_map **map,
-                                 const struct __ok_map *from_map,
-                                 size_t key_size, size_t value_size);
+OK_LIB_API bool _ok_map_put_all(struct _ok_map **map,
+                                const struct _ok_map *from_map,
+                                size_t key_size, size_t value_size);
 
-OK_LIB_API void __ok_map_get(const struct __ok_map *map, const void *key,
-                             ok_hash_t key_hash, void *value, size_t value_size);
+OK_LIB_API void _ok_map_get(const struct _ok_map *map, const void *key,
+                            ok_hash_t key_hash, void *value, size_t value_size);
 
-OK_LIB_API void __ok_map_get_ptr(const struct __ok_map *map, const void *key,
-                                 ok_hash_t key_hash, void **value_ptr);
+OK_LIB_API void _ok_map_get_ptr(const struct _ok_map *map, const void *key,
+                                ok_hash_t key_hash, void **value_ptr);
 
-OK_LIB_API bool __ok_map_remove(struct __ok_map *map, const void *key,
-                                ok_hash_t key_hash);
+OK_LIB_API bool _ok_map_remove(struct _ok_map *map, const void *key,
+                               ok_hash_t key_hash);
 
-OK_LIB_API void *__ok_map_next(const struct __ok_map *map, void *iterator, void *key,
-                               size_t key_size, void *value, size_t value_size);
+OK_LIB_API void *_ok_map_next(const struct _ok_map *map, void *iterator, void *key,
+                              size_t key_size, void *value, size_t value_size);
 
 // MARK: Implementation: Hash functions
 
 #ifdef OK_LIB_DEFINE
 
-#ifdef __GNUC__
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wunused-function"
+#if defined(__GNUC__)
+#  pragma GCC diagnostic push
+#  pragma GCC diagnostic ignored "-Wunused-function"
+#elif defined (_MSC_VER)
+#  pragma warning(push)
+#  pragma warning(disable:4505)
 #endif
 
 // Hash functions from Wang http://www.cris.com/~Ttwang/tech/inthash.htm
@@ -915,6 +951,21 @@ OK_LIB_API ok_hash_t ok_str_hash(char *key) {
     return ok_const_str_hash(key);
 }
 
+OK_LIB_API ok_hash_t ok_const_ptr_hash(const void *key) {
+#if UINTPTR_MAX == UINT32_MAX
+    return ok_uint32_hash(*(uint32_t *)&key);
+#elif UINTPTR_MAX == UINT64_MAX
+    return ok_uint64_hash(*(uint64_t *)&key);
+#else
+    ok_static_assert(false, "Unknown pointer size");
+    return 0;
+#endif
+}
+
+OK_LIB_API ok_hash_t ok_ptr_hash(void *key) {
+    return ok_const_ptr_hash(key);
+}
+
 OK_LIB_API ok_hash_t ok_hash_combine(ok_hash_t hash_a, ok_hash_t hash_b) {
     return hash_a ^ (hash_b + 0x9e3779b9 + (hash_a << 6) + (hash_a >> 2));
 }
@@ -952,10 +1003,16 @@ OK_LIB_API bool ok_str_equals(const void *a, const void *b) {
     return strcmp(str1, str2) == 0;
 }
 
+OK_LIB_API bool ok_ptr_equals(const void *v1, const void *v2) {
+    const void *a = *(const void * const *)v1;
+    const void *b = *(const void * const *)v2;
+    return a == b;
+}
+
 // MARK: Implementation: Private vector functions
 
-OK_LIB_API bool __ok_vec_realloc(void **values, size_t min_capacity,
-                                 size_t element_size, size_t *capacity) {
+OK_LIB_API bool _ok_vec_realloc(void **values, size_t min_capacity,
+                                size_t element_size, size_t *capacity) {
     const size_t capacity_2 = *capacity << 1;
     min_capacity = min_capacity < 8 ? 8 : min_capacity;
     const size_t new_capacity = capacity_2 > min_capacity ? capacity_2 : min_capacity;
@@ -967,15 +1024,6 @@ OK_LIB_API bool __ok_vec_realloc(void **values, size_t min_capacity,
     } else {
         return false;
     }
-}
-
-OK_LIB_API size_t __ok_vec_index_of(void *values, void *value, size_t element_size, size_t count) {
-    for (size_t i = 0; i < count; i++, values = ok_ptr_offset(values, element_size)) {
-        if (memcmp(values, value, element_size) == 0) {
-            return i;
-        }
-    }
-    return OK_NOT_FOUND;
 }
 
 // MARK: Implementation Private map functions
@@ -997,7 +1045,7 @@ static const ok_hash_t OK_MAP_OCCUPIED_FLAG = 0x80000000;
 static const size_t OK_MAP_MIN_CAPACITY = 32;
 static const float OK_MAP_DEFAULT_MAX_LOAD = 0.75f;
 
-struct __ok_map {
+struct _ok_map {
     void *buckets;
 
     size_t key_offset;
@@ -1007,14 +1055,14 @@ struct __ok_map {
     size_t capacity_n;
     size_t capacity_mask;
     size_t max_count;
-    size_t count; // The count is the only member that is mutated after __ok_map_init()
+    size_t count; // The count is the only member that is mutated after _ok_map_init()
 
     bool (*key_equals_func)(const void *key1, const void *key2);
 
     float max_load_factor;
 };
 
-static struct __ok_map *__ok_map_init(struct __ok_map *map, size_t initial_capacity) {
+static struct _ok_map *_ok_map_init(struct _ok_map *map, size_t initial_capacity) {
     map->count = 0;
     if (initial_capacity < OK_MAP_MIN_CAPACITY) {
         initial_capacity = OK_MAP_MIN_CAPACITY;
@@ -1023,14 +1071,14 @@ static struct __ok_map *__ok_map_init(struct __ok_map *map, size_t initial_capac
     while ((1u << capacity_n) < initial_capacity) {
         capacity_n++;
     }
-    size_t capacity = (1 << capacity_n);
+    size_t capacity = (1u << capacity_n);
 
     map->buckets = calloc(capacity, map->bucket_stride);
     if (map->buckets) {
         map->capacity_n = capacity_n;
         map->capacity_mask = capacity - 1;
         map->max_count = (size_t)(capacity * map->max_load_factor);
-        // Make sure there is always at least one free entry (for __ok_map_find_entry)
+        // Make sure there is always at least one free entry (for _ok_map_find_entry)
         if (map->max_count >= capacity) {
             map->max_count = capacity - 1;
         }
@@ -1041,21 +1089,21 @@ static struct __ok_map *__ok_map_init(struct __ok_map *map, size_t initial_capac
     return map;
 }
 
-static struct __ok_map *__ok_map_copy(const struct __ok_map *from_map,
-                                      size_t initial_capacity,
-                                      size_t key_size, size_t value_size) {
-    struct __ok_map *map = (struct __ok_map *)calloc(1, sizeof(struct __ok_map));
+static struct _ok_map *_ok_map_copy(const struct _ok_map *from_map,
+                                    size_t initial_capacity,
+                                    size_t key_size, size_t value_size) {
+    struct _ok_map *map = (struct _ok_map *)calloc(1, sizeof(struct _ok_map));
     if (map) {
         map->key_equals_func = from_map->key_equals_func;
         map->key_offset = from_map->key_offset;
         map->value_offset = from_map->value_offset;
         map->bucket_stride = from_map->bucket_stride;
         map->max_load_factor = from_map->max_load_factor;
-        map = __ok_map_init(map, initial_capacity);
+        map = _ok_map_init(map, initial_capacity);
         if (map) {
-            bool success = __ok_map_put_all(&map, from_map, key_size, value_size);
+            bool success = _ok_map_put_all(&map, from_map, key_size, value_size);
             if (!success) {
-                __ok_map_free(map);
+                _ok_map_free(map);
                 map = NULL;
             }
         }
@@ -1064,15 +1112,15 @@ static struct __ok_map *__ok_map_copy(const struct __ok_map *from_map,
     return map;
 }
 
-static void *__ok_map_find_entry(const struct __ok_map *map, const void *key,
-                                 ok_hash_t key_hash, void **empty_entry) {
+static void *_ok_map_find_entry(const struct _ok_map *map, const void *key,
+                                ok_hash_t key_hash, void **empty_entry) {
     ok_hash_t hash = key_hash | OK_MAP_OCCUPIED_FLAG;
     size_t bucket_index = (size_t)(hash & map->capacity_mask);
     while (true) {
-        void *bucket = ok_ptr_offset(map->buckets, bucket_index * map->bucket_stride);
+        void *bucket = ok_ptr_inc(map->buckets, bucket_index * map->bucket_stride);
         ok_hash_t flags_hash = *(ok_hash_t *)(bucket);
         if (hash == flags_hash &&
-            map->key_equals_func(ok_ptr_offset(bucket, map->key_offset), key)) {
+            map->key_equals_func(ok_ptr_inc(bucket, map->key_offset), key)) {
             return bucket;
         } else if ((flags_hash & OK_MAP_OCCUPIED_FLAG) == 0) {
             if (empty_entry) {
@@ -1084,155 +1132,155 @@ static void *__ok_map_find_entry(const struct __ok_map *map, const void *key,
     }
 }
 
-static void *__ok_map_find_or_put_entry(struct __ok_map **map, const void *key,
-                                        size_t key_size, ok_hash_t key_hash, size_t value_size) {
+static void *_ok_map_find_or_put_entry(struct _ok_map **map, const void *key,
+                                       size_t key_size, ok_hash_t key_hash, size_t value_size) {
     void *new_entry = NULL;
-    void *entry = __ok_map_find_entry(*map, key, key_hash, &new_entry);
+    void *entry = _ok_map_find_entry(*map, key, key_hash, &new_entry);
     if (!entry) {
         // Grow
         if ((*map)->count >= (*map)->max_count) {
-            struct __ok_map *new_map = __ok_map_copy(*map, (1 << ((*map)->capacity_n + 1)),
+            struct _ok_map *new_map = _ok_map_copy(*map, (1u << ((*map)->capacity_n + 1)),
                                                      key_size, value_size);
             if (!new_map) {
                 return NULL;
             }
-            __ok_map_free(*map);
+            _ok_map_free(*map);
             *map = new_map;
             new_entry = NULL;
-            __ok_map_find_entry(*map, key, key_hash, &new_entry);
+            _ok_map_find_entry(*map, key, key_hash, &new_entry);
         }
         if (new_entry) {
             entry = new_entry;
             key_hash |= OK_MAP_OCCUPIED_FLAG;
             memcpy(entry, &key_hash, sizeof(ok_hash_t));
-            memcpy(ok_ptr_offset(entry, (*map)->key_offset), key, key_size);
+            memcpy(ok_ptr_inc(entry, (*map)->key_offset), key, key_size);
             (*map)->count++;
         }
     }
     return entry;
 }
 
-OK_LIB_API struct __ok_map *__ok_map_create(size_t initial_capacity,
-                                            bool (*key_equals_func)(const void *key1,
-                                                                    const void *key2),
-                                            size_t key_offset, size_t value_offset,
-                                            size_t bucket_stride) {
-    struct __ok_map *map = (struct __ok_map *)calloc(1, sizeof(struct __ok_map));
+OK_LIB_API struct _ok_map *_ok_map_create(size_t initial_capacity,
+                                          bool (*key_equals_func)(const void *key1,
+                                                                  const void *key2),
+                                          size_t key_offset, size_t value_offset,
+                                          size_t bucket_stride) {
+    struct _ok_map *map = (struct _ok_map *)calloc(1, sizeof(struct _ok_map));
     if (map) {
         map->key_equals_func = key_equals_func;
         map->key_offset = key_offset;
         map->value_offset = value_offset;
         map->bucket_stride = bucket_stride;
         map->max_load_factor = OK_MAP_DEFAULT_MAX_LOAD;
-        map = __ok_map_init(map, initial_capacity);
+        map = _ok_map_init(map, initial_capacity);
     }
     return map;
 }
 
-OK_LIB_API void __ok_map_free(struct __ok_map *map) {
+OK_LIB_API void _ok_map_free(struct _ok_map *map) {
     free(map->buckets);
     free(map);
 }
 
-OK_LIB_API size_t __ok_map_count(const struct __ok_map *map) {
+OK_LIB_API size_t _ok_map_count(const struct _ok_map *map) {
     return map->count;
 }
 
-OK_LIB_API size_t __ok_map_capacity(const struct __ok_map *map) {
+OK_LIB_API size_t _ok_map_capacity(const struct _ok_map *map) {
     return map ? (1u << map->capacity_n) : OK_MAP_MIN_CAPACITY;
 }
 
-OK_LIB_API bool __ok_map_contains(const struct __ok_map *map, const void *key,
-                                  ok_hash_t key_hash) {
-    return (__ok_map_find_entry(map, key, key_hash, NULL) != NULL);
+OK_LIB_API bool _ok_map_contains(const struct _ok_map *map, const void *key,
+                                 ok_hash_t key_hash) {
+    return (_ok_map_find_entry(map, key, key_hash, NULL) != NULL);
 }
 
-OK_LIB_API bool __ok_map_put(struct __ok_map **map, const void *key,
-                             size_t key_size, ok_hash_t key_hash,
-                             const void *value, size_t value_size) {
-    void *entry = __ok_map_find_or_put_entry(map, key, key_size, key_hash, value_size);
+OK_LIB_API bool _ok_map_put(struct _ok_map **map, const void *key,
+                            size_t key_size, ok_hash_t key_hash,
+                            const void *value, size_t value_size) {
+    void *entry = _ok_map_find_or_put_entry(map, key, key_size, key_hash, value_size);
     if (entry) {
-        memcpy(ok_ptr_offset(entry, (*map)->value_offset), value, value_size);
+        memcpy(ok_ptr_inc(entry, (*map)->value_offset), value, value_size);
         return true;
     } else {
         return false;
     }
 }
 
-OK_LIB_API void __ok_map_put_and_get_ptr(struct __ok_map **map, const void *key,
-                                         size_t key_size, ok_hash_t key_hash,
-                                         void **value_ptr, size_t value_size) {
-    void *entry = __ok_map_find_or_put_entry(map, key, key_size, key_hash, value_size);
+OK_LIB_API void _ok_map_put_and_get_ptr(struct _ok_map **map, const void *key,
+                                        size_t key_size, ok_hash_t key_hash,
+                                        void **value_ptr, size_t value_size) {
+    void *entry = _ok_map_find_or_put_entry(map, key, key_size, key_hash, value_size);
     if (entry) {
-        *value_ptr = ok_ptr_offset(entry, (*map)->value_offset);
+        *value_ptr = ok_ptr_inc(entry, (*map)->value_offset);
     } else {
         *value_ptr = NULL;
     }
 }
 
-OK_LIB_API bool __ok_map_put_all(struct __ok_map **map,
-                                 const struct __ok_map *from_map,
-                                 size_t key_size, size_t value_size) {
+OK_LIB_API bool _ok_map_put_all(struct _ok_map **map,
+                                const struct _ok_map *from_map,
+                                size_t key_size, size_t value_size) {
     if ((*map)->key_equals_func != from_map->key_equals_func) {
         return false;
     }
 
     void *iterator = from_map->buckets;
-    void *end = ok_ptr_offset(from_map->buckets, (from_map->bucket_stride << from_map->capacity_n));
+    void *end = ok_ptr_inc(from_map->buckets, (from_map->bucket_stride << from_map->capacity_n));
     while (iterator < end) {
         ok_hash_t flags_hash = *(ok_hash_t *)(iterator);
         if (flags_hash & OK_MAP_OCCUPIED_FLAG) {
-            void *key = ok_ptr_offset(iterator, from_map->key_offset);
-            void *value = ok_ptr_offset(iterator, from_map->value_offset);
-            bool success = __ok_map_put(map, key, key_size, flags_hash, value, value_size);
+            void *key = ok_ptr_inc(iterator, from_map->key_offset);
+            void *value = ok_ptr_inc(iterator, from_map->value_offset);
+            bool success = _ok_map_put(map, key, key_size, flags_hash, value, value_size);
             if (!success) {
                 return false;
             }
         }
-        iterator = ok_ptr_offset(iterator, from_map->bucket_stride);
+        iterator = ok_ptr_inc(iterator, from_map->bucket_stride);
     }
     return true;
 }
 
-OK_LIB_API void __ok_map_get(const struct __ok_map *map, const void *key,
-                             ok_hash_t key_hash, void *value, size_t value_size) {
-    void *entry = __ok_map_find_entry(map, key, key_hash, NULL);
+OK_LIB_API void _ok_map_get(const struct _ok_map *map, const void *key,
+                            ok_hash_t key_hash, void *value, size_t value_size) {
+    void *entry = _ok_map_find_entry(map, key, key_hash, NULL);
     if (entry) {
-        memcpy(value, ok_ptr_offset(entry, map->value_offset), value_size);
+        memcpy(value, ok_ptr_inc(entry, map->value_offset), value_size);
     } else {
         memset(value, 0, value_size);
     }
 }
 
-OK_LIB_API void __ok_map_get_ptr(const struct __ok_map *map, const void *key,
-                                 ok_hash_t key_hash, void **value_ptr) {
-    void *entry = __ok_map_find_entry(map, key, key_hash, NULL);
+OK_LIB_API void _ok_map_get_ptr(const struct _ok_map *map, const void *key,
+                                ok_hash_t key_hash, void **value_ptr) {
+    void *entry = _ok_map_find_entry(map, key, key_hash, NULL);
     if (entry) {
-        *value_ptr = ok_ptr_offset(entry, map->value_offset);
+        *value_ptr = ok_ptr_inc(entry, map->value_offset);
     } else {
         *value_ptr = NULL;
     }
 }
 
-OK_LIB_API void *__ok_map_next(const struct __ok_map *map, void *iterator, void *key,
-                               size_t key_size, void *value, size_t value_size) {
+OK_LIB_API void *_ok_map_next(const struct _ok_map *map, void *iterator, void *key,
+                              size_t key_size, void *value, size_t value_size) {
     if (map->count == 0) {
         return NULL;
     }
     void *begin = map->buckets;
-    void *end = ok_ptr_offset(map->buckets, (map->bucket_stride << map->capacity_n));
+    void *end = ok_ptr_inc(map->buckets, (map->bucket_stride << map->capacity_n));
     if (!iterator) {
         iterator = map->buckets;
     }
     while (iterator >= begin && iterator < end) {
         ok_hash_t flags_hash = *(ok_hash_t *)(iterator);
-        void *next_iterator = ok_ptr_offset(iterator, map->bucket_stride);
+        void *next_iterator = ok_ptr_inc(iterator, map->bucket_stride);
         if (flags_hash & OK_MAP_OCCUPIED_FLAG) {
             if (key) {
-                memcpy(key, ok_ptr_offset(iterator, map->key_offset), key_size);
+                memcpy(key, ok_ptr_inc(iterator, map->key_offset), key_size);
             }
             if (value) {
-                memcpy(value, ok_ptr_offset(iterator, map->value_offset), value_size);
+                memcpy(value, ok_ptr_inc(iterator, map->value_offset), value_size);
             }
             return next_iterator;
         }
@@ -1241,22 +1289,22 @@ OK_LIB_API void *__ok_map_next(const struct __ok_map *map, void *iterator, void 
     return NULL;
 }
 
-OK_LIB_API bool __ok_map_remove(struct __ok_map *map, const void *key, ok_hash_t key_hash) {
-    void *removed_entry = __ok_map_find_entry(map, key, key_hash, NULL);
+OK_LIB_API bool _ok_map_remove(struct _ok_map *map, const void *key, ok_hash_t key_hash) {
+    void *removed_entry = _ok_map_find_entry(map, key, key_hash, NULL);
     if (!removed_entry) {
         return false;
     }
     memset(removed_entry, 0, sizeof(ok_hash_t));
     map->count--;
 
-    size_t i = (size_t)ok_ptr_diff(removed_entry, map->buckets) / map->bucket_stride;
+    size_t i = ok_offsetof(map->buckets, removed_entry) / map->bucket_stride;
     size_t j = i;
 
     // NOTE: This only works with linear probing
-    const size_t mask = (1 << map->capacity_n) - 1;
+    const size_t mask = (1u << map->capacity_n) - 1u;
     while (true) {
         j = (j + 1) & mask;
-        void *entry = ok_ptr_offset(map->buckets, j * map->bucket_stride);
+        void *entry = ok_ptr_inc(map->buckets, j * map->bucket_stride);
 
         ok_hash_t flags_hash = *(ok_hash_t *)(entry);
         if ((flags_hash & OK_MAP_OCCUPIED_FLAG) == 0) {
@@ -1273,8 +1321,10 @@ OK_LIB_API bool __ok_map_remove(struct __ok_map *map, const void *key, ok_hash_t
     return true;
 }
 
-#ifdef __GNUC__
-#pragma GCC diagnostic pop
+#if defined(__GNUC__)
+#  pragma GCC diagnostic pop
+#elif defined (_MSC_VER)
+#  pragma warning(pop)
 #endif
 
 #endif // OK_LIB_DEFINE
