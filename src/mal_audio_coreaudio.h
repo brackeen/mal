@@ -25,6 +25,12 @@
 #include "mal.h"
 #include <AudioToolbox/AudioToolbox.h>
 
+#ifdef NDEBUG
+#  define MAL_LOG(...) do { } while(0)
+#else
+#  define MAL_LOG(...) do { printf("mal: " __VA_ARGS__); printf("\n"); } while(0)
+#endif
+
 struct _MalRamp {
     int value; // -1 for fade out, 1 for fade in, 0 for no fade
     uint32_t frames;

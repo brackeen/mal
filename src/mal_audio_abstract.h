@@ -38,17 +38,6 @@
 #    define MAL_UNLOCK(player) do { } while(0)
 #endif
 
-#ifndef NDEBUG
-#  ifdef ANDROID
-#    include <android/log.h>
-#    define MAL_LOG(...) __android_log_print(ANDROID_LOG_INFO, "mal", __VA_ARGS__)
-#  else
-#    define MAL_LOG(...) do { printf("mal: " __VA_ARGS__); printf("\n"); } while(0)
-#  endif
-#else
-#  define MAL_LOG(...) do { } while(0)
-#endif
-
 // Audio subsystems need to implement these structs and functions.
 // All mal_*init() functions should return `true` on success, `false` otherwise.
 
