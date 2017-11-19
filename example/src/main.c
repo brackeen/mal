@@ -232,7 +232,7 @@ int main(void) {
     // Set the current working directory to the exe path
     TCHAR path[MAX_PATH];
     DWORD length = GetModuleFileName(NULL, path, MAX_PATH);
-    if (length > 0) {
+    if (length > 0 && length < MAX_PATH) {
         for (DWORD i = length - 1; i > 0; i--) {
             if (path[i] == '\\') {
                 path[i + 1] = 0;
