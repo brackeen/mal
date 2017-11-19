@@ -13,6 +13,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#if defined(WIN32) && defined(_DEBUG)
+#include <crtdbg.h>
+#define printf(...) do { \
+    if (IsDebuggerPresent()) { \
+        _CrtDbgReport(_CRT_WARN, __FILE__, __LINE__, "mal", __VA_ARGS__); \
+    } else { \
+        fprintf(stdout, __VA_ARGS__); \
+    } \
+} while(0)
+#endif
+
 #define kMaxPlayers 16
 #define kTestFreeBufferDuringPlayback 0
 #define kTestAudioPause 0

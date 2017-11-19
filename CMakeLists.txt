@@ -24,7 +24,7 @@ elseif (CMAKE_SYSTEM_NAME MATCHES "Darwin")
         set(MAL_SRC ${MAL_SRC} src/mal_platform_macos.m src/mal_audio_coreaudio.h)
     endif()
 else()
-    message(FATAL_ERROR "CMAKE_SYSTEM_NAME must be set to Emscripten, Android, or Darwin. Current value is ${CMAKE_SYSTEM_NAME}")
+    message(FATAL_ERROR "CMAKE_SYSTEM_NAME must be Windows, Darwin, Android, or Emscripten. Current value is ${CMAKE_SYSTEM_NAME}")
 endif()
 
 add_library(mal ${MAL_SRC} ${MAL_HEADERS})

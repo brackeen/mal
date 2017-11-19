@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.6.0) # Might run on earlier versions. Probably requires 3.4 or 3.5
+cmake_minimum_required(VERSION 3.6.0)
 
 if ((CMAKE_SYSTEM_NAME MATCHES "Emscripten") OR
     (CMAKE_SYSTEM_NAME MATCHES "Android") OR 
@@ -37,9 +37,10 @@ elseif ((CMAKE_SYSTEM_NAME MATCHES "Darwin") OR (CMAKE_SYSTEM_NAME MATCHES "Wind
     target_link_libraries(mal_example mal glfw)
 
     if (CMAKE_C_COMPILER_ID MATCHES "MSVC")
+        set_property(DIRECTORY ${CMAKE_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT mal_example)
         # Hide the console
-        #set_target_properties(mal_example PROPERTIES 
-        #                      LINK_FLAGS "/SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup")
+        set_target_properties(mal_example PROPERTIES
+                              LINK_FLAGS "/SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup")
     endif()
 
     # Copy assets to build dir
