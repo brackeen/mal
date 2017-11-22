@@ -663,8 +663,7 @@ static MalPlayerState _malPlayerGetState(const MalPlayer *player) {
     return player->data.state;
 }
 
-static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState,
-                                  MalPlayerState state) {
+static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPlayerState state) {
     if (!player->context || !player->context->data.graph) {
         return false;
     }
