@@ -426,6 +426,8 @@ static OSStatus audioRenderCallback(void *userData, AudioUnitRenderActionFlags *
                 AUGraphDisconnectNodeInput(player->context->data.graph,
                                            player->data.converterNode,
                                            0);
+                Boolean updated;
+                AUGraphUpdate(player->context->data.graph, &updated);
             }
 
             if (state == MAL_PLAYER_STATE_PLAYING && player->onFinishedId) {
