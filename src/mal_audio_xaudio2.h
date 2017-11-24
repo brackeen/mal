@@ -331,7 +331,7 @@ static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer) {
         bufferInfo.AudioBytes = ((buffer->format.bitDepth / 8) *
                                  buffer->format.numChannels * buffer->numFrames);
         bufferInfo.pAudioData = (const BYTE *)buffer->managedData;
-        // TODO: Looping
+        bufferInfo.LoopCount = player->looping ? XAUDIO2_LOOP_INFINITE : 0;
         bool success = SUCCEEDED(player->data.sourceVoice->SubmitSourceBuffer(&bufferInfo));
         player->data.bufferQueued = success;
         return success;
@@ -351,9 +351,15 @@ static void _malPlayerSetGain(MalPlayer *player, float gain) {
 }
 
 static void _malPlayerSetLooping(MalPlayer *player, bool looping) {
-    (void)player;
-    (void)looping;
-    // TODO: Looping
+    if (_malPlayerGetState(player) == MAL_PLAYER_STATE_STOPPED) {
+        _malPlayerSetBuffer(player, player->buffer);
+    } else if (player->data.sourceVoice) {
+        if (looping) {
+            // TODO: Return failure - can't enable looping on an already playing sound
+        } else {
+            player->data.sourceVoice->ExitLoop();
+        }
+    }
 }
 
 static void _malPlayerDidSetFinishedCallback(MalPlayer *player) {
