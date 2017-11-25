@@ -1,5 +1,5 @@
 /*
- mal
+ Mal
  https://github.com/brackeen/mal
  Copyright (c) 2014-2017 David Brackeen
 
@@ -28,7 +28,7 @@
 #ifdef NDEBUG
 #  define MAL_LOG(...) do { } while(0)
 #else
-#  define MAL_LOG(...) do { printf("mal: " __VA_ARGS__); printf("\n"); } while(0)
+#  define MAL_LOG(...) do { printf("Mal: " __VA_ARGS__); printf("\n"); } while(0)
 #endif
 
 struct _MalRamp {

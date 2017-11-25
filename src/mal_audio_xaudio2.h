@@ -1,5 +1,5 @@
 /*
- mal
+ Mal
  https://github.com/brackeen/mal
  Copyright (c) 2014-2017 David Brackeen
 
@@ -23,7 +23,7 @@
 #define MAL_AUDIO_XAUDIO2_H
 
 #if defined(_DEBUG)
-#  define MAL_LOG(s) OutputDebugString("mal: " s "\n");
+#  define MAL_LOG(s) OutputDebugString("Mal: " s "\n");
 #else
 #  define MAL_LOG(...) do { } while(0)
 #endif

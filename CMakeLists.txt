@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 2.8.7)
 
-project(MAL)
+project(Mal)
 
 option(MAL_BUILD_EXAMPLE "Build the MAL example" OFF)
 

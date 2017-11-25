@@ -1,5 +1,5 @@
 /*
- mal
+ Mal
  https://github.com/brackeen/mal
  Copyright (c) 2014-2017 David Brackeen
 

@@ -17,7 +17,7 @@
 #include <crtdbg.h>
 #define printf(...) do { \
     if (IsDebuggerPresent()) { \
-        _CrtDbgReport(_CRT_WARN, __FILE__, __LINE__, "mal", __VA_ARGS__); \
+        _CrtDbgReport(_CRT_WARN, __FILE__, __LINE__, "Mal", __VA_ARGS__); \
     } else { \
         fprintf(stdout, __VA_ARGS__); \
     } \
@@ -165,7 +165,7 @@ static void malExampleFree(MalApp *app) {
 
 // MARK: GLFM functions
 
-// Be a good app citizen - set mal to inactive when pausing.
+// Be a good app citizen - set Mal to inactive when pausing.
 static void onAppPause(GLFMDisplay *display) {
     MalApp *app = glfmGetUserData(display);
     malContextSetActive(app->context, false);
@@ -262,7 +262,7 @@ int main(void) {
     }
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 2);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
-    window = glfwCreateWindow(640, 480, "MAL Example", NULL, NULL);
+    window = glfwCreateWindow(640, 480, "Mal Example", NULL, NULL);
     if (!window) {
         glfwTerminate();
         exit(EXIT_FAILURE);
