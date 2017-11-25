@@ -285,6 +285,7 @@ int main(void) {
 
         glfwSwapBuffers(window);
         glfwPollEvents();
+        malContextPollEvents(app->context);
     }
     glfwDestroyWindow(window);
     glfwTerminate();

@@ -23,6 +23,11 @@
 
 #include "mal_audio_webaudio.h"
 
+void malContextPollEvents(MalContext *context) {
+    (void)context;
+    // Do nothing
+}
+
 static void _malContextDidCreate(MalContext *context) {
     (void)context;
     // Do nothing

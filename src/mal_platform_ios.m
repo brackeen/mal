@@ -27,6 +27,11 @@
 #include "mal_audio_coreaudio.h"
 #include <AVFoundation/AVFoundation.h>
 
+void malContextPollEvents(MalContext *context) {
+    (void)context;
+    // Do nothing
+}
+
 static void _malCheckRoutes(MalContext *context) {
     if (context) {
         memset(context->routes, 0, sizeof(context->routes));

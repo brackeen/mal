@@ -91,6 +91,15 @@ MalContext *malContextCreate(double sampleRate);
 void malContextSetActive(MalContext *context, bool active);
 
 /**
+ * Sends any pending events requested via #malPlayerSetFinishedFunc().
+ *
+ * This function is required only on Windows. On other platforms, this functions does nothing.
+ *
+ * @param context The audio context. If `NULL`, this function does nothing.
+ */
+void malContextPollEvents(MalContext *context);
+
+/**
  * Checks if the audio is currently outputting through a specific route. Multiple output routes may
  * be enabled simultaneously. If all routes return `false`, the route could not be determined.
  *
@@ -314,8 +323,10 @@ const MalBuffer *malPlayerGetBuffer(const MalPlayer *player);
  *
  * The player may still be in the #MAL_PLAYER_STATE_PLAYING state when this function is called.
  *
- * The function is invoked on the main thread. On Android, the main thread is the thread that
- * invoked #malContextSetActive().
+ * On Windows, the function is invoked only when #malContextPollEvents() is invoked.
+ *
+ * On other platforms, this function is invoked on the main thread. (On Android, the main thread
+ * is the thread that invoked #malContextSetActive().
  *
  * @param player The player. If `NULL`, this function does nothing.
  * @param onFinished The callback function, or `NULL`.

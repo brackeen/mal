@@ -26,6 +26,11 @@
 #include <IOKit/audio/IOAudioTypes.h> // For terminal types
 #include "mal_audio_coreaudio.h"
 
+void malContextPollEvents(MalContext *context) {
+    (void)context;
+    // Do nothing
+}
+
 static void _malCheckRoutes(MalContext *context);
 static bool _malAttemptRestart(MalContext *context);
 
