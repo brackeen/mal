@@ -252,42 +252,44 @@ static void _malContextReset(MalContext *context) {
     }
 }
 
-static void _malContextSetActive(MalContext *context, bool active) {
-    if (context->active != active) {
-        OSStatus status;
-        context->active = active;
-        if (active) {
-            Boolean running = false;
-            AUGraphIsRunning(context->data.graph, &running);
-            if (running) {
-                // Hasn't called AUGraphStop yet - do nothing
-                context->data.ramp.value = 0;
-                status = noErr;
-            } else {
-                if (!context->data.firstTime && context->data.canRampOutputGain) {
-                    // Fade in
-                    context->data.ramp.value = 1;
-                    context->data.ramp.frames = 4096;
-                    context->data.ramp.framesPosition = 0;
-                }
-                status = AUGraphStart(context->data.graph);
-                context->data.firstTime = false;
-            }
+static bool _malContextSetActive(MalContext *context, bool active) {
+    if (context->active == active) {
+        return true;
+    }
+    OSStatus status;
+    context->active = active;
+    if (active) {
+        Boolean running = false;
+        AUGraphIsRunning(context->data.graph, &running);
+        if (running) {
+            // Hasn't called AUGraphStop yet - do nothing
+            context->data.ramp.value = 0;
+            status = noErr;
         } else {
-            if (context->data.canRampOutputGain) {
-                // Fade out
-                context->data.ramp.value = -1;
+            if (!context->data.firstTime && context->data.canRampOutputGain) {
+                // Fade in
+                context->data.ramp.value = 1;
                 context->data.ramp.frames = 4096;
                 context->data.ramp.framesPosition = 0;
-                status = noErr;
-            } else {
-                status = AUGraphStop(context->data.graph);
             }
+            status = AUGraphStart(context->data.graph);
+            context->data.firstTime = false;
         }
-        if (status != noErr) {
-            MAL_LOG("Couldn't %s graph (err %i)", (active ? "start" : "stop"), (int)status);
+    } else {
+        if (context->data.canRampOutputGain) {
+            // Fade out
+            context->data.ramp.value = -1;
+            context->data.ramp.frames = 4096;
+            context->data.ramp.framesPosition = 0;
+            status = noErr;
+        } else {
+            status = AUGraphStop(context->data.graph);
         }
     }
+    if (status != noErr) {
+        MAL_LOG("Couldn't %s graph (err %i)", (active ? "start" : "stop"), (int)status);
+    }
+    return status == noErr;
 }
 
 static void _malContextSetMute(MalContext *context, bool mute) {

@@ -180,7 +180,7 @@ static void _malLooperPost(int pipe, struct looperMessage *msg) {
 
 #endif
 
-static void _malContextSetActive(MalContext *context, bool active) {
+static bool _malContextSetActive(MalContext *context, bool active) {
     if (context->active != active) {
         context->active = active;
 
@@ -241,6 +241,7 @@ static void _malContextSetActive(MalContext *context, bool active) {
             }
         }
     }
+    return true;
 }
 
 static void _malContextSetMute(MalContext *context, bool mute) {

@@ -92,7 +92,7 @@ static void _malContextDispose(MalContext *context) {
     }
 }
 
-static void _malContextSetActive(MalContext *context, const bool active) {
+static bool _malContextSetActive(MalContext *context, const bool active) {
     if (active) {
         alcMakeContextCurrent(context->data.alContext);
         alcProcessContext(context->data.alContext);
@@ -100,6 +100,7 @@ static void _malContextSetActive(MalContext *context, const bool active) {
         alcSuspendContext(context->data.alContext);
         alcMakeContextCurrent(NULL);
     }
+    return true;
 }
 
 static void _malContextSetMute(MalContext *context, const bool mute) {

@@ -45,7 +45,7 @@ static pthread_mutex_t globalMutex = PTHREAD_MUTEX_INITIALIZER;
 #endif
 
 // Audio subsystems need to implement these structs and functions.
-// All mal_*init() functions should return `true` on success, `false` otherwise.
+// All functions that return a `bool` should return `true` on success, `false` otherwise.
 
 struct _MalContext;
 struct _MalBuffer;
@@ -56,7 +56,7 @@ static void _malContextDidCreate(MalContext *context);
 static void _malContextWillDispose(MalContext *context);
 static void _malContextDispose(MalContext *context);
 static void _malContextDidSetActive(MalContext *context, bool active);
-static void _malContextSetActive(MalContext *context, bool active);
+static bool _malContextSetActive(MalContext *context, bool active);
 static void _malContextSetMute(MalContext *context, bool mute);
 static void _malContextSetGain(MalContext *context, float gain);
 static void _malContextCheckRoutes(MalContext *context);
@@ -153,7 +153,11 @@ MalContext *malContextCreate(double outputSampleRate) {
         bool success = _malContextInit(context);
         if (success) {
             _malContextDidCreate(context);
-            malContextSetActive(context, true);
+            success = malContextSetActive(context, true);
+            if (!success) {
+                malContextFree(context);
+                context = NULL;
+            }
         } else {
             malContextFree(context);
             context = NULL;
@@ -162,17 +166,23 @@ MalContext *malContextCreate(double outputSampleRate) {
     return context;
 }
 
-void malContextSetActive(MalContext *context, bool active) {
-    if (context) {
-        MAL_LOCK(context);
-        _malContextSetActive(context, active);
+bool malContextSetActive(MalContext *context, bool active) {
+    if (!context) {
+        return false;
+    }
+    MAL_LOCK(context);
+    bool success = _malContextSetActive(context, active);
+    if (success) {
         context->active = active;
-        MAL_UNLOCK(context);
+    }
+    MAL_UNLOCK(context);
+    if (success) {
         _malContextDidSetActive(context, active);
         if (active) {
             _malContextCheckRoutes(context);
         }
     }
+    return success;
 }
 
 bool malContextGetMute(const MalContext *context) {

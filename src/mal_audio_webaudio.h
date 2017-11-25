@@ -89,10 +89,11 @@ static void _malContextDispose(MalContext *context) {
     }
 }
 
-static void _malContextSetActive(MalContext *context, bool active) {
+static bool _malContextSetActive(MalContext *context, bool active) {
     (void)context;
     (void)active;
     // Do nothing
+    return true;
 }
 
 static void _malContextSetMute(MalContext *context, bool mute) {

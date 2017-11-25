@@ -173,14 +173,14 @@ static void _malContextDispose(MalContext *context) {
     DeleteCriticalSection(&context->data.lock);
 }
 
-static void _malContextSetActive(MalContext *context, bool active) {
-    if (context->active != active) {
-        if (active) {
-            // TODO: Check HRESULT
-            context->data.xAudio2->StartEngine();
-        } else {
-            context->data.xAudio2->StopEngine();
-        }
+static bool _malContextSetActive(MalContext *context, bool active) {
+    if (context->active == active) {
+        return true;
+    } else if (active) {
+        return SUCCEEDED(context->data.xAudio2->StartEngine());
+    } else {
+        context->data.xAudio2->StopEngine();
+        return true;
     }
 }
 

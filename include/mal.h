@@ -87,8 +87,9 @@ MalContext *malContextCreate(double sampleRate);
  *
  * @param context The audio context. If `NULL`, this function does nothing.
  * @param active If `true`, the context is activated; otherwise the context is deactivated.
+ * @return `true` if successful; `false` otherwise.
  */
-void malContextSetActive(MalContext *context, bool active);
+bool malContextSetActive(MalContext *context, bool active);
 
 /**
  * Sends any pending events requested via #malPlayerSetFinishedFunc().
