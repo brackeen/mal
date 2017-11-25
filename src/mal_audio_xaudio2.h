@@ -49,6 +49,7 @@
 #endif
 #pragma warning(pop)
 
+#include "ok_lib.h"
 #include "mal.h"
 
 class MalVoiceCallback; 
@@ -61,6 +62,9 @@ struct _MalContext {
 #endif
     IXAudio2 *xAudio2;
     IXAudio2MasteringVoice *masteringVoice;
+    CRITICAL_SECTION lock;
+    struct ok_vec_of(uint64_t) finishedCallbackIds;
+    bool hasPolledEvents;
     bool shouldUninitializeCOM;
 };
 
@@ -73,6 +77,8 @@ struct _MalPlayer {
     MalVoiceCallback *callback;
     MalPlayerState state;
     bool bufferQueued;
+    // Same value as MalPlayer, but locked via CRITICAL_SECTION
+    uint64_t onFinishedId;
 };
 
 #include "mal_audio_abstract.h"
@@ -80,6 +86,12 @@ struct _MalPlayer {
 #pragma region Context
 
 static bool _malContextInit(MalContext *context) {
+    ok_vec_init(&context->data.finishedCallbackIds);
+
+    if (!InitializeCriticalSectionAndSpinCount(&context->data.lock, 20)) {
+        return false;
+    }
+
     // Initialize COM
     HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
     if (hr == RPC_E_CHANGED_MODE) {
@@ -157,6 +169,7 @@ static void _malContextDispose(MalContext *context) {
         context->data.shouldUninitializeCOM = false;
         CoUninitialize();
     }
+    DeleteCriticalSection(&context->data.lock);
 }
 
 static void _malContextSetActive(MalContext *context, bool active) {
@@ -178,6 +191,34 @@ static void _malContextSetMute(MalContext *context, bool mute) {
 static void _malContextSetGain(MalContext *context, float gain) {
     float totalGain = context->mute ? 0.0f : gain;
     context->data.masteringVoice->SetVolume(totalGain);
+}
+
+void malContextPollEvents(MalContext *context) {
+    if (!context) {
+        return;
+    }
+    context->data.hasPolledEvents = true;
+
+    while (true) {
+        bool done = false;
+        uint64_t onFinishedId = 0;
+
+        EnterCriticalSection(&context->data.lock);
+        size_t count = context->data.finishedCallbackIds.count;
+        if (count == 0) {
+            done = true;
+        } else {
+            onFinishedId = ok_vec_get(&context->data.finishedCallbackIds, count - 1);
+            ok_vec_remove_at(&context->data.finishedCallbackIds, count - 1);
+        }
+        LeaveCriticalSection(&context->data.lock);
+
+        if (done) {
+            break;
+        } else {
+            _malHandleOnFinishedCallback(onFinishedId);
+        }
+    }
 }
 
 #pragma endregion
@@ -227,6 +268,14 @@ public:
 
     void STDMETHODCALLTYPE OnStreamEnd() override {
         player->data.bufferQueued = false;
+        if (player->data.onFinishedId) {
+            MalContext *context = player->context;
+            if (context && context->data.hasPolledEvents) {
+                EnterCriticalSection(&context->data.lock);
+                ok_vec_push(&context->data.finishedCallbackIds, player->data.onFinishedId);
+                LeaveCriticalSection(&context->data.lock);
+            }
+        }
     }
 
     void STDMETHODCALLTYPE OnVoiceProcessingPassEnd() override {
@@ -363,8 +412,11 @@ static void _malPlayerSetLooping(MalPlayer *player, bool looping) {
 }
 
 static void _malPlayerDidSetFinishedCallback(MalPlayer *player) {
-    (void)player;
-    // TODO: Callbacks
+    if (player->context) {
+        EnterCriticalSection(&player->context->data.lock);
+        player->data.onFinishedId = player->onFinishedId;
+        LeaveCriticalSection(&player->context->data.lock);
+    }
 }
 
 static MalPlayerState _malPlayerGetState(const MalPlayer *player) {
