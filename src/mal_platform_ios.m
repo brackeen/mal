@@ -32,7 +32,7 @@ void malContextPollEvents(MalContext *context) {
     // Do nothing
 }
 
-static void _malCheckRoutes(MalContext *context) {
+static void _malContextCheckRoutes(MalContext *context) {
     if (context) {
         memset(context->routes, 0, sizeof(context->routes));
         AVAudioSession *session = [AVAudioSession sharedInstance];
@@ -77,7 +77,7 @@ static void _malNotificationHandler(CFNotificationCenterRef center, void *observ
             }
         }
     } else if ([AVAudioSessionRouteChangeNotification isEqualToString:nsName]) {
-        _malCheckRoutes(context);
+        _malContextCheckRoutes(context);
     } else if ([AVAudioSessionMediaServicesWereResetNotification isEqualToString:nsName]) {
         _malContextReset(context);
     }
@@ -129,7 +129,6 @@ static void _malContextDidSetActive(MalContext *context, bool active) {
                     error.localizedDescription.UTF8String);
             error = nil;
         }
-        _malCheckRoutes(context);
     }
 
     // NOTE: Setting the audio session to active should happen last

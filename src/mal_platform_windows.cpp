@@ -23,6 +23,11 @@
 
 #include "mal_audio_xaudio2.h"
 
+static void _malContextCheckRoutes(MalContext *context) {
+    (void)context;
+    // Do nothing
+}
+
 static void _malContextDidCreate(MalContext *context) {
     (void)context;
     // Do nothing

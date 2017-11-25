@@ -31,7 +31,6 @@ void malContextPollEvents(MalContext *context) {
     // Do nothing
 }
 
-static void _malCheckRoutes(MalContext *context);
 static bool _malAttemptRestart(MalContext *context);
 
 // MARK: Notifications
@@ -70,7 +69,7 @@ static void _malHandleNotifications() {
         struct MalNotification *notification = ok_vec_get_ptr(&_malPendingNotifications, i);
         bool handled = true;
         if (notification->type == MAL_NOTIFICATION_TYPE_DEVICE_CHANGED) {
-            _malCheckRoutes(notification->context);
+            _malContextCheckRoutes(notification->context);
         } else if (notification->type == MAL_NOTIFICATION_TYPE_RESTART) {
             handled = _malAttemptRestart(notification->context);
             if (!handled) {
@@ -134,7 +133,7 @@ static UInt32 _malGetPropertyUInt32(AudioObjectID object,
     }
 }
 
-static void _malCheckRoutes(MalContext *context) {
+static void _malContextCheckRoutes(MalContext *context) {
     if (!context) {
         return;
     }
@@ -313,9 +312,7 @@ static void _malContextWillDispose(MalContext *context) {
 }
 
 static void _malContextDidSetActive(MalContext *context, bool active) {
-    if (active) {
-        _malCheckRoutes(context);
-    }
+    // Do nothing
 }
 
 #endif

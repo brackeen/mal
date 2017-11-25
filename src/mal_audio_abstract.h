@@ -58,7 +58,7 @@ static void _malContextDidSetActive(MalContext *context, bool active);
 static void _malContextSetActive(MalContext *context, bool active);
 static void _malContextSetMute(MalContext *context, bool mute);
 static void _malContextSetGain(MalContext *context, float gain);
-
+static void _malContextCheckRoutes(MalContext *context);
 /**
  Either `copiedData` or `managedData` will be non-null, but not both. If `copiedData` is set,
  the data must be copied (don't keep a reference to `copiedData`).
@@ -168,6 +168,9 @@ void malContextSetActive(MalContext *context, bool active) {
         context->active = active;
         MAL_UNLOCK(context);
         _malContextDidSetActive(context, active);
+        if (active) {
+            _malContextCheckRoutes(context);
+        }
     }
 }
 
