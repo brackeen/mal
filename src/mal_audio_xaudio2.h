@@ -380,7 +380,7 @@ static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer) {
         bufferInfo.AudioBytes = ((buffer->format.bitDepth / 8) *
                                  buffer->format.numChannels * buffer->numFrames);
         bufferInfo.pAudioData = (const BYTE *)buffer->managedData;
-        bufferInfo.LoopCount = player->looping ? XAUDIO2_LOOP_INFINITE : 0;
+        bufferInfo.LoopCount = (UINT32)(player->looping ? XAUDIO2_LOOP_INFINITE : 0);
         bool success = SUCCEEDED(player->data.sourceVoice->SubmitSourceBuffer(&bufferInfo));
         player->data.bufferQueued = success;
         return success;
