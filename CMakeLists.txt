@@ -5,7 +5,7 @@ project(Mal)
 option(MAL_BUILD_EXAMPLE "Build the MAL example" OFF)
 
 set(MAL_HEADERS include/mal.h)
-set(MAL_SRC src/mal_audio_abstract.h src/ok_lib.h)
+set(MAL_SRC src/mal_audio_abstract_types.h src/mal_audio_abstract.h src/ok_lib.h)
 
 if (CMAKE_SYSTEM_NAME MATCHES "Windows")
     set(MAL_SRC ${MAL_SRC} src/mal_platform_windows.cpp src/mal_audio_xaudio2.h)

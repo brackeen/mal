@@ -205,15 +205,13 @@ static void _malPlayerDispose(MalPlayer *player) {
 }
 
 static void _malPlayerDidSetFinishedCallback(MalPlayer *player) {
+    ok_static_assert(sizeof(MalCallbackId) <= 4, "MalCallbackId size must be 4 bytes or less");
     MalContext *context = player->context;
     if (context && context->data.contextId && player->data.playerId) {
         EM_ASM_ARGS({
             var player = malContexts[$0].players[$1];
-            player.onFinishedIdLow = $2;
-            player.onFinishedIdHigh = $3;
-        }, context->data.contextId, player->data.playerId,
-                    (uint32_t)(player->onFinishedId & 0xffffffff),
-                    (uint32_t)(player->onFinishedId >> 32));
+            player.onFinishedId = $2;
+        }, context->data.contextId, player->data.playerId, player->onFinishedId);
     }
 }
 
@@ -355,11 +353,10 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState,
                         player.gainNode.disconnect();
                         player.gainNode = null;
                     }
-                    if (player.onFinishedIdLow || player.onFinishedIdHigh) {
+                    if (player.onFinishedId) {
                         try {
-                            Module.ccall('_malHandleOnFinishedCallback2', 'void',
-                                         ['number', 'number'],
-                                         [ player.onFinishedIdHigh, player.onFinishedIdLow ]);
+                            Module.ccall('_malHandleOnFinishedCallback2', 'void', ['number'],
+                                         [player.onFinishedId]);
                         } catch (e) { }
                     }
                 };
@@ -391,8 +388,7 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState,
 }
 
 EMSCRIPTEN_KEEPALIVE
-static void _malHandleOnFinishedCallback2(uint32_t onFinishedHighId, uint32_t onFinishedLowId) {
-    uint64_t onFinishedId = (((uint64_t)onFinishedHighId) << 32) | onFinishedLowId;
+static void _malHandleOnFinishedCallback2(MalCallbackId onFinishedId) {
     _malHandleOnFinishedCallback(onFinishedId);
 }
 

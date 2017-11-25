@@ -23,6 +23,7 @@
 #define MAL_AUDIO_ABSTRACT_H
 
 #include "mal.h"
+#include "mal_audio_abstract_types.h"
 #include "ok_lib.h"
 #include <math.h>
 
@@ -84,10 +85,10 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPl
 
 typedef struct ok_vec_of(MalPlayer *) MalPlayerVec;
 typedef struct ok_vec_of(MalBuffer *) MalBufferVec;
-typedef struct ok_map_of(uint64_t, MalPlayer *) MalCallbackMap;
+typedef struct ok_map_of(MalCallbackId, MalPlayer *) MalCallbackMap;
 
 static MalCallbackMap *globalActiveCallbacks = NULL;
-static uint64_t nextFinishedCallbackID = 1;
+static MalCallbackId nextFinishedCallbackID = 1;
 
 // MARK: Structs
 
@@ -127,7 +128,7 @@ struct MalPlayer {
 
     malPlaybackFinishedFunc onFinished;
     void *onFinishedUserData;
-    uint64_t onFinishedId;
+    MalCallbackId onFinishedId;
 
 #ifdef MAL_USE_MUTEX
     pthread_mutex_t mutex;
@@ -409,10 +410,10 @@ void malPlayerSetFinishedFunc(MalPlayer *player, malPlaybackFinishedFunc onFinis
         MAL_LOCK_GLOBAL();
         if (!globalActiveCallbacks) {
             globalActiveCallbacks = (MalCallbackMap *)malloc(sizeof(MalCallbackMap));
-            ok_map_init_custom(globalActiveCallbacks, ok_uint64_hash, ok_64bit_equals);
+            ok_map_init_custom(globalActiveCallbacks, ok_uint32_hash, ok_32bit_equals);
         }
-        uint64_t oldOnFinishedId;
-        uint64_t newOnFinishedId;
+        MalCallbackId oldOnFinishedId;
+        MalCallbackId newOnFinishedId;
         if (onFinished != NULL) {
             newOnFinishedId = nextFinishedCallbackID;
             nextFinishedCallbackID++;
@@ -442,7 +443,7 @@ malPlaybackFinishedFunc malPlayerGetFinishedFunc(MalPlayer *player) {
     return player ? player->onFinished : NULL;
 }
 
-static void _malHandleOnFinishedCallback(uint64_t onFinishedId) {
+static void _malHandleOnFinishedCallback(MalCallbackId onFinishedId) {
     // Find the player
     MalPlayer *player = NULL;
     MAL_LOCK_GLOBAL();

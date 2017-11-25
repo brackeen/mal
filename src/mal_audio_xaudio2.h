@@ -50,6 +50,7 @@
 #pragma warning(pop)
 
 #include "ok_lib.h"
+#include "mal_audio_abstract_types.h"
 #include "mal.h"
 
 class MalVoiceCallback; 
@@ -63,7 +64,7 @@ struct _MalContext {
     IXAudio2 *xAudio2;
     IXAudio2MasteringVoice *masteringVoice;
     CRITICAL_SECTION lock;
-    struct ok_vec_of(uint64_t) finishedCallbackIds;
+    struct ok_vec_of(MalCallbackId) finishedCallbackIds;
     bool hasPolledEvents;
     bool shouldUninitializeCOM;
 };
@@ -78,7 +79,7 @@ struct _MalPlayer {
     MalPlayerState state;
     bool bufferQueued;
     // Same value as MalPlayer, but locked via CRITICAL_SECTION
-    uint64_t onFinishedId;
+    MalCallbackId onFinishedId;
 };
 
 #include "mal_audio_abstract.h"
@@ -201,7 +202,7 @@ void malContextPollEvents(MalContext *context) {
 
     while (true) {
         bool done = false;
-        uint64_t onFinishedId = 0;
+        MalCallbackId onFinishedId = 0;
 
         EnterCriticalSection(&context->data.lock);
         size_t count = context->data.finishedCallbackIds.count;

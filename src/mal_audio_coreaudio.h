@@ -396,7 +396,7 @@ static void _malBufferDispose(MalBuffer *buffer) {
 // MARK: Player
 
 static void _malHandleOnFinished(void *userData) {
-    uint64_t *onFinishedId = userData;
+    MalCallbackId *onFinishedId = userData;
     _malHandleOnFinishedCallback(*onFinishedId);
     free(onFinishedId);
 }
@@ -431,9 +431,7 @@ static OSStatus audioRenderCallback(void *userData, AudioUnitRenderActionFlags *
             }
 
             if (state == MAL_PLAYER_STATE_PLAYING && player->onFinishedId) {
-                ok_static_assert(sizeof(player->onFinishedId) == sizeof(uint64_t),
-                                 "onFinishedId expected to be 64-bit");
-                uint64_t *onFinishedId = malloc(sizeof(uint64_t));
+                MalCallbackId *onFinishedId = malloc(sizeof(MalCallbackId));
                 if (onFinishedId) {
                     *onFinishedId = player->onFinishedId;
                     dispatch_async_f(dispatch_get_main_queue(), onFinishedId,

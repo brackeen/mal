@@ -150,7 +150,7 @@ enum looperMessageType {
 
 struct looperMessage {
     enum looperMessageType type;
-    uint64_t onFinishedId;
+    MalCallbackId onFinishedId;
 };
 
 static int _malLooperCallback(int fd, int events, void *user) {
