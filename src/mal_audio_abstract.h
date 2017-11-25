@@ -31,11 +31,16 @@
 // thread.
 #ifdef MAL_USE_MUTEX
 #  include <pthread.h>
-#    define MAL_LOCK(player) pthread_mutex_lock(&player->mutex)
-#    define MAL_UNLOCK(player) pthread_mutex_unlock(&player->mutex)
-#  else
-#    define MAL_LOCK(player) do { } while(0)
-#    define MAL_UNLOCK(player) do { } while(0)
+static pthread_mutex_t globalMutex = PTHREAD_MUTEX_INITIALIZER;
+#  define MAL_LOCK(player) pthread_mutex_lock(&player->mutex)
+#  define MAL_UNLOCK(player) pthread_mutex_unlock(&player->mutex)
+#  define MAL_LOCK_GLOBAL() pthread_mutex_lock(&globalMutex)
+#  define MAL_UNLOCK_GLOBAL() pthread_mutex_unlock(&globalMutex)
+#else
+#  define MAL_LOCK(player) do { } while(0)
+#  define MAL_UNLOCK(player) do { } while(0)
+#  define MAL_LOCK_GLOBAL() do { } while(0)
+#  define MAL_UNLOCK_GLOBAL() do { } while(0)
 #endif
 
 // Audio subsystems need to implement these structs and functions.
@@ -83,9 +88,6 @@ typedef struct ok_map_of(uint64_t, MalPlayer *) MalCallbackMap;
 
 static MalCallbackMap *globalActiveCallbacks = NULL;
 static uint64_t nextFinishedCallbackID = 1;
-#ifdef MAL_USE_MUTEX
-static pthread_mutex_t globalMutex = PTHREAD_MUTEX_INITIALIZER;
-#endif
 
 // MARK: Structs
 
@@ -399,30 +401,36 @@ const MalBuffer *malPlayerGetBuffer(const MalPlayer *player) {
 }
 
 void malPlayerSetFinishedFunc(MalPlayer *player, malPlaybackFinishedFunc onFinished,
-                                  void *userData) {
+                              void *userData) {
     if (player) {
-#ifdef MAL_USE_MUTEX
-        pthread_mutex_lock(&globalMutex);
-#endif
+        MAL_LOCK_GLOBAL();
         if (!globalActiveCallbacks) {
             globalActiveCallbacks = (MalCallbackMap *)malloc(sizeof(MalCallbackMap));
             ok_map_init_custom(globalActiveCallbacks, ok_uint64_hash, ok_64bit_equals);
         }
-        if (player->onFinishedId) {
-            ok_map_remove(globalActiveCallbacks, player->onFinishedId);
+        uint64_t oldOnFinishedId;
+        uint64_t newOnFinishedId;
+        if (onFinished != NULL) {
+            newOnFinishedId = nextFinishedCallbackID;
+            nextFinishedCallbackID++;
+        } else {
+            newOnFinishedId = 0;
         }
+        MAL_LOCK(player);
+        oldOnFinishedId = player->onFinishedId;
+        player->onFinishedId = newOnFinishedId;
         player->onFinished = onFinished;
         player->onFinishedUserData = userData;
-        if (onFinished != NULL) {
-            player->onFinishedId = nextFinishedCallbackID;
-            nextFinishedCallbackID++;
-            ok_map_put(globalActiveCallbacks, player->onFinishedId, player);
-        } else {
-            player->onFinishedId = 0;
+        MAL_UNLOCK(player);
+
+        if (oldOnFinishedId) {
+            ok_map_remove(globalActiveCallbacks, oldOnFinishedId);
         }
-#ifdef MAL_USE_MUTEX
-        pthread_mutex_unlock(&globalMutex);
-#endif
+        if (newOnFinishedId) {
+            ok_map_put(globalActiveCallbacks, newOnFinishedId, player);
+        }
+
+        MAL_UNLOCK_GLOBAL();
         _malPlayerDidSetFinishedCallback(player);
     }
 }
@@ -434,15 +442,11 @@ malPlaybackFinishedFunc malPlayerGetFinishedFunc(MalPlayer *player) {
 static void _malHandleOnFinishedCallback(uint64_t onFinishedId) {
     // Find the player
     MalPlayer *player = NULL;
-#ifdef MAL_USE_MUTEX
-    pthread_mutex_lock(&globalMutex);
-#endif
+    MAL_LOCK_GLOBAL();
     if (globalActiveCallbacks) {
         player = ok_map_get(globalActiveCallbacks, onFinishedId);
     }
-#ifdef MAL_USE_MUTEX
-    pthread_mutex_unlock(&globalMutex);
-#endif
+    MAL_UNLOCK_GLOBAL();
     // Send callback
     if (player && player->onFinished) {
         player->onFinished(player->onFinishedUserData, player);
@@ -517,8 +521,8 @@ MalPlayerState malPlayerGetState(MalPlayer *player) {
 void malPlayerFree(MalPlayer *player) {
     if (player) {
         malPlayerSetBuffer(player, NULL);
-        MAL_LOCK(player);
         malPlayerSetFinishedFunc(player, NULL, NULL);
+        MAL_LOCK(player);
         _malPlayerDispose(player);
         if (player->context) {
             ok_vec_remove(&player->context->players, player);
