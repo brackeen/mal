@@ -63,11 +63,16 @@ elseif (CMAKE_SYSTEM_NAME MATCHES "Darwin")
         )
     else()
         find_library(AUDIOTOOLBOX_FRAMEWORK AudioToolbox)
+        find_library(AUDIOUNIT_FRAMEWORK AudioUnit)
         find_library(COREAUDIO_FRAMEWORK CoreAudio)
         mark_as_advanced(AUDIOTOOLBOX_FRAMEWORK)
+        mark_as_advanced(AUDIOUNIT_FRAMEWORK)
         mark_as_advanced(COREAUDIO_FRAMEWORK)
-        list(APPEND mal_libraries "${AUDIOTOOLBOX_FRAMEWORK}" "${COREAUDIO_FRAMEWORK}")
+        list(APPEND mal_libraries "${AUDIOTOOLBOX_FRAMEWORK}" "${AUDIOUNIT_FRAMEWORK}" "${COREAUDIO_FRAMEWORK}")
         target_link_libraries(mal ${mal_libraries})
+        set_target_properties(mal PROPERTIES
+            XCODE_ATTRIBUTE_MACOSX_DEPLOYMENT_TARGET 10.7
+        )
     endif()
 endif()
 

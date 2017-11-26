@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.6.0)
 
 if ((CMAKE_SYSTEM_NAME MATCHES "Emscripten") OR
-    (CMAKE_SYSTEM_NAME MATCHES "Android") OR 
+    (CMAKE_SYSTEM_NAME MATCHES "Android") OR
     ((CMAKE_SYSTEM_NAME MATCHES "Darwin") AND IOS))
 
     add_definitions(-DMAL_EXAMPLE_WITH_GLFM)
@@ -35,6 +35,15 @@ elseif ((CMAKE_SYSTEM_NAME MATCHES "Darwin") OR (CMAKE_SYSTEM_NAME MATCHES "Wind
     add_executable(mal_example ${mal_example_files})
     source_group("src" FILES ${mal_example_files})
     target_link_libraries(mal_example mal glfw)
+
+    if (CMAKE_SYSTEM_NAME MATCHES "Darwin")
+        set_target_properties(mal_example PROPERTIES
+            XCODE_ATTRIBUTE_MACOSX_DEPLOYMENT_TARGET 10.7
+        )
+        set_target_properties(glfw PROPERTIES
+            XCODE_ATTRIBUTE_MACOSX_DEPLOYMENT_TARGET 10.7
+        )
+    endif()
 
     if (CMAKE_C_COMPILER_ID MATCHES "MSVC")
         set_property(DIRECTORY ${CMAKE_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT mal_example)
