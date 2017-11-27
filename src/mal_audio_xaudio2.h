@@ -104,15 +104,23 @@ static bool _malContextInit(MalContext *context) {
     }
 
     // Load DLL
+    HMODULE xAudio2DLL = NULL;
+    DWORD creationFlags = 0;
 #if USE_XAUDIO_2_7
 #if defined(_DEBUG)
-    context->data.xAudio2DLL = LoadLibraryExW(L"XAudioD2_7.DLL", NULL,
-                                              0x00000800 /* LOAD_LIBRARY_SEARCH_SYSTEM32 */);
-#else
-    context->data.xAudio2DLL = LoadLibraryExW(L"XAudio2_7.DLL", NULL,
-                                              0x00000800 /* LOAD_LIBRARY_SEARCH_SYSTEM32 */);
+    xAudio2DLL = LoadLibraryExW(L"XAudioD2_7.DLL", NULL,
+        0x00000800 /* LOAD_LIBRARY_SEARCH_SYSTEM32 */);
+    if (xAudio2DLL) {
+        creationFlags |= XAUDIO2_DEBUG_ENGINE;
+    }
 #endif
-    if (!context->data.xAudio2DLL) {
+    if (!xAudio2DLL) {
+        xAudio2DLL = LoadLibraryExW(L"XAudio2_7.DLL", NULL,
+            0x00000800 /* LOAD_LIBRARY_SEARCH_SYSTEM32 */);
+    }
+    if (xAudio2DLL) {
+        context->data.xAudio2DLL = xAudio2DLL;
+    } else {
         MAL_LOG("ERROR: XAudio 2.7 not found. Install DirectX End-User Runtimes (June 2010).");
         _malContextDispose(context);
         return false;
@@ -120,10 +128,6 @@ static bool _malContextInit(MalContext *context) {
 #endif
 
     // Create XAudio2 object
-    DWORD creationFlags = 0;
-#if USE_XAUDIO_2_7 && defined(_DEBUG)
-    creationFlags |= XAUDIO2_DEBUG_ENGINE;
-#endif
     hr = XAudio2Create(&context->data.xAudio2, creationFlags);
     if (FAILED(hr) || context->data.xAudio2 == NULL) {
         _malContextDispose(context);
