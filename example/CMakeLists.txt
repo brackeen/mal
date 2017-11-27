@@ -1,4 +1,8 @@
-cmake_minimum_required(VERSION 3.6.0)
+if (CMAKE_SYSTEM_NAME MATCHES "Windows")
+    cmake_minimum_required(VERSION 3.6.0)
+else()
+    cmake_minimum_required(VERSION 3.5.0)
+endif()
 
 if ((CMAKE_SYSTEM_NAME MATCHES "Emscripten") OR
     (CMAKE_SYSTEM_NAME MATCHES "Android") OR
@@ -21,7 +25,7 @@ if ((CMAKE_SYSTEM_NAME MATCHES "Emscripten") OR
     file(GLOB GLFM_APP_SRC src/*.c)
     source_group("src" FILES ${GLFM_APP_SRC})
     include(GLFMAppTarget)
-elseif ((CMAKE_SYSTEM_NAME MATCHES "Darwin") OR (CMAKE_SYSTEM_NAME MATCHES "Windows"))
+elseif ((CMAKE_SYSTEM_NAME MATCHES "Darwin") OR (CMAKE_SYSTEM_NAME MATCHES "Windows") OR (CMAKE_SYSTEM_NAME MATCHES "Linux"))
     add_definitions(-DMAL_EXAMPLE_WITH_GLFW)
     set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "Build the GLFW example programs")
     set(GLFW_BUILD_TESTS OFF CACHE BOOL "Build the GLFW test programs")

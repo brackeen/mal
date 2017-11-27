@@ -31,6 +31,8 @@ set(MAL_SRC src/mal_audio_abstract_types.h src/mal_audio_abstract.h src/ok_lib.h
 
 if (CMAKE_SYSTEM_NAME MATCHES "Windows")
     set(MAL_SRC ${MAL_SRC} src/mal_platform_windows.cpp src/mal_audio_xaudio2.h)
+elseif (CMAKE_SYSTEM_NAME MATCHES "Linux")
+    set(MAL_SRC ${MAL_SRC} src/mal_platform_linux.c src/mal_audio_pulseaudio.h)
 elseif (CMAKE_SYSTEM_NAME MATCHES "Emscripten")
     set(MAL_SRC ${MAL_SRC} src/mal_platform_emscripten.c src/mal_audio_webaudio.h)
     if (CMAKE_C_COMPILER_ID MATCHES "Clang")
@@ -46,7 +48,7 @@ elseif (CMAKE_SYSTEM_NAME MATCHES "Darwin")
         set(MAL_SRC ${MAL_SRC} src/mal_platform_macos.m src/mal_audio_coreaudio.h)
     endif()
 else()
-    message(FATAL_ERROR "CMAKE_SYSTEM_NAME must be Windows, Darwin, Android, or Emscripten. Current value is ${CMAKE_SYSTEM_NAME}")
+    message(FATAL_ERROR "CMAKE_SYSTEM_NAME must be Windows, Darwin, Linux, Android, or Emscripten. Current value is ${CMAKE_SYSTEM_NAME}")
 endif()
 
 add_library(mal ${MAL_SRC} ${MAL_HEADERS})
@@ -59,7 +61,8 @@ source_group(src FILES ${MAL_SRC})
 if (CMAKE_C_COMPILER_ID MATCHES "Clang")
     set_target_properties(mal PROPERTIES COMPILE_FLAGS "-Weverything -Wwrite-strings -Wno-padded -Wno-covered-switch-default ${MAL_COMPILE_FLAGS}")
 elseif (CMAKE_C_COMPILER_ID MATCHES "GNU")
-    set_target_properties(mal PROPERTIES COMPILE_FLAGS "-Wall -Wextra -Wwrite-strings ${MAL_COMPILE_FLAGS}")
+    # Disable unused-functions because of this GCC bug: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=64079
+    set_target_properties(mal PROPERTIES COMPILE_FLAGS "-Wall -Wextra -Wwrite-strings -Wno-unused-function ${MAL_COMPILE_FLAGS}")
 elseif (CMAKE_C_COMPILER_ID MATCHES "MSVC")
     # Disable `padding` warning
     set_target_properties(mal PROPERTIES COMPILE_FLAGS "/Wall /wd4820 ${MAL_COMPILE_FLAGS}")
