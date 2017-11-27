@@ -1,8 +1,30 @@
-cmake_minimum_required(VERSION 2.8.7)
+cmake_minimum_required(VERSION 2.8.12)
+
+# Add Windows XP support. Must be set before project()
+if ("${CMAKE_GENERATOR}" MATCHES "Visual Studio ([0-9]+)")
+    if (${CMAKE_MATCH_1} EQUAL 12)
+        # Visual Studio 2013
+        set(CMAKE_GENERATOR_TOOLSET "v120_xp" CACHE STRING "CMAKE_GENERATOR_TOOLSET" FORCE)
+        set(CMAKE_VS_PLATFORM_TOOLSET "v120_xp" CACHE STRING "CMAKE_VS_PLATFORM_TOOLSET" FORCE)
+    elseif (${CMAKE_MATCH_1} EQUAL 14)
+        # Visual Studio 2015
+        set(CMAKE_GENERATOR_TOOLSET "v140_xp" CACHE STRING "CMAKE_GENERATOR_TOOLSET" FORCE)
+        set(CMAKE_VS_PLATFORM_TOOLSET "v140_xp" CACHE STRING "CMAKE_VS_PLATFORM_TOOLSET" FORCE)
+    elseif (${CMAKE_MATCH_1} EQUAL 15)
+        # Visual Studio 2017
+        set(CMAKE_GENERATOR_TOOLSET "v141_xp" CACHE STRING "CMAKE_GENERATOR_TOOLSET" FORCE)
+        set(CMAKE_VS_PLATFORM_TOOLSET "v141_xp" CACHE STRING "CMAKE_VS_PLATFORM_TOOLSET" FORCE)
+    else()
+        message(FATAL_ERROR "Visual Studio version must be 12, 14, or 15")
+    endif()
+endif()
 
 project(Mal)
 
 option(MAL_BUILD_EXAMPLE "Build the MAL example" OFF)
+if (CMAKE_C_COMPILER_ID MATCHES "MSVC")
+    option(USE_MSVC_RUNTIME_LIBRARY_DLL "Use MSVC runtime library DLL" ON)
+endif()
 
 set(MAL_HEADERS include/mal.h)
 set(MAL_SRC src/mal_audio_abstract_types.h src/mal_audio_abstract.h src/ok_lib.h)
@@ -41,9 +63,28 @@ elseif (CMAKE_C_COMPILER_ID MATCHES "GNU")
 elseif (CMAKE_C_COMPILER_ID MATCHES "MSVC")
     # Disable `padding` warning
     set_target_properties(mal PROPERTIES COMPILE_FLAGS "/Wall /wd4820 ${MAL_COMPILE_FLAGS}")
-    # Use XAudio2 2.7 for Windows 7 compatability
+
+    # Use XAudio2 2.7 for Windows 7 and XP compatability
     # Install DirectX SDK (June 2010) from https://www.microsoft.com/en-us/download/details.aspx?id=6812
-    include_directories("C:\\Program Files (x86)\\Microsoft DirectX SDK (June 2010)\\Include\\")
+    target_include_directories(mal PRIVATE "C:\\Program Files (x86)\\Microsoft DirectX SDK (June 2010)\\Include\\")
+
+    # Statically link vcruntime.lib
+    if (NOT USE_MSVC_RUNTIME_LIBRARY_DLL)
+        foreach (flag CMAKE_CXX_FLAGS
+                      CMAKE_CXX_FLAGS_DEBUG
+                      CMAKE_CXX_FLAGS_RELEASE
+                      CMAKE_CXX_FLAGS_MINSIZEREL
+                      CMAKE_CXX_FLAGS_RELWITHDEBINFO)
+
+            if (${flag} MATCHES "/MD")
+                string(REGEX REPLACE "/MD" "/MT" ${flag} "${${flag}}")
+            endif()
+            if (${flag} MATCHES "/MDd")
+                string(REGEX REPLACE "/MDd" "/MTd" ${flag} "${${flag}}")
+            endif()
+
+        endforeach()
+    endif()
 endif()
 
 if (CMAKE_SYSTEM_NAME MATCHES "Android")
