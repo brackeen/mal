@@ -22,10 +22,70 @@
 #ifndef MAL_AUDIO_PULSEAUDIO_H
 #define MAL_AUDIO_PULSEAUDIO_H
 
+#include <dlfcn.h>
+#include <stdbool.h>
+#include <stdio.h>
 #include <pulse/pulseaudio.h>
 
+#ifdef NDEBUG
+#  define MAL_LOG(...) do { } while(0)
+#else
+#  define MAL_LOG(...) do { printf("Mal: " __VA_ARGS__); printf("\n"); } while(0)
+#endif
+
+// MARK: Dynamic library loading
+
+static void *libpulseHandle = NULL;
+
+static typeof(pa_threaded_mainloop_new) *mal_pa_threaded_mainloop_new;
+#define pa_threaded_mainloop_new mal_pa_threaded_mainloop_new
+static typeof(pa_threaded_mainloop_free) *mal_pa_threaded_mainloop_free;
+#define pa_threaded_mainloop_free mal_pa_threaded_mainloop_free
+
+static void *_malLoadSym(void *handle, const char *name) {
+    dlerror();
+    void *sym = dlsym(handle, name);
+    if (dlerror() || !sym) {
+        MAL_LOG("Couldn't load symbol: %s", name);
+        return NULL;
+    } else {
+        return sym;
+    }
+}
+
+#define loadSymOrFail(handle, name) do { \
+    mal_##name = _malLoadSym(handle, #name); \
+    if (!mal_##name) { \
+        goto fail; \
+    } \
+} while(0)
+
+static bool _malLoadLibpulse() {
+    if (libpulseHandle) {
+        return true;
+    }
+    dlerror();
+    void *handle = dlopen("libpulse.so.0", RTLD_NOW);
+    if (dlerror() || !handle) {
+        return false;
+    }
+
+    bool success = false;
+
+    loadSymOrFail(handle, pa_threaded_mainloop_new);
+    loadSymOrFail(handle, pa_threaded_mainloop_free);
+
+    success = true;
+    libpulseHandle = handle;
+
+fail:
+    return success;
+}
+
+// MARK: Implementation
+
 struct _MalContext {
-    int dummy;
+    pa_threaded_mainloop *mainloop;
 };
 
 struct _MalBuffer {
@@ -38,19 +98,30 @@ struct _MalPlayer {
 
 #include "mal_audio_abstract.h"
 
+// MARK: Context
+
 static bool _malContextInit(MalContext *context) {
-    (void)context;
-    return false;
+    if (!_malLoadLibpulse()) {
+        return false;
+    }
+    context->data.mainloop = pa_threaded_mainloop_new();
+    if (!context->data.mainloop) {
+        return false;
+    }
+    return true;
 }
 
 static void _malContextDispose(MalContext *context) {
-    (void)context;
+    if (context->data.mainloop) {
+        pa_threaded_mainloop_free(context->data.mainloop);
+        context->data.mainloop = NULL;
+    }
 }
 
 static bool _malContextSetActive(MalContext *context, bool active) {
     (void)context;
     (void)active;
-    return false;
+    return true;
 }
 
 static void _malContextSetMute(MalContext *context, bool mute) {
@@ -62,6 +133,8 @@ static void _malContextSetGain(MalContext *context, float gain) {
     (void)context;
     (void)gain;
 }
+
+// MARK: Buffer
 
 static bool _malBufferInit(MalContext *context, MalBuffer *buffer,
                            const void *copiedData, void *managedData,
@@ -77,6 +150,8 @@ static bool _malBufferInit(MalContext *context, MalBuffer *buffer,
 static void _malBufferDispose(MalBuffer *buffer) {
     (void)buffer;
 }
+
+// MARK: Player
 
 static bool _malPlayerInit(MalPlayer *player) {
     (void)player;
