@@ -1,5 +1,6 @@
 
 #if defined(MAL_EXAMPLE_WITH_GLFM)
+#define GLFM_NO_STDIO_HELPERS /* TODO: Remove */
 #include "glfm.h"
 #elif defined(MAL_EXAMPLE_WITH_GLFW)
 #include <glad/glad.h>
@@ -12,17 +13,10 @@
 #include "ok_wav.h"
 #include <stdio.h>
 #include <stdlib.h>
-
-#if defined(WIN32) && defined(_DEBUG)
-#include <crtdbg.h>
-#define printf(...) do { \
-    if (IsDebuggerPresent()) { \
-        _CrtDbgReport(_CRT_WARN, __FILE__, __LINE__, "Mal", __VA_ARGS__); \
-    } else { \
-        fprintf(stdout, __VA_ARGS__); \
-    } \
-} while(0)
+#if defined(__ANDROID__)
+#define FILE_COMPAT_ANDROID_ACTIVITY glfmAndroidGetActivity()
 #endif
+#include "file_compat.h"
 
 #define kMaxPlayers 16
 #define kTestFreeBufferDuringPlayback 0
@@ -95,16 +89,9 @@ static bool malExampleInit(MalApp *app) {
 
     char *sound_files[2] = { "sound-22k-mono.wav", "sound-44k-stereo.wav" };
     for (int i = 0; i < 2; i++) {
-#if defined(WIN32)
-        FILE *file = NULL;
-        fopen_s(&file, sound_files[i], "rb");
-#else
         FILE *file = fopen(sound_files[i], "rb");
-#endif
         ok_wav *wav = ok_wav_read(file, true);
-        if (file) {
-            fclose(file);
-        }
+        fclose(file);
 
         if (!wav->data) {
             printf("Error: %s\n", wav->error_message);
@@ -178,8 +165,8 @@ static void onAppResume(GLFMDisplay *display) {
 
 static bool onTouch(GLFMDisplay *display, int touch, GLFMTouchPhase phase, double x, double y) {
     if (phase == GLFMTouchPhaseBegan) {
-        int width = glfmGetDisplayWidth(display);
-        int height = glfmGetDisplayHeight(display);
+        int width, height;
+        glfmGetDisplaySize(display, &width, &height);
         MalApp *app = glfmGetUserData(display);
         int index = x < width / 2 ? 0 : 1;
         playSound(app, app->buffer[index], 0.05f + 0.60f * (height - y) / height);
@@ -197,6 +184,12 @@ static void onFrame(GLFMDisplay *display, double frameTime) {
 }
 
 void glfmMain(GLFMDisplay *display) {
+    // Set the current working directory to the exe or resources path
+    char path[FILE_COMPAT_PATH_MAX];
+    if (fc_get_res_dir(path, FILE_COMPAT_PATH_MAX) == 0 && path[0] != 0) {
+        chdir(path);
+    }
+    
     MalApp *app = calloc(1, sizeof(MalApp));
 
     bool success = malExampleInit(app);
@@ -209,8 +202,7 @@ void glfmMain(GLFMDisplay *display) {
                          GLFMColorFormatRGBA8888,
                          GLFMDepthFormatNone,
                          GLFMStencilFormatNone,
-                         GLFMMultisampleNone,
-                         GLFMUserInterfaceChromeNavigation);
+                         GLFMMultisampleNone);
     glfmSetUserData(display, app);
     glfmSetSurfaceCreatedFunc(display, onSurfaceCreated);
     glfmSetSurfaceResizedFunc(display, onSurfaceCreated);
@@ -241,20 +233,12 @@ static void onMouseClick(GLFWwindow *window, int button, int action, int mods) {
 }
 
 int main(void) {
-#ifdef WIN32
-    // Set the current working directory to the exe path
-    TCHAR path[MAX_PATH];
-    DWORD length = GetModuleFileName(NULL, path, MAX_PATH);
-    if (length > 0 && length < MAX_PATH) {
-        for (DWORD i = length - 1; i > 0; i--) {
-            if (path[i] == '\\') {
-                path[i + 1] = 0;
-                SetCurrentDirectory(path);
-                break;
-            }
-        }
+    // Set the current working directory to the exe or resources path
+    char path[FILE_COMPAT_PATH_MAX];
+    if (fc_get_res_dir(path, FILE_COMPAT_PATH_MAX) == 0 && path[0] != 0) {
+        chdir(path);
     }
-#endif
+
     GLFWwindow *window;
     glfwSetErrorCallback(onError);
     if (!glfwInit()) {

@@ -35,7 +35,7 @@ elseif ((CMAKE_SYSTEM_NAME MATCHES "Darwin") OR (CMAKE_SYSTEM_NAME MATCHES "Wind
     include_directories("glfw/deps") # For glad
     include_directories("glfw/include")
 
-    file(GLOB mal_example_files "src/main.c" "src/ok_wav.c" "src/ok_wav.h" "glfw/deps/glad.c")
+    file(GLOB mal_example_files "src/main.c" "src/ok_wav.c" "src/ok_wav.h" "src/file_compat.h" "glfw/deps/glad.c")
     add_executable(mal_example ${mal_example_files})
     source_group("src" FILES ${mal_example_files})
     target_link_libraries(mal_example mal glfw)
