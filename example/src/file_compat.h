@@ -1,58 +1,88 @@
+/*
+ file-compat
+ https://github.com/brackeen/file-compat
+ Copyright (c) 2017 David Brackeen
+
+ Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+ associated documentation files (the "Software"), to deal in the Software without restriction,
+ including without limitation the rights to use, copy, modify, merge, publish, distribute,
+ sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+ furnished to do so, subject to the following conditions:
+
+ The above copyright notice and this permission notice shall be included in all copies or
+ substantial portions of the Software.
+
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT
+ NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+ DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT
+ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
+
 #ifndef FILE_COMPAT_H
 #define FILE_COMPAT_H
 
 /**
- Redefines common `stdio` functions so that they work as expected on Windows and Android.
+    Redefines common `stdio` functions so that they work as expected on Windows and Android.
 
- | Function            | Windows                      | Android
- |---------------------|------------------------------|-----------------------------------------
- | `printf`            | Uses `OutputDebugString`(*)  | Uses `__android_log_print`
- | `fopen`             | Uses `fopen_s`               | Uses `AAssetManager_open` if read mode
- | `fclose`            | Adds `NULL` check            | No change
- | `chdir`             | Uses `_chdir`                | No change
- | `sleep` / `usleep`  | Uses `Sleep`                 | No change
+    Additionally, includes the function `fc_resdir() to get the path to the current executable's
+    directory or its resources directory. This function works on Windows, Linux, macOS, iOS, and
+    Android.
 
- (*) If debugger is present and no console is allocated. Otherwise uses printf.
+    | Function            | Windows                      | Android
+    |---------------------|------------------------------|-----------------------------------------
+    | `printf`            | Uses `OutputDebugString`*    | Uses `__android_log_print`
+    | `fopen`             | Uses `fopen_s`               | Uses `AAssetManager_open` if read mode
+    | `fclose`            | Adds `NULL` check            | No change
+    | `chdir`             | Uses `_chdir`                | No change
+    | `sleep` / `usleep`  | Uses `Sleep`                 | No change
 
- Additionally, this file adds the `fc_get_res_dir()` function to get the path to the
- executable's resources directory.
+    *`OutputDebugString` is only used if the debugger is present and no console is allocated.
+    Otherwise uses `printf`.
+
+    ## Usage
+    For Android, define `FILE_COMPAT_ANDROID_ACTIVITY` to be a reference to an `ANativeActivity`
+    instance or to a function that returns an `ANativeActivity` instance. May be `NULL`.
+
+        #define FILE_COMPAT_ANDROID_ACTIVITY app->activity
+        #include "file_compat.h"
  */
 
 #include <stdio.h>
 #include <errno.h>
 #if defined(_WIN32)
-#include <direct.h>
-#define FILE_COMPAT_PATH_MAX MAX_PATH
+#  include <direct.h>
+#  if !defined(PATH_MAX)
+#    define PATH_MAX 1024
+#  endif
 #else
-#include <unistd.h>
-#include <limits.h> /* PATH_MAX */
-#define FILE_COMPAT_PATH_MAX PATH_MAX
+#  include <unistd.h>
+#  include <limits.h> /* PATH_MAX */
 #endif
-
 #if defined(__APPLE__)
-#include <CoreFoundation/CoreFoundation.h>
+#  include <CoreFoundation/CoreFoundation.h>
 #endif
 
 /**
- Gets the path of the current executable's resources. On macOS/iOS, this is the path to the bundle's
- resources. On Windows and Linux, this is a path to the executable's directory. On Android and
- Emscripten, this is an empty string.
+    Gets the path to the current executable's resources directory. On macOS/iOS, this is the path to
+    the bundle's resources. On Windows and Linux, this is a path to the executable's directory.
+    On Android and Emscripten, this is an empty string.
 
- The path will have a trailing slash (or backslash on Windows), except for Android and
- Emscripten.
+    The path will have a trailing slash (or backslash on Windows), except for the empty strings for
+    Android and Emscripten.
 
- @param path The buffer to fill the path. No more than `max_path` bytes are writen to the buffer,
- including the trailing 0.
- @param max_path The length of the buffer. Should be `FC_PATH_MAX`.
- @return 0 on success, -1 on failure.
+    @param path The buffer to fill the path. No more than `path_max` bytes are writen to the buffer,
+    including the trailing 0. If failure occurs, the path is set to an empty string.
+    @param path_max The length of the buffer. Should be `PATH_MAX`.
+    @return 0 on success, -1 on failure.
  */
-static int fc_get_res_dir(char *path, size_t max_path) {
-    if (!path || max_path == 0) {
+static int fc_resdir(char *path, size_t path_max) {
+    if (!path || path_max == 0) {
         return -1;
     }
 #if defined(_WIN32)
-    DWORD length = GetModuleFileNameA(NULL, path, max_path);
-    if (length > 0 && length < max_path) {
+    DWORD length = GetModuleFileNameA(NULL, path, path_max);
+    if (length > 0 && length < path_max) {
         for (DWORD i = length - 1; i > 0; i--) {
             if (path[i] == '\\') {
                 path[i + 1] = 0;
@@ -60,10 +90,11 @@ static int fc_get_res_dir(char *path, size_t max_path) {
             }
         }
     }
+    path[0] = 0;
     return -1;
-#elif defined(__linux__)
-    ssize_t length = readlink("/proc/self/exe", path, max_path - 1);
-    if (length > 0 && length < max_path) {
+#elif defined(__linux__) && !defined(__ANDROID__)
+    ssize_t length = readlink("/proc/self/exe", path, path_max - 1);
+    if (length > 0 && length < path_max) {
         for (ssize_t i = length - 1; i > 0; i--) {
             if (path[i] == '/') {
                 path[i + 1] = 0;
@@ -71,6 +102,7 @@ static int fc_get_res_dir(char *path, size_t max_path) {
             }
         }
     }
+    path[0] = 0;
     return -1;
 #elif defined(__APPLE__)
     CFBundleRef bundle = CFBundleGetMainBundle();
@@ -78,11 +110,12 @@ static int fc_get_res_dir(char *path, size_t max_path) {
         CFURLRef resourcesURL = CFBundleCopyResourcesDirectoryURL(bundle);
         if (resourcesURL) {
             Boolean success = CFURLGetFileSystemRepresentation(resourcesURL, TRUE, (UInt8 *)path,
-                                                               max_path - 1);
+                                                               path_max - 1);
             CFRelease(resourcesURL);
             if (success) {
                 unsigned long length = strlen(path);
-                if (length > 0 && length < max_path - 1) {
+                if (length > 0 && length < path_max - 1) {
+                    // Add trailing slash
                     if (path[length - 1] != '/') {
                         path[length] = '/';
                         path[length + 1] = 0;
@@ -92,6 +125,7 @@ static int fc_get_res_dir(char *path, size_t max_path) {
             }
         }
     }
+    path[0] = 0;
     return -1;
 #elif defined(__ANDROID__)
     path[0] = 0;
@@ -147,7 +181,6 @@ static inline int _fc_windows_fclose(FILE *stream) {
 // Outputs to debug window if there is no console and IsDebuggerPresent() returns true.
 static int _fc_printf(const char *format, ...) {
     int result;
-
     if (IsDebuggerPresent() && GetStdHandle(STD_OUTPUT_HANDLE) == NULL) {
         char buffer[1024];
         va_list args;
@@ -212,16 +245,18 @@ static int _fc_android_close(void *cookie) {
 }
 
 static FILE *_fc_android_fopen(const char *filename, const char *mode) {
+    ANativeActivity *activity = FILE_COMPAT_ANDROID_ACTIVITY;
     AAssetManager *assetManager = NULL;
-    if (FILE_COMPAT_ANDROID_ACTIVITY) {
-        assetManager = (FILE_COMPAT_ANDROID_ACTIVITY)->assetManager;
-    }
     AAsset *asset = NULL;
+    if (activity) {
+        assetManager = activity->assetManager;
+    }
     if (assetManager && mode && mode[0] == 'r') {
         asset = AAssetManager_open(assetManager, filename, AASSET_MODE_UNKNOWN);
     }
     if (asset) {
-        return funopen(asset, _fc_android_read, _fc_android_write, _fc_android_seek, _fc_android_close);
+        return funopen(asset, _fc_android_read, _fc_android_write, _fc_android_seek,
+                       _fc_android_close);
     } else {
         return fopen(filename, mode);
     }

@@ -1,6 +1,5 @@
 
 #if defined(MAL_EXAMPLE_WITH_GLFM)
-#define GLFM_NO_STDIO_HELPERS /* TODO: Remove */
 #include "glfm.h"
 #elif defined(MAL_EXAMPLE_WITH_GLFW)
 #include <glad/glad.h>
@@ -13,6 +12,7 @@
 #include "ok_wav.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #if defined(__ANDROID__)
 #define FILE_COMPAT_ANDROID_ACTIVITY glfmAndroidGetActivity()
 #endif
@@ -89,7 +89,11 @@ static bool malExampleInit(MalApp *app) {
 
     char *sound_files[2] = { "sound-22k-mono.wav", "sound-44k-stereo.wav" };
     for (int i = 0; i < 2; i++) {
-        FILE *file = fopen(sound_files[i], "rb");
+        char sound_path[PATH_MAX];
+        fc_resdir(sound_path, PATH_MAX);
+        strncat(sound_path, sound_files[i], sizeof(sound_path) - strlen(sound_path) - 1);
+
+        FILE *file = fopen(sound_path, "rb");
         ok_wav *wav = ok_wav_read(file, true);
         fclose(file);
 
@@ -169,7 +173,7 @@ static bool onTouch(GLFMDisplay *display, int touch, GLFMTouchPhase phase, doubl
         glfmGetDisplaySize(display, &width, &height);
         MalApp *app = glfmGetUserData(display);
         int index = x < width / 2 ? 0 : 1;
-        playSound(app, app->buffer[index], 0.05f + 0.60f * (height - y) / height);
+        playSound(app, app->buffer[index], 0.05f + 0.60f * (height - (float)y) / height);
     }
     return true;
 }
@@ -184,12 +188,6 @@ static void onFrame(GLFMDisplay *display, double frameTime) {
 }
 
 void glfmMain(GLFMDisplay *display) {
-    // Set the current working directory to the exe or resources path
-    char path[FILE_COMPAT_PATH_MAX];
-    if (fc_get_res_dir(path, FILE_COMPAT_PATH_MAX) == 0 && path[0] != 0) {
-        chdir(path);
-    }
-    
     MalApp *app = calloc(1, sizeof(MalApp));
 
     bool success = malExampleInit(app);
@@ -233,12 +231,6 @@ static void onMouseClick(GLFWwindow *window, int button, int action, int mods) {
 }
 
 int main(void) {
-    // Set the current working directory to the exe or resources path
-    char path[FILE_COMPAT_PATH_MAX];
-    if (fc_get_res_dir(path, FILE_COMPAT_PATH_MAX) == 0 && path[0] != 0) {
-        chdir(path);
-    }
-
     GLFWwindow *window;
     glfwSetErrorCallback(onError);
     if (!glfwInit()) {
