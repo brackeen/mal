@@ -145,7 +145,7 @@ static void _malContextDispose(MalContext *context) {
 
 #ifdef ANDROID
 enum looperMessageType {
-    ON_PLAYER_FINISHED_MAGIC = 0xdff11ffb
+    ON_PLAYER_FINISHED_MAGIC = 0x1df11fb1
 };
 
 struct looperMessage {
@@ -327,7 +327,7 @@ static void _malPlayerUpdateGain(MalPlayer *player) {
         if (gain <= 0) {
             (*player->data.slVolume)->SetMute(player->data.slVolume, SL_BOOLEAN_TRUE);
         } else {
-            SLmillibel millibelVolume = (SLmillibel)roundf(2000 * log10f(gain));
+            SLmillibel millibelVolume = (SLmillibel)lroundf(2000 * log10f(gain));
             if (millibelVolume < SL_MILLIBEL_MIN) {
                 millibelVolume = SL_MILLIBEL_MIN;
             } else if (millibelVolume > 0) {
@@ -367,7 +367,7 @@ static bool _malPlayerSetFormat(MalPlayer *player, MalFormat format) {
     }
 
     const int n = 1;
-    const bool systemIsLittleEndian = *(char *)&n == 1;
+    const bool systemIsLittleEndian = *(const char *)&n == 1;
 
     SLDataLocator_BufferQueue slBufferQueue = {
         .locatorType = SL_DATALOCATOR_BUFFERQUEUE,
