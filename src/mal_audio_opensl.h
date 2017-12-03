@@ -24,7 +24,7 @@
 
 #include <SLES/OpenSLES.h>
 #include <stdbool.h>
-#ifdef ANDROID
+#if defined(__ANDROID__)
 #include <android/looper.h>
 #define _GNU_SOURCE // For pipe2
 #include <fcntl.h>
@@ -45,7 +45,7 @@ struct _MalContext {
     SLObjectItf slObject;
     SLEngineItf slEngine;
     SLObjectItf slOutputMixObject;
-#ifdef ANDROID
+#if defined(__ANDROID__)
     ALooper *looper;
     int looperMessagePipe[2];
 #endif
@@ -121,7 +121,7 @@ static bool _malContextInit(MalContext *context) {
 }
 
 static void _malContextCloseLooper(MalContext *context) {
-#ifdef ANDROID
+#if defined(__ANDROID__)
     if (context && context->data.looper) {
         ALooper_removeFd(context->data.looper, context->data.looperMessagePipe[0]);
         close(context->data.looperMessagePipe[0]);
@@ -143,7 +143,7 @@ static void _malContextDispose(MalContext *context) {
     _malContextCloseLooper(context);
 }
 
-#ifdef ANDROID
+#if defined(__ANDROID__)
 enum looperMessageType {
     ON_PLAYER_FINISHED_MAGIC = 0x1df11fb1
 };
@@ -184,7 +184,7 @@ static bool _malContextSetActive(MalContext *context, bool active) {
     if (context->active != active) {
         context->active = active;
 
-#ifdef ANDROID
+#if defined(__ANDROID__)
         if (active) {
             ALooper *looper = ALooper_forThread();
             if (context->data.looper != looper) {

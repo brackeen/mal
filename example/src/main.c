@@ -1,4 +1,3 @@
-
 #if defined(MAL_EXAMPLE_WITH_GLFM)
 #include "glfm.h"
 #elif defined(MAL_EXAMPLE_WITH_GLFW)
@@ -13,9 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#if defined(__ANDROID__)
 #define FILE_COMPAT_ANDROID_ACTIVITY glfmAndroidGetActivity()
-#endif
 #include "file_compat.h"
 
 #define kMaxPlayers 16
