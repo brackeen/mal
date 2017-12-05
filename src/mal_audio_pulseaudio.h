@@ -100,8 +100,14 @@ struct _MalPlayer {
 
 // MARK: Context
 
-static bool _malContextInit(MalContext *context) {
+static bool _malContextInit(MalContext *context, void *androidActivity,
+                            const char **errorMissingAudioSystem) {
+    (void)androidActivity;
+
     if (!_malLoadLibpulse()) {
+        if (!errorMissingAudioSystem) {
+            *errorMissingAudioSystem = "PulseAudio";
+        }
         return false;
     }
     context->data.mainloop = pa_threaded_mainloop_new();

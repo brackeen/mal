@@ -63,7 +63,11 @@ struct _MalPlayer {
 
 // MARK: Context
 
-static bool _malContextInit(MalContext *context) {
+static bool _malContextInit(MalContext *context, void *androidActivity,
+                            const char **errorMissingAudioSystem) {
+    (void)androidActivity;
+    (void)errorMissingAudioSystem;
+
     ALCdevice *device = alcOpenDevice(NULL);
     if (!device) {
         return false;

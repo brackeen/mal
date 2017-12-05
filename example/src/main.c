@@ -78,7 +78,7 @@ static void playSound(MalApp *app, MalBuffer *buffer, float gain) {
 }
 
 static bool malExampleInit(MalApp *app) {
-    app->context = malContextCreate(MAL_DEFAULT_SAMPLE_RATE);
+    app->context = malContextCreate();
     if (!app->context) {
         printf("Error: Couldn't create audio context\n");
         return false;

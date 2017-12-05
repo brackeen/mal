@@ -51,7 +51,8 @@ struct _MalContext;
 struct _MalBuffer;
 struct _MalPlayer;
 
-static bool _malContextInit(MalContext *context);
+static bool _malContextInit(MalContext *context, void *androidActivity,
+                            const char **errorMissingAudioSystem);
 static void _malContextDidCreate(MalContext *context);
 static void _malContextWillDispose(MalContext *context);
 static void _malContextDispose(MalContext *context);
@@ -160,7 +161,13 @@ static double _malGetClosestSampleRate(double sampleRate) {
 
 // MARK: Context
 
-MalContext *malContextCreate(double requestedSampleRate) {
+MalContext *malContextCreate() {
+    return malContextCreateWithOptions(MAL_DEFAULT_SAMPLE_RATE, NULL, NULL);
+}
+
+MalContext *malContextCreateWithOptions(double requestedSampleRate, void *androidActivity,
+                                        const char **errorMissingAudioSystem) {
+
     MalContext *context = (MalContext *)calloc(1, sizeof(MalContext));
     if (context) {
 #ifdef MAL_USE_MUTEX
@@ -171,7 +178,7 @@ MalContext *malContextCreate(double requestedSampleRate) {
         context->requestedSampleRate = requestedSampleRate;
         ok_vec_init(&context->players);
         ok_vec_init(&context->buffers);
-        bool success = _malContextInit(context);
+        bool success = _malContextInit(context, androidActivity, errorMissingAudioSystem);
         if (success) {
             _malContextDidCreate(context);
             success = malContextSetActive(context, true);

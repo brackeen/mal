@@ -87,7 +87,10 @@ struct _MalPlayer {
 
 #pragma region Context
 
-static bool _malContextInit(MalContext *context) {
+static bool _malContextInit(MalContext *context, void *androidActivity,
+                            const char **errorMissingAudioSystem) {
+    (void)androidActivity;
+
     ok_vec_init(&context->data.finishedCallbackIds);
 
     if (!InitializeCriticalSectionAndSpinCount(&context->data.lock, 20)) {
@@ -122,8 +125,10 @@ static bool _malContextInit(MalContext *context) {
     if (xAudio2DLL) {
         context->data.xAudio2DLL = xAudio2DLL;
     } else {
-        MAL_LOG("ERROR: XAudio 2.7 not found. Install DirectX End-User Runtimes (June 2010).");
         _malContextDispose(context);
+        if (!errorMissingAudioSystem) {
+            *errorMissingAudioSystem = "XAudio 2.7 (DirectX End-User Runtimes (June 2010))";
+        }
         return false;
     }
 #endif

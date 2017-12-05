@@ -72,7 +72,10 @@ static void _malPlayerUpdateGain(MalPlayer *player);
 
 // MARK: Context
 
-static bool _malContextInit(MalContext *context) {
+static bool _malContextInit(MalContext *context, void *androidActivity,
+                            const char **errorMissingAudioSystem) {
+    (void)errorMissingAudioSystem;
+
     // Create engine
     SLresult result = slCreateEngine(&context->data.slObject, 0, NULL, 0, NULL, NULL);
     if (result != SL_RESULT_SUCCESS) {

@@ -44,7 +44,10 @@ struct _MalPlayer {
 
 // MARK: Context
 
-static bool _malContextInit(MalContext *context) {
+static bool _malContextInit(MalContext *context, void *androidActivity,
+                            const char **errorMissingAudioSystem) {
+    (void)androidActivity;
+
     int success = EM_ASM_INT({
         malContexts = window.malContexts || {};
         var context;
@@ -79,6 +82,9 @@ static bool _malContextInit(MalContext *context) {
         }, context->data.contextId);
         return true;
     } else {
+        if (!errorMissingAudioSystem) {
+            *errorMissingAudioSystem = "Web Audio API";
+        }
         return false;
     }
 }

@@ -76,7 +76,11 @@ static OSStatus renderNotification(void *userData, AudioUnitRenderActionFlags *f
                                    const AudioTimeStamp *timestamp, UInt32 bus,
                                    UInt32 inFrames, AudioBufferList *data);
 
-static bool _malContextInit(MalContext *context) {
+static bool _malContextInit(MalContext *context, void *androidActivity,
+                            const char **errorMissingAudioSystem) {
+    (void)androidActivity;
+    (void)errorMissingAudioSystem;
+
     context->data.firstTime = true;
     context->active = false;
 
@@ -240,7 +244,7 @@ static void _malContextReset(MalContext *context) {
     }
     MAL_LOCK(context);
     _malContextDispose(context);
-    _malContextInit(context);
+    _malContextInit(context, NULL, NULL);
     _malContextSetMute(context, context->mute);
     _malContextSetGain(context, context->gain);
     MAL_UNLOCK(context);

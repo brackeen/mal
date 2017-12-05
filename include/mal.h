@@ -79,6 +79,12 @@ typedef void (*malPlaybackFinishedFunc)(void *userData, MalPlayer *player);
 // MARK: Context
 
 /**
+ * Creates an audio context with the default options. Only one context should be created, and the
+ * context should be destroyed with #malContextFree().
+ */
+MalContext *malContextCreate(void);
+
+/**
  * Creates an audio context. Only one context should be created, and the context should be destroyed
  * with #malContextFree().
  *
@@ -87,9 +93,17 @@ typedef void (*malPlaybackFinishedFunc)(void *userData, MalPlayer *player);
  * platforms and devices will only support a few sample rates, and some will only support one.
  * 48000 is common on modern devices. To use the default sample rate of the platform, use
  * #MAL_DEFAULT_SAMPLE_RATE. Call #malContextGetSampleRate() to get the actual sample rate.
+ *
+ * @param androidActivity A reference to an `ANativeActivity` instance. The activity is used to
+ * query the sample rate and buffer size (if the device is running API level 17 or newer). A
+ * reference to the activity is not retained. May be `NULL`.
+ *
+ * @param errorMissingAudioSystem If the `MalContext` could not be created because of a missing
+ * audio system (for example, "PulseAudio" on Linux), this is a pointer to the name of the missing
+ * audio system. May be `NULL`.
  */
-MalContext *malContextCreate(double sampleRate);
-
+MalContext *malContextCreateWithOptions(double sampleRate, void *androidActivity,
+                                        const char **errorMissingAudioSystem);
 /**
  * Gets the output sample rate.
  */
