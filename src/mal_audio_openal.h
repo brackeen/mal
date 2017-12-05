@@ -37,6 +37,7 @@
 #endif
 
 typedef ALvoid AL_APIENTRY (*alcMacOSXMixerOutputRateProcPtr)(const ALdouble value);
+typedef ALdouble AL_APIENTRY (*alcMacOSXGetMixerOutputRateProcPtr)(void);
 typedef ALvoid AL_APIENTRY (*alBufferDataStaticProcPtr)(ALint bid, ALenum format,
                                                         const ALvoid *data, ALsizei size,
                                                         ALsizei freq);
@@ -45,6 +46,7 @@ struct _MalContext {
     ALCcontext *alContext;
     alBufferDataStaticProcPtr alBufferDataStaticProc;
     alcMacOSXMixerOutputRateProcPtr alcMacOSXMixerOutputRateProc;
+    alcMacOSXGetMixerOutputRateProcPtr alcMacOSXGetMixerOutputRateProc;
 };
 
 struct _MalBuffer {
@@ -70,9 +72,16 @@ static bool _malContextInit(MalContext *context) {
             ((alBufferDataStaticProcPtr)alcGetProcAddress(NULL, "alBufferDataStatic"));
         context->data.alcMacOSXMixerOutputRateProc =
             ((alcMacOSXMixerOutputRateProcPtr)alcGetProcAddress(NULL, "alcMacOSXMixerOutputRate"));
+        context->data.alcMacOSXGetMixerOutputRateProc =
+            ((alcMacOSXGetMixerOutputRateProcPtr)alcGetProcAddress(NULL, "alcMacOSXGetMixerOutputRate"));
 
-        if (context->data.alcMacOSXMixerOutputRateProc && context->sampleRate > 0) {
-            context->data.alcMacOSXMixerOutputRateProc(context->sampleRate);
+        if (context->data.alcMacOSXMixerOutputRateProc &&
+            context->requestedSampleRate > MAL_DEFAULT_SAMPLE_RATE) {
+            context->data.alcMacOSXMixerOutputRateProc(context->requestedSampleRate);
+        }
+
+        if (context->data.alcMacOSXGetMixerOutputRateProc) {
+            context->actualSampleRate = context->data.alcMacOSXGetMixerOutputRateProc();
         }
 
         context->data.alContext = alcCreateContext(device, 0);
@@ -113,6 +122,10 @@ static void _malContextSetGain(MalContext *context, const float gain) {
     alGetError();
 }
 
+static void _malContextReset(MalContext *context) {
+
+}
+
 // MARK: Buffer
 
 static bool _malBufferInit(MalContext *context, MalBuffer *buffer,
@@ -131,7 +144,8 @@ static bool _malBufferInit(MalContext *context, MalBuffer *buffer,
                                   AL_FORMAT_MONO8) :
                                  (buffer->format.numChannels == 2 ? AL_FORMAT_STEREO16 :
                                   AL_FORMAT_MONO16));
-        const ALsizei freq = (ALsizei)buffer->format.sampleRate;
+        const ALsizei freq = (ALsizei)(buffer->format.sampleRate <= MAL_DEFAULT_SAMPLE_RATE ?
+                             malContextGetSampleRate(context) : buffer->format.sampleRate);
         if (copiedData) {
             alBufferData(buffer->data.alBuffer, alFormat, copiedData, dataLength, freq);
             if ((error = alGetError()) != AL_NO_ERROR) {

@@ -74,6 +74,9 @@ static bool _malContextInit(MalContext *context) {
     if (success) {
         context->data.contextId = nextContextId;
         nextContextId++;
+        context->actualSampleRate = EM_ASM_DOUBLE({
+            return malContexts[$0].context.sampleRate || 0;
+        }, context->data.contextId);
         return true;
     } else {
         return false;
@@ -120,6 +123,8 @@ static bool _malBufferInit(MalContext *context, MalBuffer *buffer,
     }
     const void *data = copiedData ? copiedData : managedData;
     MalFormat format = buffer->format;
+    double sampleRate = (format.sampleRate <= MAL_DEFAULT_SAMPLE_RATE ?
+                         malContextGetSampleRate(context) : format.sampleRate);
     // Convert from interleaved 16-bit signed integer to non-interleaved 32-bit float.
     // This uses Emscripten's HEAP16 Int16Array to access the data, and may not be future-proof.
     int success = EM_ASM_INT({
@@ -148,7 +153,7 @@ static bool _malBufferInit(MalContext *context, MalBuffer *buffer,
             return 0;
         }
     }, context->data.contextId, nextBufferId,
-                format.numChannels, buffer->numFrames, format.sampleRate, data);
+                format.numChannels, buffer->numFrames, sampleRate, data);
     if (success) {
         buffer->data.bufferId = nextBufferId;
         nextBufferId++;

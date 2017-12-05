@@ -71,15 +71,29 @@ typedef struct MalPlayer MalPlayer;
 typedef void (*malDeallocatorFunc)(void *);
 typedef void (*malPlaybackFinishedFunc)(void *userData, MalPlayer *player);
 
+/**
+ * The value to use in the #malContextCreate() call to use the default platform sample rate.
+ */
+#define MAL_DEFAULT_SAMPLE_RATE 0.0
+
 // MARK: Context
 
 /**
  * Creates an audio context. Only one context should be created, and the context should be destroyed
  * with #malContextFree().
  *
- * @param sampleRate The output sample rate, typically 44100 or 22050.
+ * @param sampleRate The requested output sample rate. Typical sample rates are 8000, 11025, 12000,
+ * 16000, 22050, 24000, 32000, 44100, 48000, 88200, 96000, 176400, and 192000, although most
+ * platforms and devices will only support a few sample rates, and some will only support one.
+ * 48000 is common on modern devices. To use the default sample rate of the platform, use
+ * #MAL_DEFAULT_SAMPLE_RATE. Call #malContextGetSampleRate() to get the actual sample rate.
  */
 MalContext *malContextCreate(double sampleRate);
+
+/**
+ * Gets the output sample rate.
+ */
+double malContextGetSampleRate(const MalContext *context);
 
 /**
  * Activates or deactivates the audio context. The context should be deactivated when the app enters
@@ -158,9 +172,12 @@ bool malContextIsFormatValid(const MalContext *context, MalFormat format);
 /**
  * Checks if two audio formats are equal.
  *
+ * Either format's sample rate may be #MAL_DEFAULT_SAMPLE_RATE, in which case the context's sample
+ * rate is used.
+ *
  * @return `true` if the two formats are equal, `false` otherwise.
  */
-bool malFormatsEqual(MalFormat format1, MalFormat format2);
+bool malContextIsFormatEqual(const MalContext *context, MalFormat format1, MalFormat format2);
 
 /**
  * Frees the context. All buffers and players created with the context will no longer be valid.
@@ -283,6 +300,9 @@ MalFormat malPlayerGetFormat(const MalPlayer *player);
  *
  * On OpenAL and Web Audio implementations, the format of the player is always the same as the 
  * buffer.
+ *
+ * The format's sample rate may be #MAL_DEFAULT_SAMPLE_RATE, in which case the context's sample
+ * rate is used.
  *
  * @param player The audio player. If `NULL`, this function does nothing.
  * @param format The audio format to set the player to.

@@ -70,6 +70,7 @@ static void _malHandleNotifications() {
         bool handled = true;
         if (notification->type == MAL_NOTIFICATION_TYPE_DEVICE_CHANGED) {
             _malContextCheckRoutes(notification->context);
+            _malContextSetSampleRate(notification->context);
         } else if (notification->type == MAL_NOTIFICATION_TYPE_RESTART) {
             handled = _malAttemptRestart(notification->context);
             if (!handled) {
@@ -261,25 +262,106 @@ static OSStatus _malOnRestartHandler(AudioObjectID inObjectID,
     return noErr;
 }
 
-static void _malContextDidCreate(MalContext *context) {
-    AudioObjectPropertyAddress  propertyAddress;
+static void _malContextSetSampleRate(MalContext *context) {
+    AudioDeviceID defaultOutputDeviceID;
+    AudioObjectPropertyAddress propertyAddress;
+    OSStatus status = noErr;
 
-    // Set rate
-    if (context->sampleRate > 0) {
-        Float64 sampleRate = (Float64)context->sampleRate;
-        AudioDeviceID defaultOutputDeviceID;
-        defaultOutputDeviceID = _malGetPropertyUInt32(kAudioObjectSystemObject,
-                                                      kAudioHardwarePropertyDefaultOutputDevice,
-                                                      kAudioObjectPropertyScopeGlobal,
-                                                      kAudioDeviceUnknown);
-        if (defaultOutputDeviceID != kAudioDeviceUnknown) {
+    defaultOutputDeviceID = _malGetPropertyUInt32(kAudioObjectSystemObject,
+                                                  kAudioHardwarePropertyDefaultOutputDevice,
+                                                  kAudioObjectPropertyScopeGlobal,
+                                                  kAudioDeviceUnknown);
+    if (defaultOutputDeviceID == kAudioDeviceUnknown) {
+        context->actualSampleRate = 44100;
+        return;
+    }
+
+    // Get sample rate
+    Float64 currentSampleRate = 0;
+    UInt32 sampleRateSize = sizeof(currentSampleRate);
+    propertyAddress.mSelector = kAudioDevicePropertyNominalSampleRate;
+    propertyAddress.mScope = kAudioObjectPropertyScopeGlobal;
+    propertyAddress.mElement = kAudioObjectPropertyElementMaster;
+    AudioObjectGetPropertyData(defaultOutputDeviceID, &propertyAddress,
+                               0, NULL, &sampleRateSize, &currentSampleRate);
+
+    // Set sample rate
+    Float64 requestedSampleRate = context->requestedSampleRate;
+    if (requestedSampleRate > MAL_DEFAULT_SAMPLE_RATE) {
+        // Find best match in kAudioDevicePropertyAvailableNominalSampleRates
+        // If a valid value isn't chosen, setting the sample rate could fail.
+        AudioValueRange *values = NULL;
+        UInt32 size = 0;
+        propertyAddress.mSelector = kAudioDevicePropertyAvailableNominalSampleRates;
+        propertyAddress.mScope = kAudioObjectPropertyScopeGlobal;
+        propertyAddress.mElement = kAudioObjectPropertyElementMaster;
+
+        status = AudioObjectGetPropertyDataSize(defaultOutputDeviceID, &propertyAddress,
+                                                0, NULL, &size);
+        UInt32 numElements = size / sizeof(*values);
+
+        if (status == noErr && numElements > 0) {
+            values = malloc(sizeof(*values) * numElements);
+            if (values) {
+                status = AudioObjectGetPropertyData(defaultOutputDeviceID, &propertyAddress,
+                                                    0, NULL, &size, values);
+                if (status == noErr) {
+                    double closestSampleRate = values[0].mMinimum;
+                    for (UInt32 i = 0; i < numElements; i++) {
+                        if (requestedSampleRate >= values[i].mMinimum &&
+                            requestedSampleRate <= values[i].mMaximum) {
+                            closestSampleRate = requestedSampleRate;
+                            break;
+                        } else {
+                            if (fabs(requestedSampleRate - values[i].mMinimum) <=
+                                fabs(closestSampleRate - values[i].mMinimum)) {
+                                closestSampleRate = values[i].mMinimum;
+                            }
+                            if (fabs(requestedSampleRate - values[i].mMaximum) <=
+                                fabs(closestSampleRate - values[i].mMaximum)) {
+                                closestSampleRate = values[i].mMaximum;
+                            }
+                        }
+                    }
+                    requestedSampleRate = closestSampleRate;
+                }
+                free(values);
+            }
+        }
+
+        // Set sample rate (if different from current rate)
+        const double sampleRateEpsilon = 0.01;
+        if (fabs(currentSampleRate - requestedSampleRate) > sampleRateEpsilon) {
+            // Set sample rate
+            Float64 sampleRate = (Float64)requestedSampleRate;
             propertyAddress.mSelector = kAudioDevicePropertyNominalSampleRate;
-            propertyAddress.mScope = kAudioDevicePropertyScopeOutput;
+            propertyAddress.mScope = kAudioObjectPropertyScopeGlobal;
             propertyAddress.mElement = kAudioObjectPropertyElementMaster;
-            AudioObjectSetPropertyData(defaultOutputDeviceID, &propertyAddress,
-                                       0, NULL, sizeof(sampleRate), &sampleRate);
+            status = AudioObjectSetPropertyData(defaultOutputDeviceID, &propertyAddress,
+                                                0, NULL, sizeof(sampleRate), &sampleRate);
+
+            // Wait for change to occur.
+            // This usually happens within 0.0001 seconds. Max wait 0.25 seconds.
+            if (status == noErr) {
+                for (int i = 0; i < 250; i++) {
+                    Float64 newSampleRate = 0.0;
+                    status = AudioObjectGetPropertyData(defaultOutputDeviceID, &propertyAddress,
+                                                        0, NULL, &sampleRateSize, &newSampleRate);
+                    if (status == noErr &&
+                        fabs(newSampleRate - currentSampleRate) > sampleRateEpsilon) {
+                        currentSampleRate = newSampleRate;
+                        break;
+                    }
+                    usleep(1000);
+                }
+            }
         }
     }
+    context->actualSampleRate = currentSampleRate;
+}
+
+static void _malContextDidCreate(MalContext *context) {
+    AudioObjectPropertyAddress propertyAddress;
 
     // Set device listener
     propertyAddress.mSelector = kAudioHardwarePropertyDefaultOutputDevice;

@@ -38,7 +38,7 @@ static void _malContextCheckRoutes(MalContext *context) {
         AVAudioSession *session = [AVAudioSession sharedInstance];
         NSArray *outputs = session.currentRoute.outputs;
         for (AVAudioSessionPortDescription *port in outputs) {
-            // This covers all the ports up to iOS 10
+            // This covers all the ports up to iOS 11
             if ([port.portType isEqualToString:AVAudioSessionPortHeadphones]) {
                 context->routes[MAL_ROUTE_HEADPHONES] = true;
             } else if ([port.portType isEqualToString:AVAudioSessionPortBuiltInSpeaker]) {
@@ -78,6 +78,7 @@ static void _malNotificationHandler(CFNotificationCenterRef center, void *observ
         }
     } else if ([AVAudioSessionRouteChangeNotification isEqualToString:nsName]) {
         _malContextCheckRoutes(context);
+        _malContextSetSampleRate(context);
     } else if ([AVAudioSessionMediaServicesWereResetNotification isEqualToString:nsName]) {
         _malContextReset(context);
     }
@@ -103,20 +104,29 @@ static void _malContextWillDispose(MalContext *context) {
     CFNotificationCenterRemoveEveryObserver(CFNotificationCenterGetLocalCenter(), context);
 }
 
+static void _malContextSetSampleRate(MalContext *context) {
+    AVAudioSession *audioSession = [AVAudioSession sharedInstance];
+    NSError *error = nil;
+
+    if (context->requestedSampleRate > MAL_DEFAULT_SAMPLE_RATE) {
+        double requestedSampleRate = _malGetClosestSampleRate(context->requestedSampleRate);
+        [audioSession setPreferredSampleRate:requestedSampleRate error:&error];
+        if (error) {
+            MAL_LOG("Couldn't set sample rate to %f. %s", requestedSampleRate,
+                    error.localizedDescription.UTF8String);
+            error = nil;
+        }
+    }
+    context->actualSampleRate = audioSession.sampleRate;
+}
+
 static void _malContextDidSetActive(MalContext *context, bool active) {
     AVAudioSession *audioSession = [AVAudioSession sharedInstance];
     NSError *error = nil;
 
     if (active) {
-        // Set sample rate
-        if (context->sampleRate > 0) {
-            [audioSession setPreferredSampleRate:context->sampleRate error:&error];
-            if (error) {
-                MAL_LOG("Couldn't set sample rate to %f. %s", context->sampleRate,
-                        error.localizedDescription.UTF8String);
-                error = nil;
-            }
-        }
+        _malContextSetSampleRate(context);
+
         // Set Category
         // TODO: Make allowBackgroundMusic an option
         bool allowBackgroundMusic = true;
@@ -132,11 +142,15 @@ static void _malContextDidSetActive(MalContext *context, bool active) {
     }
 
     // NOTE: Setting the audio session to active should happen last
-    [[AVAudioSession sharedInstance] setActive:active error:&error];
+    [audioSession setActive:active error:&error];
     if (error) {
         MAL_LOG("Couldn't set audio session to active (%s). %s", (active ? "true" : "false"),
                 error.localizedDescription.UTF8String);
         error = nil;
+    }
+
+    if (active) {
+        context->actualSampleRate = audioSession.sampleRate;
     }
 }
 

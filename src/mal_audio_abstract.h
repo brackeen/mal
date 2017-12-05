@@ -99,7 +99,8 @@ struct MalContext {
     float gain;
     bool mute;
     bool active;
-    double sampleRate;
+    double requestedSampleRate;
+    double actualSampleRate;
 
 #ifdef MAL_USE_MUTEX
     pthread_mutex_t mutex;
@@ -137,9 +138,25 @@ struct MalPlayer {
     struct _MalPlayer data;
 };
 
+// MARK: Helper functions
+
+static double _malGetClosestSampleRate(double sampleRate) {
+    const double typicalSampleRates[] = { 8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100,
+        48000, 88200, 96000, 176400, 192000 };
+    const size_t typicalSampleRatesSize = sizeof(typicalSampleRates) / sizeof(*typicalSampleRates);
+    double closestSampleRate = typicalSampleRates[0];
+    for (size_t i = 1; i < typicalSampleRatesSize; i++) {
+        double diff = fabs(typicalSampleRates[i] - sampleRate);
+        if (diff <= fabs(closestSampleRate - sampleRate)) {
+            closestSampleRate = typicalSampleRates[i];
+        }
+    }
+    return closestSampleRate;
+}
+
 // MARK: Context
 
-MalContext *malContextCreate(double outputSampleRate) {
+MalContext *malContextCreate(double requestedSampleRate) {
     MalContext *context = (MalContext *)calloc(1, sizeof(MalContext));
     if (context) {
 #ifdef MAL_USE_MUTEX
@@ -147,13 +164,16 @@ MalContext *malContextCreate(double outputSampleRate) {
 #endif
         context->mute = false;
         context->gain = 1.0f;
-        context->sampleRate = outputSampleRate;
+        context->requestedSampleRate = requestedSampleRate;
         ok_vec_init(&context->players);
         ok_vec_init(&context->buffers);
         bool success = _malContextInit(context);
         if (success) {
             _malContextDidCreate(context);
             success = malContextSetActive(context, true);
+            if (context->actualSampleRate <= MAL_DEFAULT_SAMPLE_RATE) {
+                context->actualSampleRate = 44100;
+            }
             if (!success) {
                 malContextFree(context);
                 context = NULL;
@@ -164,6 +184,10 @@ MalContext *malContextCreate(double outputSampleRate) {
         }
     }
     return context;
+}
+
+double malContextGetSampleRate(const MalContext *context) {
+    return context ? context->actualSampleRate : 44100;
 }
 
 bool malContextSetActive(MalContext *context, bool active) {
@@ -211,8 +235,7 @@ bool malContextIsFormatValid(const MalContext *context, MalFormat format) {
     (void)context;
     // TODO: Move to subsystem
     return ((format.bitDepth == 8 || format.bitDepth == 16) &&
-            (format.numChannels == 1 || format.numChannels == 2) &&
-            format.sampleRate > 0);
+            (format.numChannels == 1 || format.numChannels == 2));
 }
 
 bool malContextIsRouteEnabled(const MalContext *context, MalRoute route) {
@@ -256,8 +279,14 @@ void malContextFree(MalContext *context) {
     }
 }
 
-bool malFormatsEqual(MalFormat format1, MalFormat format2) {
-    static double sampleRateEpsilon = 0.0001;
+bool malContextIsFormatEqual(const MalContext *context, MalFormat format1, MalFormat format2) {
+    const double sampleRateEpsilon = 0.01;
+    if (format1.sampleRate <= MAL_DEFAULT_SAMPLE_RATE) {
+        format1.sampleRate = malContextGetSampleRate(context);
+    }
+    if (format2.sampleRate <= MAL_DEFAULT_SAMPLE_RATE) {
+        format2.sampleRate = malContextGetSampleRate(context);
+    }
     return (format1.bitDepth == format2.bitDepth &&
             format1.numChannels == format2.numChannels &&
             fabs(format1.sampleRate - format2.sampleRate) <= sampleRateEpsilon);

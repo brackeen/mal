@@ -136,8 +136,10 @@ static bool _malContextInit(MalContext *context) {
 
     // Create the output voice
     // Because the szDeviceId is NULL, OnCriticalError won't be raised.
-    UINT32 sampleRate = (context->sampleRate >= 1000 ? (UINT32)context->sampleRate : 
-                         XAUDIO2_DEFAULT_SAMPLERATE);
+    UINT32 sampleRate = XAUDIO2_DEFAULT_SAMPLERATE;
+    if (context->requestedSampleRate > MAL_DEFAULT_SAMPLE_RATE) {
+        sampleRate = (UINT32)_malGetClosestSampleRate(context->requestedSampleRate);
+    }
     hr = context->data.xAudio2->CreateMasteringVoice(&context->data.masteringVoice, 
                                                      XAUDIO2_DEFAULT_CHANNELS, sampleRate);
     if (FAILED(hr) || context->data.masteringVoice == NULL) {
@@ -148,7 +150,7 @@ static bool _malContextInit(MalContext *context) {
     // Get sample rate
     XAUDIO2_VOICE_DETAILS voiceDetails = { 0 };
     context->data.masteringVoice->GetVoiceDetails(&voiceDetails);
-    context->sampleRate = voiceDetails.InputSampleRate;
+    context->actualSampleRate = voiceDetails.InputSampleRate;
 
     // Success
     context->active = true;
@@ -326,17 +328,22 @@ static void _malPlayerDispose(MalPlayer *player) {
 
 static bool _malPlayerSetFormat(MalPlayer *player, MalFormat format) {
     bool success = false;
+    if (!player->context) {
+        return false;
+    }
+
+    double sampleRate = (format.sampleRate <= MAL_DEFAULT_SAMPLE_RATE ?
+                         malContextGetSampleRate(player->context) : format.sampleRate);
 
     // Change sample rate without creating a new voice
-    if (player->data.sourceVoice &&
-        player->format.bitDepth == format.bitDepth &&
-        player->format.numChannels == format.numChannels) {
-        if (player->format.sampleRate == format.sampleRate) {
+    if (player->data.sourceVoice) {
+        if (malContextIsFormatEqual(player->context, player->format, format)) {
             return true;
-        } else {
+        } else if (player->format.bitDepth == format.bitDepth &&
+                   player->format.numChannels == format.numChannels) {
             player->data.sourceVoice->FlushSourceBuffers();
             player->data.bufferQueued = false;
-            HRESULT hr = player->data.sourceVoice->SetSourceSampleRate((UINT32)format.sampleRate);
+            HRESULT hr = player->data.sourceVoice->SetSourceSampleRate((UINT32)sampleRate);
             success = SUCCEEDED(hr);
         }
     }
@@ -352,10 +359,10 @@ static bool _malPlayerSetFormat(MalPlayer *player, MalFormat format) {
         WAVEFORMATEX xAudioFormat = { 0 };
         xAudioFormat.wFormatTag = WAVE_FORMAT_PCM;
         xAudioFormat.nChannels = format.numChannels;
-        xAudioFormat.nSamplesPerSec = (DWORD)format.sampleRate;
+        xAudioFormat.nSamplesPerSec = (DWORD)sampleRate;
         xAudioFormat.wBitsPerSample = format.bitDepth;
         xAudioFormat.nBlockAlign = (xAudioFormat.nChannels * xAudioFormat.wBitsPerSample) / 8u;
-        xAudioFormat.nAvgBytesPerSec = (DWORD)format.sampleRate * xAudioFormat.nBlockAlign;
+        xAudioFormat.nAvgBytesPerSec = (DWORD)sampleRate * xAudioFormat.nBlockAlign;
         xAudioFormat.cbSize = 0;
 
         IXAudio2 *xAudio2 = player->context->data.xAudio2;

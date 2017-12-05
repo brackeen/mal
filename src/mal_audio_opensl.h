@@ -107,6 +107,9 @@ static bool _malContextInit(MalContext *context) {
         return false;
     }
 
+    // TODO: Get sample rate. Need access to ANativeActivity / AudioManager
+    context->actualSampleRate = 44100;
+
     // NOTE: SLAudioIODeviceCapabilitiesItf isn't supported, so there's no way to get routing
     // information.
     // Also, GetDestinationOutputDeviceIDs only returns SL_DEFAULTDEVICEID_AUDIOOUTPUT.
@@ -374,10 +377,13 @@ static bool _malPlayerSetFormat(MalPlayer *player, MalFormat format) {
         .numBuffers = 2
     };
 
+    double sampleRate = (format.sampleRate <= MAL_DEFAULT_SAMPLE_RATE ?
+                         malContextGetSampleRate(player->context) : format.sampleRate);
+
     SLDataFormat_PCM slFormat = {
         .formatType = SL_DATAFORMAT_PCM,
         .numChannels = format.numChannels,
-        .samplesPerSec = (SLuint32)(format.sampleRate * 1000),
+        .samplesPerSec = (SLuint32)(sampleRate * 1000),
         .bitsPerSample = (format.bitDepth == 8 ? SL_PCMSAMPLEFORMAT_FIXED_8 :
                           SL_PCMSAMPLEFORMAT_FIXED_16),
         .containerSize = (format.bitDepth == 8 ? SL_PCMSAMPLEFORMAT_FIXED_8 :

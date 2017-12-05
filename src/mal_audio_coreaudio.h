@@ -68,6 +68,8 @@ struct _MalPlayer {
 #define MAL_USE_MUTEX
 #include "mal_audio_abstract.h"
 
+static void _malContextSetSampleRate(MalContext *context);
+
 // MARK: Context
 
 static OSStatus renderNotification(void *userData, AudioUnitRenderActionFlags *flags,
@@ -77,6 +79,10 @@ static OSStatus renderNotification(void *userData, AudioUnitRenderActionFlags *f
 static bool _malContextInit(MalContext *context) {
     context->data.firstTime = true;
     context->active = false;
+
+    // Call first because actual value may be different from requested, and the mixer rate
+    // needs to be set to that value.
+    _malContextSetSampleRate(context);
 
     // Create audio graph
     OSStatus status = NewAUGraph(&context->data.graph);
@@ -143,14 +149,17 @@ static bool _malContextInit(MalContext *context) {
         return false;
     }
 
-    // Set output sample rate
-    if (context->sampleRate > 0) {
+    // Set mixer output sample rate
+    // NOTE: This can be set to any value. Best to set it to same as the device output rate.
+    Float64 sampleRate = (Float64)context->actualSampleRate;
+    UInt32 sampleRateSize = (UInt32)sizeof(sampleRate);
+    if (sampleRate > MAL_DEFAULT_SAMPLE_RATE) {
         status = AudioUnitSetProperty(context->data.mixerUnit,
                                       kAudioUnitProperty_SampleRate,
                                       kAudioUnitScope_Output,
                                       0,
-                                      &context->sampleRate,
-                                      sizeof(context->sampleRate));
+                                      &sampleRate,
+                                      sampleRateSize);
         if (status != noErr) {
             MAL_LOG("Ignoring: Couldn't set output sample rate (err %i)", (int)status);
         }
@@ -608,11 +617,14 @@ static bool _malPlayerSetFormat(MalPlayer *player, MalFormat format) {
         return false;
     }
 
+    double sampleRate = (format.sampleRate <= MAL_DEFAULT_SAMPLE_RATE ?
+                         malContextGetSampleRate(player->context) : format.sampleRate);
+
     AudioStreamBasicDescription streamDesc;
     memset(&streamDesc, 0, sizeof(streamDesc));
     streamDesc.mFormatID = kAudioFormatLinearPCM;
     streamDesc.mFramesPerPacket = 1;
-    streamDesc.mSampleRate = format.sampleRate;
+    streamDesc.mSampleRate = sampleRate;
     streamDesc.mBitsPerChannel = format.bitDepth;
     streamDesc.mChannelsPerFrame = format.numChannels;
     streamDesc.mBytesPerFrame = (format.bitDepth / 8) * format.numChannels;
@@ -684,8 +696,11 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPl
         case MAL_PLAYER_STATE_PAUSED:
             if (player->context->data.canRampInputGain) {
                 // Fade out
+                double sampleRate = (player->buffer->format.sampleRate <= MAL_DEFAULT_SAMPLE_RATE ?
+                                     malContextGetSampleRate(player->context) :
+                                     player->buffer->format.sampleRate);
                 player->data.ramp.value = -1;
-                player->data.ramp.frames = player->buffer->format.sampleRate * 0.1;
+                player->data.ramp.frames = sampleRate * 0.1;
                 player->data.ramp.framesPosition = 0;
             } else {
                 AUGraphDisconnectNodeInput(player->context->data.graph,
@@ -714,8 +729,11 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPl
             if (oldState == MAL_PLAYER_STATE_PAUSED &&
                 player->context->data.canRampInputGain) {
                 // Fade in
+                double sampleRate = (player->buffer->format.sampleRate <= MAL_DEFAULT_SAMPLE_RATE ?
+                                     malContextGetSampleRate(player->context) :
+                                     player->buffer->format.sampleRate);
                 player->data.ramp.value = 1;
-                player->data.ramp.frames = player->buffer->format.sampleRate * 0.05;
+                player->data.ramp.frames = sampleRate * 0.05;
                 player->data.ramp.framesPosition = 0;
             }
             break;
