@@ -82,6 +82,7 @@ struct _MalPlayer {
     MalCallbackId onFinishedId;
 };
 
+#define MAL_INCLUDE_SAMPLE_RATE_FUNCTIONS
 #include "mal_audio_abstract.h"
 
 #pragma region Context

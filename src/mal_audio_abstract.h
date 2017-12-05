@@ -138,7 +138,9 @@ struct MalPlayer {
     struct _MalPlayer data;
 };
 
-// MARK: Helper functions
+// MARK: Sample rate helper functions
+
+#ifdef MAL_INCLUDE_SAMPLE_RATE_FUNCTIONS
 
 static double _malGetClosestSampleRate(double sampleRate) {
     const double typicalSampleRates[] = { 8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100,
@@ -153,6 +155,8 @@ static double _malGetClosestSampleRate(double sampleRate) {
     }
     return closestSampleRate;
 }
+
+#endif
 
 // MARK: Context
 

@@ -24,6 +24,7 @@
 #endif
 #if TARGET_OS_IOS || TARGET_OS_TV
 
+#define MAL_INCLUDE_SAMPLE_RATE_FUNCTIONS
 #include "mal_audio_coreaudio.h"
 #include <AVFoundation/AVFoundation.h>
 
