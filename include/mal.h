@@ -95,7 +95,7 @@ MalContext *malContextCreate(void);
  * #MAL_DEFAULT_SAMPLE_RATE. Call #malContextGetSampleRate() to get the actual sample rate.
  *
  * @param androidActivity A reference to an `ANativeActivity` instance. The activity is used to
- * query the sample rate and buffer size (if the device is running API level 17 or newer). A
+ * query the device's output sample rate (if the device is running API level 17 or newer). A
  * reference to the activity is not retained. May be `NULL`.
  *
  * @param errorMissingAudioSystem If the `MalContext` could not be created because of a missing

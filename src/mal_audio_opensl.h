@@ -26,7 +26,7 @@
 #include <stdbool.h>
 #if defined(__ANDROID__)
 #include <android/looper.h>
-#define _GNU_SOURCE // For pipe2
+#include <android/native_activity.h>
 #include <fcntl.h>
 #include <unistd.h>
 #define LOOPER_ID_USER_MESSAGE 0x1ffbdff1
@@ -39,13 +39,17 @@
 #define SL_DATALOCATOR_BUFFERQUEUE SL_DATALOCATOR_ANDROIDSIMPLEBUFFERQUEUE
 #define SLDataLocator_BufferQueue SLDataLocator_AndroidSimpleBufferQueue
 #define SLBufferQueueItf SLAndroidSimpleBufferQueueItf
-#endif
+#endif /* __ANDROID__ */
 
 struct _MalContext {
     SLObjectItf slObject;
     SLEngineItf slEngine;
     SLObjectItf slOutputMixObject;
+
 #if defined(__ANDROID__)
+    JavaVM *vm;
+    jobject appContext;
+    int32_t sdkVersion;
     ALooper *looper;
     int looperMessagePipe[2];
 #endif
@@ -90,39 +94,46 @@ static bool _malContextInit(MalContext *context, void *androidActivity,
 
     // Get engine interface
     result = (*context->data.slObject)->GetInterface(context->data.slObject, SL_IID_ENGINE,
-                                                      &context->data.slEngine);
+                                                     &context->data.slEngine);
     if (result != SL_RESULT_SUCCESS) {
         return false;
     }
 
     // Get output mix
     result = (*context->data.slEngine)->CreateOutputMix(context->data.slEngine,
-                                                         &context->data.slOutputMixObject, 0,
-                                                         NULL, NULL);
+                                                        &context->data.slOutputMixObject, 0,
+                                                        NULL, NULL);
     if (result != SL_RESULT_SUCCESS) {
         return false;
     }
 
     // Realize the output mix
     result = (*context->data.slOutputMixObject)->Realize(context->data.slOutputMixObject,
-                                                            SL_BOOLEAN_FALSE);
+                                                         SL_BOOLEAN_FALSE);
     if (result != SL_RESULT_SUCCESS) {
         return false;
     }
 
-    // TODO: Get sample rate. Need access to ANativeActivity / AudioManager
-    context->actualSampleRate = 44100;
+#if defined(__ANDROID__)
+    if (androidActivity) {
+        ANativeActivity *activity = (ANativeActivity *)androidActivity;
+        JNIEnv *jniEnv = _malGetJNIEnv(activity->vm);
+        if (jniEnv) {
+            _jniClearException(jniEnv);
 
-    // NOTE: SLAudioIODeviceCapabilitiesItf isn't supported, so there's no way to get routing
-    // information.
-    // Also, GetDestinationOutputDeviceIDs only returns SL_DEFAULTDEVICEID_AUDIOOUTPUT.
-    //
-    // Potentially, if we have access to the ANativeActivity, we could get an instance of
-    // AudioManager and call the Java functions:
-    // if (isBluetoothA2dpOn() or isBluetoothScoOn()) then wireless
-    // else if (isSpeakerphoneOn()) then speaker
-    // else headset
-    //
+            context->data.vm = activity->vm;
+            context->data.sdkVersion = activity->sdkVersion;
+            jobject appContext = _jniCallMethod(jniEnv, activity->clazz,
+                                                "getApplicationContext",
+                                                "()Landroid/content/Context;", Object);
+            if (appContext) {
+                context->data.appContext = (*jniEnv)->NewGlobalRef(jniEnv, appContext);
+                (*jniEnv)->DeleteLocalRef(jniEnv, appContext);
+            }
+        }
+    }
+#endif
+
     return true;
 }
 
@@ -147,6 +158,16 @@ static void _malContextDispose(MalContext *context) {
         context->data.slEngine = NULL;
     }
     _malContextCloseLooper(context);
+
+#if defined(__ANDROID__)
+    if (context->data.vm && context->data.appContext) {
+        JNIEnv *jniEnv = _malGetJNIEnv(context->data.vm);
+        if (jniEnv) {
+            (*jniEnv)->DeleteGlobalRef(jniEnv, context->data.appContext);
+            context->data.appContext = NULL;
+        }
+    }
+#endif
 }
 
 #if defined(__ANDROID__)

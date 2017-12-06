@@ -78,7 +78,11 @@ static void playSound(MalApp *app, MalBuffer *buffer, float gain) {
 }
 
 static bool malExampleInit(MalApp *app) {
-    app->context = malContextCreate();
+    void *androidActivity = NULL;
+#if defined(MAL_EXAMPLE_WITH_GLFM) && defined(__ANDROID__)
+    androidActivity = glfmAndroidGetActivity();
+#endif
+    app->context = malContextCreateWithOptions(MAL_DEFAULT_SAMPLE_RATE, androidActivity, NULL);
     if (!app->context) {
         printf("Error: Couldn't create audio context\n");
         return false;

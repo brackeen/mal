@@ -21,6 +21,98 @@
 
 #if defined(__ANDROID__)
 
+#define _GNU_SOURCE /* For pipe2 */
+
+// MARK: JNI helpers
+
+#include <jni.h>
+#include <pthread.h>
+
+#define _jniWasExceptionThrown(jniEnv) \
+    ((*jniEnv)->ExceptionCheck(jniEnv) ? ((*jniEnv)->ExceptionClear(jniEnv), 1) : 0)
+
+#define _jniClearException(jniEnv) do { \
+    if ((*jniEnv)->ExceptionCheck(jniEnv)) { \
+        (*jniEnv)->ExceptionClear(jniEnv); \
+    } \
+} while (0)
+
+static jmethodID _jniGetMethodID(JNIEnv *jniEnv, jobject object, const char *name,
+                                 const char *sig) {
+    if (object) {
+        jclass class = (*jniEnv)->GetObjectClass(jniEnv, object);
+        jmethodID methodID = (*jniEnv)->GetMethodID(jniEnv, class, name, sig);
+        (*jniEnv)->DeleteLocalRef(jniEnv, class);
+        return _jniWasExceptionThrown(jniEnv) ? NULL : methodID;
+    } else {
+        return NULL;
+    }
+}
+
+static jfieldID _jniGetFieldID(JNIEnv *jniEnv, jobject object, const char *name, const char *sig) {
+    if (object) {
+        jclass class = (*jniEnv)->GetObjectClass(jniEnv, object);
+        jfieldID fieldID = (*jniEnv)->GetFieldID(jniEnv, class, name, sig);
+        (*jniEnv)->DeleteLocalRef(jniEnv, class);
+        return _jniWasExceptionThrown(jniEnv) ? NULL : fieldID;
+    } else {
+        return NULL;
+    }
+}
+
+static jfieldID _jniGetStaticFieldID(JNIEnv *jniEnv, jclass class, const char *name,
+                                     const char *sig) {
+    if (class) {
+        jfieldID fieldID = (*jniEnv)->GetStaticFieldID(jniEnv, class, name, sig);
+        return _jniWasExceptionThrown(jniEnv) ? NULL : fieldID;
+    } else {
+        return NULL;
+    }
+}
+
+#define _jniCallMethod(jniEnv, object, methodName, methodSig, returnType) \
+    (*jniEnv)->Call##returnType##Method(jniEnv, object, \
+        _jniGetMethodID(jniEnv, object, methodName, methodSig))
+
+#define _jniCallMethodWithArgs(jniEnv, object, methodName, methodSig, returnType, ...) \
+    (*jniEnv)->Call##returnType##Method(jniEnv, object, \
+        _jniGetMethodID(jniEnv, object, methodName, methodSig), __VA_ARGS__)
+
+#define _jniGetField(jniEnv, object, fieldName, fieldSig, fieldType) \
+    (*jniEnv)->Get##fieldType##Field(jniEnv, object, \
+        _jniGetFieldID(jniEnv, object, fieldName, fieldSig))
+
+#define _jniGetStaticField(jniEnv, class, fieldName, fieldSig, fieldType) \
+    (*jniEnv)->GetStatic##fieldType##Field(jniEnv, class, \
+        _jniGetStaticFieldID(jniEnv, class, fieldName, fieldSig))
+
+static pthread_key_t _malJNIEnvKey;
+static pthread_once_t _malJNIEnvKeyOnce = PTHREAD_ONCE_INIT;
+
+static void _malDetachJNIEnv(void *value) {
+    if (value) {
+        JavaVM *vm = (JavaVM *)value;
+        (*vm)->DetachCurrentThread(vm);
+    }
+}
+
+static void _malCreateJNIEnvKey() {
+    pthread_key_create(&_malJNIEnvKey, _malDetachJNIEnv);
+}
+
+static JNIEnv *_malGetJNIEnv(JavaVM *vm) {
+    JNIEnv *jniEnv = NULL;
+    if ((*vm)->GetEnv(vm, (void **)&jniEnv, JNI_VERSION_1_4) != JNI_OK) {
+        if ((*vm)->AttachCurrentThread(vm, &jniEnv, NULL) == JNI_OK) {
+            pthread_once(&_malJNIEnvKeyOnce, _malCreateJNIEnvKey);
+            pthread_setspecific(_malJNIEnvKey, vm);
+        }
+    }
+    return jniEnv;
+}
+
+// MARK: Mal platform implementation
+
 #include "mal_audio_opensl.h"
 
 void malContextPollEvents(MalContext *context) {
@@ -30,12 +122,102 @@ void malContextPollEvents(MalContext *context) {
 
 static void _malContextCheckRoutes(MalContext *context) {
     (void)context;
-    // Do nothing
+    // NOTE: SLAudioIODeviceCapabilitiesItf isn't supported, so there's no way to get routing
+    // information. GetDestinationOutputDeviceIDs only returns SL_DEFAULTDEVICEID_AUDIOOUTPUT.
+    //
+    // With an instance of the AudioManager, this could call the Java functions:
+    // wireless = (isBluetoothA2dpOn() || isBluetoothScoOn())
+    // speaker = isSpeakerphoneOn()
+    // headset = isWiredHeadsetOn()
+}
+
+static void _malContextGetSampleRate(MalContext *context) {
+    if (!context->data.appContext || context->data.sdkVersion < 17) {
+        return;
+    }
+
+    JNIEnv *jniEnv = _malGetJNIEnv(context->data.vm);
+    if (jniEnv) {
+        jclass contextClass = NULL;
+        jclass audioManagerClass = NULL;
+        jstring audioServiceKey = NULL;
+        jstring sampleRateKey = NULL;
+        jobject audioManager = NULL;
+        jstring sampleRateJavaString = NULL;
+        const char *sampleRateString = NULL;
+
+        _jniClearException(jniEnv);
+
+        contextClass = (*jniEnv)->FindClass(jniEnv, "android/content/Context");
+        if (!contextClass || _jniWasExceptionThrown(jniEnv)) {
+            goto quit;
+        }
+
+        audioServiceKey = _jniGetStaticField(jniEnv, contextClass, "AUDIO_SERVICE",
+                                             "Ljava/lang/String;", Object);
+        if (!audioServiceKey || _jniWasExceptionThrown(jniEnv)) {
+            goto quit;
+        }
+
+        audioManager = _jniCallMethodWithArgs(jniEnv, context->data.appContext,
+                                              "getSystemService",
+                                              "(Ljava/lang/String;)Ljava/lang/Object;",
+                                              Object, audioServiceKey);
+        if (!audioManager || _jniWasExceptionThrown(jniEnv)) {
+            goto quit;
+        }
+
+        audioManagerClass = (*jniEnv)->GetObjectClass(jniEnv, audioManager);
+        if (!audioManagerClass || _jniWasExceptionThrown(jniEnv)) {
+            goto quit;
+        }
+
+        sampleRateKey = _jniGetStaticField(jniEnv, audioManagerClass, "PROPERTY_OUTPUT_SAMPLE_RATE",
+                                           "Ljava/lang/String;", Object);
+        if (!sampleRateKey || _jniWasExceptionThrown(jniEnv)) {
+            goto quit;
+        }
+
+        sampleRateJavaString = _jniCallMethodWithArgs(jniEnv, audioManager, "getProperty",
+                                                      "(Ljava/lang/String;)Ljava/lang/String;",
+                                                      Object, sampleRateKey);
+        if (!sampleRateJavaString || _jniWasExceptionThrown(jniEnv)) {
+            goto quit;
+        }
+
+        sampleRateString = (*jniEnv)->GetStringUTFChars(jniEnv, sampleRateJavaString, NULL);
+        if (sampleRateString) {
+            int sampleRate = atoi(sampleRateString);
+            context->actualSampleRate = sampleRate > 0 ? sampleRate : 44100;
+        }
+
+quit:
+        if (sampleRateString) {
+            (*jniEnv)->ReleaseStringUTFChars(jniEnv, sampleRateJavaString, sampleRateString);
+        }
+        if (sampleRateJavaString) {
+            (*jniEnv)->DeleteLocalRef(jniEnv, sampleRateJavaString);
+        }
+        if (sampleRateKey) {
+            (*jniEnv)->DeleteLocalRef(jniEnv, sampleRateKey);
+        }
+        if (audioManager) {
+            (*jniEnv)->DeleteLocalRef(jniEnv, audioManager);
+        }
+        if (audioServiceKey) {
+            (*jniEnv)->DeleteLocalRef(jniEnv, audioServiceKey);
+        }
+        if (contextClass) {
+            (*jniEnv)->DeleteLocalRef(jniEnv, contextClass);
+        }
+        if (audioManagerClass) {
+            (*jniEnv)->DeleteLocalRef(jniEnv, audioManagerClass);
+        }
+    }
 }
 
 static void _malContextDidCreate(MalContext *context) {
-    (void)context;
-    // Do nothing
+    _malContextGetSampleRate(context);
 }
 
 static void _malContextWillDispose(MalContext *context) {
