@@ -388,10 +388,15 @@ static void _malPlayerDidSetFinishedCallback(MalPlayer *player) {
 }
 
 static bool _malPlayerSetFormat(MalPlayer *player, MalFormat format) {
-    _malPlayerDispose(player);
     if (!player->context) {
         return false;
     }
+
+    if (player->data.slObject && malContextIsFormatEqual(player->context, player->format, format)) {
+        return true;
+    }
+
+    _malPlayerDispose(player);
 
     const int n = 1;
     const bool systemIsLittleEndian = *(const char *)&n == 1;
@@ -519,6 +524,10 @@ static MalPlayerState _malPlayerGetState(const MalPlayer *player) {
 }
 
 static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPlayerState state) {
+    if (!player->data.slPlay) {
+        return false;
+    }
+
     SLuint32 slState;
     switch (state) {
         case MAL_PLAYER_STATE_STOPPED:
