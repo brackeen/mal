@@ -189,30 +189,16 @@ static void _malContextGetSampleRate(MalContext *context) {
         if (sampleRateString) {
             int sampleRate = atoi(sampleRateString);
             context->actualSampleRate = sampleRate > 0 ? sampleRate : 44100;
+            (*jniEnv)->ReleaseStringUTFChars(jniEnv, sampleRateJavaString, sampleRateString);
         }
 
 quit:
-        if (sampleRateString) {
-            (*jniEnv)->ReleaseStringUTFChars(jniEnv, sampleRateJavaString, sampleRateString);
-        }
-        if (sampleRateJavaString) {
-            (*jniEnv)->DeleteLocalRef(jniEnv, sampleRateJavaString);
-        }
-        if (sampleRateKey) {
-            (*jniEnv)->DeleteLocalRef(jniEnv, sampleRateKey);
-        }
-        if (audioManager) {
-            (*jniEnv)->DeleteLocalRef(jniEnv, audioManager);
-        }
-        if (audioServiceKey) {
-            (*jniEnv)->DeleteLocalRef(jniEnv, audioServiceKey);
-        }
-        if (contextClass) {
-            (*jniEnv)->DeleteLocalRef(jniEnv, contextClass);
-        }
-        if (audioManagerClass) {
-            (*jniEnv)->DeleteLocalRef(jniEnv, audioManagerClass);
-        }
+        (*jniEnv)->DeleteLocalRef(jniEnv, sampleRateJavaString);
+        (*jniEnv)->DeleteLocalRef(jniEnv, sampleRateKey);
+        (*jniEnv)->DeleteLocalRef(jniEnv, audioManager);
+        (*jniEnv)->DeleteLocalRef(jniEnv, audioServiceKey);
+        (*jniEnv)->DeleteLocalRef(jniEnv, contextClass);
+        (*jniEnv)->DeleteLocalRef(jniEnv, audioManagerClass);
     }
 }
 
