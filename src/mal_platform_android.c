@@ -137,68 +137,44 @@ static void _malContextGetSampleRate(MalContext *context) {
     }
 
     JNIEnv *jniEnv = _malGetJNIEnv(context->data.vm);
-    if (jniEnv) {
-        jclass contextClass = NULL;
-        jclass audioManagerClass = NULL;
-        jstring audioServiceKey = NULL;
-        jstring sampleRateKey = NULL;
-        jobject audioManager = NULL;
-        jstring sampleRateJavaString = NULL;
-        const char *sampleRateString = NULL;
+    if (!jniEnv) {
+        return;
+    }
+    _jniClearException(jniEnv);
 
-        _jniClearException(jniEnv);
+    if ((*jniEnv)->PushLocalFrame(jniEnv, 16) == JNI_OK) {
+        #define _JNI_CHECK(x) if (!(x) || (*jniEnv)->ExceptionCheck(jniEnv)) goto cleanup
 
-        contextClass = (*jniEnv)->FindClass(jniEnv, "android/content/Context");
-        if (!contextClass || _jniWasExceptionThrown(jniEnv)) {
-            goto quit;
-        }
-
-        audioServiceKey = _jniGetStaticField(jniEnv, contextClass, "AUDIO_SERVICE",
-                                             "Ljava/lang/String;", Object);
-        if (!audioServiceKey || _jniWasExceptionThrown(jniEnv)) {
-            goto quit;
-        }
-
-        audioManager = _jniCallMethodWithArgs(jniEnv, context->data.appContext,
-                                              "getSystemService",
-                                              "(Ljava/lang/String;)Ljava/lang/Object;",
-                                              Object, audioServiceKey);
-        if (!audioManager || _jniWasExceptionThrown(jniEnv)) {
-            goto quit;
-        }
-
-        audioManagerClass = (*jniEnv)->GetObjectClass(jniEnv, audioManager);
-        if (!audioManagerClass || _jniWasExceptionThrown(jniEnv)) {
-            goto quit;
-        }
-
-        sampleRateKey = _jniGetStaticField(jniEnv, audioManagerClass, "PROPERTY_OUTPUT_SAMPLE_RATE",
-                                           "Ljava/lang/String;", Object);
-        if (!sampleRateKey || _jniWasExceptionThrown(jniEnv)) {
-            goto quit;
-        }
-
-        sampleRateJavaString = _jniCallMethodWithArgs(jniEnv, audioManager, "getProperty",
-                                                      "(Ljava/lang/String;)Ljava/lang/String;",
-                                                      Object, sampleRateKey);
-        if (!sampleRateJavaString || _jniWasExceptionThrown(jniEnv)) {
-            goto quit;
-        }
-
-        sampleRateString = (*jniEnv)->GetStringUTFChars(jniEnv, sampleRateJavaString, NULL);
+        jclass contextClass = (*jniEnv)->FindClass(jniEnv, "android/content/Context");
+        _JNI_CHECK(contextClass);
+        jstring audioServiceKey = _jniGetStaticField(jniEnv, contextClass, "AUDIO_SERVICE",
+                                                     "Ljava/lang/String;", Object);
+        _JNI_CHECK(audioServiceKey);
+        jobject audioManager = _jniCallMethodWithArgs(jniEnv, context->data.appContext,
+                                                      "getSystemService",
+                                                      "(Ljava/lang/String;)Ljava/lang/Object;",
+                                                       Object, audioServiceKey);
+        _JNI_CHECK(audioManager);
+        jclass audioManagerClass = (*jniEnv)->GetObjectClass(jniEnv, audioManager);
+        _JNI_CHECK(audioManagerClass);
+        jstring sampleRateKey = _jniGetStaticField(jniEnv, audioManagerClass,
+                                                   "PROPERTY_OUTPUT_SAMPLE_RATE",
+                                                   "Ljava/lang/String;", Object);
+        _JNI_CHECK(sampleRateKey);
+        jstring sampleRate = _jniCallMethodWithArgs(jniEnv, audioManager, "getProperty",
+                                                    "(Ljava/lang/String;)Ljava/lang/String;",
+                                                    Object, sampleRateKey);
+        _JNI_CHECK(sampleRate);
+        const char *sampleRateString = (*jniEnv)->GetStringUTFChars(jniEnv, sampleRate, NULL);
         if (sampleRateString) {
-            int sampleRate = atoi(sampleRateString);
-            context->actualSampleRate = sampleRate > 0 ? sampleRate : 44100;
-            (*jniEnv)->ReleaseStringUTFChars(jniEnv, sampleRateJavaString, sampleRateString);
+            int sampleRateInt = atoi(sampleRateString);
+            context->actualSampleRate = sampleRateInt > 0 ? sampleRateInt : 44100;
+            (*jniEnv)->ReleaseStringUTFChars(jniEnv, sampleRate, sampleRateString);
         }
-
-quit:
-        (*jniEnv)->DeleteLocalRef(jniEnv, sampleRateJavaString);
-        (*jniEnv)->DeleteLocalRef(jniEnv, sampleRateKey);
-        (*jniEnv)->DeleteLocalRef(jniEnv, audioManager);
-        (*jniEnv)->DeleteLocalRef(jniEnv, audioServiceKey);
-        (*jniEnv)->DeleteLocalRef(jniEnv, contextClass);
-        (*jniEnv)->DeleteLocalRef(jniEnv, audioManagerClass);
+cleanup:
+        #undef _JNI_CHECK
+        _jniClearException(jniEnv);
+        (*jniEnv)->PopLocalFrame(jniEnv, NULL);
     }
 }
 
