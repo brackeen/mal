@@ -123,6 +123,8 @@ static bool _malContextInit(MalContext *context, void *androidActivity,
 
             context->data.vm = activity->vm;
             context->data.sdkVersion = activity->sdkVersion;
+            _jniCallMethodWithArgs(jniEnv, activity->clazz, "setVolumeControlStream",
+                                   "(I)V", Void, 0x00000003); /* STREAM_MUSIC */
             jobject appContext = _jniCallMethod(jniEnv, activity->clazz,
                                                 "getApplicationContext",
                                                 "()Landroid/content/Context;", Object);
