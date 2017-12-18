@@ -26,23 +26,22 @@
  @file
  Generic vector and hash maps for C. Requires C99 or newer, works best with C11.
 
- ### Scope
-
  By default, including "ok_lib.h" defines the ok_lib functions as `static` (that is, private to the
- .c file that included it):
+ .c file that included it).
 
-     #include "ok_lib.h"
+ ## Options - defined before #include "ok_lib.h"
 
- To define the functions publicly, so they are available when linking, define `OK_LIB_DEFINE`:
-
-     #define OK_LIB_DEFINE
-     #include "ok_lib.h"
- 
- To only declare function prototypes - without defining the functions themselves (that is, to use
- existing public `ok_lib` functions), define `OK_LIB_DECLARE`:
-
-     #define OK_LIB_DECLARE
-     #include "ok_lib.h"
+ | Option                        | Description                                                     |
+ |-------------------------------|-----------------------------------------------------------------|
+ | #define OK_LIB_DEFINE         | Define the functions publicly, so they are available when       |
+ |                               | linking.                                                        |
+ |-------------------------------|-----------------------------------------------------------------|
+ | #define OK_LIB_DECLARE        | Declare function prototypes without defining the functions      |
+ |                               | themselves (that is, use existing public `ok_lib` functions).   |
+ |-------------------------------|-----------------------------------------------------------------|
+ | #define OK_LIB_USE_STDATOMIC  | Force usage of <stdatomic.h>. If not defined, `ok_lib` checks   |
+ |                               | the compiler version to determine whether to use it.            |
+ |-------------------------------|-----------------------------------------------------------------|
 
  */
 
@@ -85,6 +84,17 @@
 #  define ok_static_assert(condition, msg) ((void) sizeof(char[(condition) ? 1 : -1]))
 #endif
 
+/**
+ Check if two variables have the same type.
+ */
+#if defined(__GNUC__)
+#  define ok_static_assert_types_compatible(A, B) \
+     ok_static_assert(__builtin_types_compatible_p(__typeof(A), __typeof(B)), "Incompatible type")
+#else
+#  define ok_static_assert_types_compatible(A, B)\
+     ok_static_assert(sizeof(A) == sizeof(B), "Incompatible type")
+#endif
+
 // MARK: Vector
 
 /**
@@ -104,6 +114,16 @@
  */
 #define ok_vec_of(value_type) \
     { value_type *values; size_t count; size_t capacity; }
+
+/**
+ A macro to initialize a vector statically.
+
+     typedef struct ok_vec_of(int) vec_int_t;
+     vec_int_t int_vec = OK_VEC_INIT;
+
+ When finished using the vector, the #ok_vec_deinit() function must be called.
+ */
+#define OK_VEC_INIT { NULL, 0, 0 }
 
 /**
  Inits a vector.
@@ -518,8 +538,8 @@
     memset((map), 0, sizeof(*(map))), \
     (map)->key_hash_func = hash_func, \
     (((map)->m = _ok_map_create(capacity, equals_func, \
-                                ok_offsetof(&(map)->entry, &(map)->entry.k), \
-                                ok_offsetof(&(map)->entry, &(map)->entry.v), \
+                                OK_OFFSETOF(&(map)->entry, &(map)->entry.k), \
+                                OK_OFFSETOF(&(map)->entry, &(map)->entry.v), \
                                 sizeof((map)->entry))) != NULL) \
 )
 
@@ -701,6 +721,120 @@
     for (key_var = (map)->entry.k; _keep && _keep2; _keep2 = 1 - _keep2) \
     for (value_var = (map)->entry.v; _keep; _keep = 1 - _keep)
 
+// MARK: Concurrent queue
+
+#if !defined(__EMSCRIPTEN__)
+
+/**
+ The default capacity of a queue. This is the minimum capacity; queues can grow in size.
+ */
+#define OK_QUEUE_DEFAULT_CAPACITY 16
+
+/**
+ A macro to initialize a queue statically.
+
+     typedef struct ok_queue_of(int) my_queue_t;
+     my_queue_t queue = OK_QUEUE_INIT;
+
+ When finished using the queue, the #ok_queue_deinit() function must be called.
+ */
+#define OK_QUEUE_INIT { { NULL, NULL, NULL, false, false, OK_QUEUE_DEFAULT_CAPACITY }, 0 }
+
+/**
+ Declares a generic `ok_queue` struct or typedef.
+
+ For example, a ok_queue with `int` values can be declared as a typedef:
+
+     typedef struct ok_queue_of(int) my_queue_t;
+
+ or a struct:
+
+     struct my_queue_s ok_queue_of(int);
+
+ @tparam value_type The value type.
+
+ @return Internal structure members in curly braces.
+ */
+#define ok_queue_of(value_type) { \
+    struct _ok_queue q; \
+    value_type v; \
+}
+
+/**
+ Inits a queue with the default minimum capacity.
+
+ To init a queue with a custom minimum capacity, use #ok_queue_init_with_capacity() instead.
+
+ This function is not thread safe. If two threads attempt to init a queue at the same time, the
+ result is undefined.
+
+ When finished using the queue, the #ok_queue_deinit() function must be called.
+
+ @tparam queue Pointer to the queue.
+ */
+#define ok_queue_init(queue) \
+    ok_queue_init_with_capacity(queue, OK_QUEUE_DEFAULT_CAPACITY)
+
+/**
+ Inits a queue with a custom minimum capacity. The queue may grow in size larger than the specified
+ capacity.
+
+ This function is not thread safe. If two threads attempt to init a queue at the same time, the
+ result is undefined.
+
+ When finished using the queue, the #ok_queue_deinit() function must be called.
+
+ @tparam queue Pointer to the queue.
+ @tparam capacity The minimum number of values the queue can hold.
+ */
+#define ok_queue_init_with_capacity(queue, capacity) \
+    _ok_queue_init(&(queue)->q, sizeof((queue)->v), capacity)
+
+/**
+ Deinits the queue. The queue may be used again by calling #ok_queue_init().
+
+ @tparam queue Pointer to the queue.
+ */
+#define ok_queue_deinit(queue) \
+    ok_queue_deinit_with_deallocator(queue, NULL)
+
+/**
+ Deinits the queue and deallocates its remaining values. Each remaining value is
+ removed from the queue and sent as a param to the deallocator function.
+
+ The queue may be used again by calling #ok_queue_init().
+
+ @tparam queue Pointer to the queue.
+ @tparam deallocator The deallocator function, declared as `void (*deallocator)(void *)`.
+ */
+#define ok_queue_deinit_with_deallocator(queue, deallocator) \
+    _ok_queue_deinit(&(queue)->q, sizeof((queue)->v), (deallocator))
+
+/**
+ Adds a value to the back of the queue.
+
+ @tparam queue Pointer to the queue.
+ @tparam value The value to add. Must be an addressable rvalue.
+ */
+#define ok_queue_push(queue, value) do { \
+     ok_static_assert_types_compatible((queue)->v, value); \
+    _ok_queue_push(&(queue)->q, sizeof((queue)->v), &(value)); \
+} while (0)
+
+/**
+ Attempts to remove a value from the front of the queue.
+
+ @tparam queue Pointer to the queue.
+ @tparam value_ptr The address to store the removed value.
+ @return true on success, false if the queue is empty.
+ */
+#define ok_queue_pop(queue, value_ptr) (\
+    (ok_static_assert_types_compatible((queue)->v, *(value_ptr)), 0), \
+    _ok_queue_pop(&(queue)->q, sizeof((queue)->v), (value_ptr)) \
+)
+
+#endif // __EMSCRIPTEN__
+
 // MARK: Declarations: Hash functions
 
 /// The hash type, which is returned from hash functions.
@@ -816,10 +950,12 @@ OK_LIB_API bool ok_str_equals(const void *a, const void *b);
 
 // @cond private
 
-#define ok_ptr_inc(ptr, offset) ((uint8_t *)(ptr) + (offset))
-#define ok_offsetof(base_ptr, ptr) ((size_t)((uint8_t *)(ptr) - (uint8_t *)(base_ptr)))
+#define OK_PTR_INC(ptr, offset) ((uint8_t *)(ptr) + (offset))
+#define OK_OFFSETOF(base_ptr, ptr) ((size_t)((uint8_t *)(ptr) - (uint8_t *)(base_ptr)))
 
 struct _ok_map;
+struct _ok_queue_block;
+struct _ok_queue;
 
 OK_LIB_API bool _ok_vec_realloc(void **values, size_t min_capacity, size_t element_size,
                                 size_t *capacity);
@@ -862,6 +998,34 @@ OK_LIB_API bool _ok_map_remove(struct _ok_map *map, const void *key,
 
 OK_LIB_API void *_ok_map_next(const struct _ok_map *map, void *iterator, void *key,
                               size_t key_size, void *value, size_t value_size);
+
+#if !defined(__EMSCRIPTEN__)
+
+OK_LIB_API struct _ok_queue_block *_ok_queue_new_block(const struct _ok_queue *queue,
+                                                       size_t value_size);
+
+OK_LIB_API void _ok_queue_free_block(struct _ok_queue_block *block);
+
+OK_LIB_API struct _ok_queue_block *_ok_queue_get_free_block(struct _ok_queue *queue,
+                                                            size_t value_size);
+
+OK_LIB_API void _ok_queue_release_free_block(struct _ok_queue *queue,
+                                             struct _ok_queue_block *block);
+
+OK_LIB_API void _ok_queue_set_value(void *values, size_t value_size, size_t index, void *value);
+
+OK_LIB_API void _ok_queue_get_value(void *values, size_t value_size, size_t index, void *value);
+
+OK_LIB_API bool _ok_queue_pop(struct _ok_queue *queue, size_t value_size, void *value);
+
+OK_LIB_API void _ok_queue_push(struct _ok_queue *queue, size_t value_size, void *value);
+
+OK_LIB_API void _ok_queue_init(struct _ok_queue *queue, size_t value_size, size_t capacity);
+
+OK_LIB_API void _ok_queue_deinit(struct _ok_queue *queue, size_t value_size,
+                                 void (*deallocator)(void *));
+
+#endif // __EMSCRIPTEN__
 
 // MARK: Implementation: Hash functions
 
@@ -1026,7 +1190,7 @@ OK_LIB_API bool _ok_vec_realloc(void **values, size_t min_capacity,
     }
 }
 
-// MARK: Implementation Private map functions
+// MARK: Implementation: Private map functions
 
 /*
  Hashtable implementation notes:
@@ -1117,10 +1281,10 @@ static void *_ok_map_find_entry(const struct _ok_map *map, const void *key,
     ok_hash_t hash = key_hash | OK_MAP_OCCUPIED_FLAG;
     size_t bucket_index = (size_t)(hash & map->capacity_mask);
     while (true) {
-        void *bucket = ok_ptr_inc(map->buckets, bucket_index * map->bucket_stride);
+        void *bucket = OK_PTR_INC(map->buckets, bucket_index * map->bucket_stride);
         ok_hash_t flags_hash = *(ok_hash_t *)(bucket);
         if (hash == flags_hash &&
-            map->key_equals_func(ok_ptr_inc(bucket, map->key_offset), key)) {
+            map->key_equals_func(OK_PTR_INC(bucket, map->key_offset), key)) {
             return bucket;
         } else if ((flags_hash & OK_MAP_OCCUPIED_FLAG) == 0) {
             if (empty_entry) {
@@ -1153,7 +1317,7 @@ static void *_ok_map_find_or_put_entry(struct _ok_map **map, const void *key,
             entry = new_entry;
             key_hash |= OK_MAP_OCCUPIED_FLAG;
             memcpy(entry, &key_hash, sizeof(ok_hash_t));
-            memcpy(ok_ptr_inc(entry, (*map)->key_offset), key, key_size);
+            memcpy(OK_PTR_INC(entry, (*map)->key_offset), key, key_size);
             (*map)->count++;
         }
     }
@@ -1200,7 +1364,7 @@ OK_LIB_API bool _ok_map_put(struct _ok_map **map, const void *key,
                             const void *value, size_t value_size) {
     void *entry = _ok_map_find_or_put_entry(map, key, key_size, key_hash, value_size);
     if (entry) {
-        memcpy(ok_ptr_inc(entry, (*map)->value_offset), value, value_size);
+        memcpy(OK_PTR_INC(entry, (*map)->value_offset), value, value_size);
         return true;
     } else {
         return false;
@@ -1212,7 +1376,7 @@ OK_LIB_API void _ok_map_put_and_get_ptr(struct _ok_map **map, const void *key,
                                         void **value_ptr, size_t value_size) {
     void *entry = _ok_map_find_or_put_entry(map, key, key_size, key_hash, value_size);
     if (entry) {
-        *value_ptr = ok_ptr_inc(entry, (*map)->value_offset);
+        *value_ptr = OK_PTR_INC(entry, (*map)->value_offset);
     } else {
         *value_ptr = NULL;
     }
@@ -1226,18 +1390,18 @@ OK_LIB_API bool _ok_map_put_all(struct _ok_map **map,
     }
 
     void *iterator = from_map->buckets;
-    void *end = ok_ptr_inc(from_map->buckets, (from_map->bucket_stride << from_map->capacity_n));
+    void *end = OK_PTR_INC(from_map->buckets, (from_map->bucket_stride << from_map->capacity_n));
     while (iterator < end) {
         ok_hash_t flags_hash = *(ok_hash_t *)(iterator);
         if (flags_hash & OK_MAP_OCCUPIED_FLAG) {
-            void *key = ok_ptr_inc(iterator, from_map->key_offset);
-            void *value = ok_ptr_inc(iterator, from_map->value_offset);
+            void *key = OK_PTR_INC(iterator, from_map->key_offset);
+            void *value = OK_PTR_INC(iterator, from_map->value_offset);
             bool success = _ok_map_put(map, key, key_size, flags_hash, value, value_size);
             if (!success) {
                 return false;
             }
         }
-        iterator = ok_ptr_inc(iterator, from_map->bucket_stride);
+        iterator = OK_PTR_INC(iterator, from_map->bucket_stride);
     }
     return true;
 }
@@ -1246,7 +1410,7 @@ OK_LIB_API void _ok_map_get(const struct _ok_map *map, const void *key,
                             ok_hash_t key_hash, void *value, size_t value_size) {
     void *entry = _ok_map_find_entry(map, key, key_hash, NULL);
     if (entry) {
-        memcpy(value, ok_ptr_inc(entry, map->value_offset), value_size);
+        memcpy(value, OK_PTR_INC(entry, map->value_offset), value_size);
     } else {
         memset(value, 0, value_size);
     }
@@ -1256,7 +1420,7 @@ OK_LIB_API void _ok_map_get_ptr(const struct _ok_map *map, const void *key,
                                 ok_hash_t key_hash, void **value_ptr) {
     void *entry = _ok_map_find_entry(map, key, key_hash, NULL);
     if (entry) {
-        *value_ptr = ok_ptr_inc(entry, map->value_offset);
+        *value_ptr = OK_PTR_INC(entry, map->value_offset);
     } else {
         *value_ptr = NULL;
     }
@@ -1268,19 +1432,19 @@ OK_LIB_API void *_ok_map_next(const struct _ok_map *map, void *iterator, void *k
         return NULL;
     }
     void *begin = map->buckets;
-    void *end = ok_ptr_inc(map->buckets, (map->bucket_stride << map->capacity_n));
+    void *end = OK_PTR_INC(map->buckets, (map->bucket_stride << map->capacity_n));
     if (!iterator) {
         iterator = map->buckets;
     }
     while (iterator >= begin && iterator < end) {
         ok_hash_t flags_hash = *(ok_hash_t *)(iterator);
-        void *next_iterator = ok_ptr_inc(iterator, map->bucket_stride);
+        void *next_iterator = OK_PTR_INC(iterator, map->bucket_stride);
         if (flags_hash & OK_MAP_OCCUPIED_FLAG) {
             if (key) {
-                memcpy(key, ok_ptr_inc(iterator, map->key_offset), key_size);
+                memcpy(key, OK_PTR_INC(iterator, map->key_offset), key_size);
             }
             if (value) {
-                memcpy(value, ok_ptr_inc(iterator, map->value_offset), value_size);
+                memcpy(value, OK_PTR_INC(iterator, map->value_offset), value_size);
             }
             return next_iterator;
         }
@@ -1297,14 +1461,14 @@ OK_LIB_API bool _ok_map_remove(struct _ok_map *map, const void *key, ok_hash_t k
     memset(removed_entry, 0, sizeof(ok_hash_t));
     map->count--;
 
-    size_t i = ok_offsetof(map->buckets, removed_entry) / map->bucket_stride;
+    size_t i = OK_OFFSETOF(map->buckets, removed_entry) / map->bucket_stride;
     size_t j = i;
 
     // NOTE: This only works with linear probing
     const size_t mask = (1u << map->capacity_n) - 1u;
     while (true) {
         j = (j + 1) & mask;
-        void *entry = ok_ptr_inc(map->buckets, j * map->bucket_stride);
+        void *entry = OK_PTR_INC(map->buckets, j * map->bucket_stride);
 
         ok_hash_t flags_hash = *(ok_hash_t *)(entry);
         if ((flags_hash & OK_MAP_OCCUPIED_FLAG) == 0) {
@@ -1320,6 +1484,251 @@ OK_LIB_API bool _ok_map_remove(struct _ok_map *map, const void *key, ok_hash_t k
     }
     return true;
 }
+
+// MARK: Implementation: Private queue functions
+
+#if !defined(__EMSCRIPTEN__)
+
+/*
+ Queue
+ - Multi-consumer, multi-producer concurrent queue.
+ - If the number of elements is never greater than `capacity`, then no allocation occurs
+ (after the initial allocation in ok_queue_init)
+ - No lock contention if there is only one producer thread and one consumer thread.
+ - Can be initialized statically with OK_QUEUE_INIT
+
+ Based off of the two-lock queue from Michael and Scott:
+ https://www.research.ibm.com/people/m/michael/podc-1996.pdf
+ Using blocks of elements instead of nodes, and keeping 1 free block.
+
+ Use stdatomic.h if available (GCC 4.9, clang 3.7), otherwise implement the bare minimum needed
+ for the concurrent queue.
+
+ Notes on stdatomic.h
+ - GCC: stdatomic.h appears incompatible with C++'s <atomic>
+ - Clang 3.6 has a bug where it will use GCC's stdatomic.h by mistake, causing a build error.
+ */
+
+#if !defined(OK_LIB_USE_STDATOMIC)
+#  if defined(__clang__) && (__clang_major__ > 3 || (__clang_major__ == 3 && __clang_minor__ >= 7))
+#    define OK_LIB_USE_STDATOMIC
+#  elif defined(__GNUC__) && !defined(__cplusplus) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 9))
+#    define OK_LIB_USE_STDATOMIC
+#  endif
+#endif
+#if defined(OK_LIB_USE_STDATOMIC)
+#  include <stdatomic.h>
+#  define OK_LOCK(lock) do { } while (atomic_exchange_explicit((lock), true, memory_order_acquire))
+#  define OK_UNLOCK(lock) atomic_store_explicit((lock), false, memory_order_release)
+#elif defined(_MSC_VER)
+#  define WIN32_LEAN_AND_MEAN
+#  pragma warning(push, 0)
+#  include <windows.h>
+#  pragma warning(pop)
+#  define _Atomic(T) T
+#  define atomic_load(object) (MemoryBarrier(), *(object))
+#  define atomic_store(object, desired) do { *(object) = (desired); MemoryBarrier(); } while (0)
+#  define atomic_compare_exchange_strong(object, expected, desired) \
+     (InterlockedCompareExchangePointer((volatile PVOID *)(object), (desired), *(expected)) \
+       == *(expected))
+#  define OK_LOCK(lock) do { } while (InterlockedExchange8((char *)(lock), 1))
+#  define OK_UNLOCK(lock) atomic_store((lock), 0)
+#elif defined(__GCC_HAVE_SYNC_COMPARE_AND_SWAP_4)
+#  define _Atomic(T) T
+#  define atomic_load(object) __atomic_load_n((object), __ATOMIC_SEQ_CST)
+#  define atomic_store(object, desired) __atomic_store_n(object, desired, __ATOMIC_SEQ_CST);
+#  define atomic_compare_exchange_strong(object, expected, desired) \
+     __atomic_compare_exchange_n(object, expected, desired, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)
+#  define OK_LOCK(lock) do { } while (__atomic_exchange_n((lock), true, __ATOMIC_ACQUIRE))
+#  define OK_UNLOCK(lock) (void)__atomic_exchange_n((lock), false, __ATOMIC_RELEASE)
+#else
+#  error stdatomic.h required
+#endif
+
+struct _ok_queue_block {
+    void *values;
+    struct _ok_queue_block *next;
+    size_t head_index;
+    _Atomic(size_t) tail_index;
+};
+
+struct _ok_queue {
+    _Atomic(struct _ok_queue_block *) head_block;
+    _Atomic(struct _ok_queue_block *) tail_block;
+    _Atomic(struct _ok_queue_block *) free_block;
+    _Atomic(bool) head_lock;
+    _Atomic(bool) tail_lock;
+    size_t block_capacity;
+};
+
+OK_LIB_API struct _ok_queue_block *_ok_queue_new_block(const struct _ok_queue *queue,
+                                                       size_t value_size) {
+    // Could this be reduced to one malloc, and still be aligned properly?
+    struct _ok_queue_block *block;
+    block = (struct _ok_queue_block *)malloc(sizeof(struct _ok_queue_block));
+    block->values = malloc(value_size * queue->block_capacity);
+    return block;
+}
+
+OK_LIB_API void _ok_queue_free_block(struct _ok_queue_block *block) {
+    if (block) {
+        free(block->values);
+        free(block);
+    }
+}
+
+OK_LIB_API struct _ok_queue_block *_ok_queue_get_free_block(struct _ok_queue *queue,
+                                                            size_t value_size) {
+    struct _ok_queue_block *free_block = atomic_load(&queue->free_block);
+    if (free_block) {
+        if (!atomic_compare_exchange_strong(&queue->free_block, &free_block, NULL)) {
+            free_block = NULL;
+        }
+    }
+    if (!free_block) {
+        free_block = _ok_queue_new_block(queue, value_size);
+    }
+    return free_block;
+}
+
+
+OK_LIB_API void _ok_queue_release_free_block(struct _ok_queue *queue,
+                                             struct _ok_queue_block *block) {
+    // Currently keeping only one free block here.
+    // It would be trivial to keep all of them (this could be an option, like block_capacity)
+    struct _ok_queue_block *null_block = NULL;
+    if (atomic_compare_exchange_strong(&queue->free_block, &null_block, block)) {
+        block = NULL;
+    }
+    if (block) {
+        _ok_queue_free_block(block);
+    }
+}
+
+OK_LIB_API void _ok_queue_set_value(void *values, size_t value_size, size_t index, void *value) {
+    memcpy(OK_PTR_INC(values, index * value_size), value, value_size);
+}
+
+OK_LIB_API void _ok_queue_get_value(void *values, size_t value_size, size_t index, void *value) {
+    if (value) {
+        memcpy(value, OK_PTR_INC(values, index * value_size), value_size);
+    }
+}
+
+OK_LIB_API bool _ok_queue_pop(struct _ok_queue *queue, size_t value_size, void *value) {
+    OK_LOCK(&queue->head_lock);
+    struct _ok_queue_block *head_block = atomic_load(&queue->head_block);
+    if (head_block == NULL || head_block->head_index == atomic_load(&head_block->tail_index)) {
+        OK_UNLOCK(&queue->head_lock);
+        return false;
+    } else if (head_block->head_index == queue->block_capacity - 1) {
+        struct _ok_queue_block *curr_block = head_block;
+        struct _ok_queue_block *next_block = curr_block->next;
+        _ok_queue_get_value(next_block->values, value_size, 0, value);
+        atomic_store(&queue->head_block, next_block);
+        head_block->head_index = 0;
+        OK_UNLOCK(&queue->head_lock);
+        _ok_queue_release_free_block(queue, curr_block);
+        return true;
+    } else {
+        head_block->head_index++;
+        _ok_queue_get_value(head_block->values, value_size, head_block->head_index, value);
+        OK_UNLOCK(&queue->head_lock);
+        return true;
+    }
+}
+
+OK_LIB_API void _ok_queue_push(struct _ok_queue *queue, size_t value_size, void *value) {
+    OK_LOCK(&queue->tail_lock);
+    struct _ok_queue_block *tail_block = atomic_load(&queue->tail_block);
+    if (tail_block == NULL) {
+        struct _ok_queue_block *root_block = _ok_queue_get_free_block(queue, value_size);
+        root_block->next = NULL;
+        root_block->head_index = 0;
+        atomic_store(&root_block->tail_index, 1);
+        _ok_queue_set_value(root_block->values, value_size, 1, value);
+        atomic_store(&queue->tail_block, root_block);
+        atomic_store(&queue->head_block, root_block);
+    } else if (atomic_load(&tail_block->tail_index) == queue->block_capacity - 1) {
+        struct _ok_queue_block *free_block = _ok_queue_get_free_block(queue, value_size);
+        free_block->next = NULL;
+        free_block->head_index = 0;
+        atomic_store(&free_block->tail_index, 0);
+        _ok_queue_set_value(free_block->values, value_size, 0, value);
+        tail_block->next = free_block;
+        atomic_store(&queue->tail_block, free_block);
+        atomic_store(&tail_block->tail_index, queue->block_capacity);
+    } else {
+        size_t new_tail_index = atomic_load(&tail_block->tail_index) + 1;
+        _ok_queue_set_value(tail_block->values, value_size, new_tail_index, value);
+        atomic_store(&tail_block->tail_index, new_tail_index);
+    }
+    OK_UNLOCK(&queue->tail_lock);
+}
+
+OK_LIB_API void _ok_queue_init(struct _ok_queue *queue, size_t value_size, size_t capacity) {
+    if (capacity < 4) {
+        queue->block_capacity = 4;
+    } else {
+        queue->block_capacity = capacity;
+    }
+    struct _ok_queue_block *root_block = _ok_queue_new_block(queue, value_size);
+    root_block->head_index = 0;
+    root_block->next = NULL;
+    atomic_store(&root_block->tail_index, 0);
+
+    atomic_store(&queue->head_block, root_block);
+    atomic_store(&queue->head_lock, false);
+
+    atomic_store(&queue->tail_block, root_block);
+    atomic_store(&queue->tail_lock, false);
+
+    atomic_store(&queue->free_block, _ok_queue_new_block(queue, value_size));
+}
+
+OK_LIB_API void _ok_queue_deinit(struct _ok_queue *queue, size_t value_size,
+                                 void (*deallocator)(void *)) {
+    OK_LOCK(&queue->tail_lock);
+    if (deallocator) {
+        // Dequeue every element and deallocate it
+        void *value = malloc(value_size);
+        while (_ok_queue_pop(queue, value_size, value)) {
+            deallocator(value);
+        }
+        free(value);
+        OK_LOCK(&queue->head_lock);
+        struct _ok_queue_block *head_block = atomic_load(&queue->head_block);
+        struct _ok_queue_block *tail_block = atomic_load(&queue->tail_block);
+        _ok_queue_free_block(head_block);
+        if (tail_block != head_block) {
+            // Never happens?
+            _ok_queue_free_block(tail_block);
+        }
+        atomic_store(&queue->head_block, NULL);
+        atomic_store(&queue->tail_block, NULL);
+    } else {
+        OK_LOCK(&queue->head_lock);
+        struct _ok_queue_block *head_block = atomic_load(&queue->head_block);
+        while (head_block) {
+            struct _ok_queue_block *next_block = head_block->next;
+            _ok_queue_free_block(head_block);
+            head_block = next_block;
+        }
+        atomic_store(&queue->head_block, NULL);
+        atomic_store(&queue->tail_block, NULL);
+    }
+
+    struct _ok_queue_block *free_block = atomic_load(&queue->free_block);
+    _ok_queue_free_block(free_block);
+    atomic_store(&queue->free_block, NULL);
+    OK_UNLOCK(&queue->head_lock);
+    OK_UNLOCK(&queue->tail_lock);
+}
+
+#undef OK_LOCK
+#undef OK_UNLOCK
+
+#endif // __EMSCRIPTEN__
 
 #if defined(__GNUC__)
 #  pragma GCC diagnostic pop
