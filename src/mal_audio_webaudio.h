@@ -82,7 +82,7 @@ static bool _malContextInit(MalContext *context, void *androidActivity,
         }, context->data.contextId);
         return true;
     } else {
-        if (!errorMissingAudioSystem) {
+        if (errorMissingAudioSystem) {
             *errorMissingAudioSystem = "Web Audio API";
         }
         return false;

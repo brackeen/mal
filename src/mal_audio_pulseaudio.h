@@ -105,7 +105,7 @@ static bool _malContextInit(MalContext *context, void *androidActivity,
     (void)androidActivity;
 
     if (!_malLoadLibpulse()) {
-        if (!errorMissingAudioSystem) {
+        if (errorMissingAudioSystem) {
             *errorMissingAudioSystem = "PulseAudio";
         }
         return false;

@@ -126,7 +126,7 @@ static bool _malContextInit(MalContext *context, void *androidActivity,
         context->data.xAudio2DLL = xAudio2DLL;
     } else {
         _malContextDispose(context);
-        if (!errorMissingAudioSystem) {
+        if (errorMissingAudioSystem) {
             *errorMissingAudioSystem = "XAudio 2.7 (DirectX End-User Runtimes (June 2010))";
         }
         return false;
