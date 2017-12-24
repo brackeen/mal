@@ -22,25 +22,63 @@
 #ifndef MAL_AUDIO_PULSEAUDIO_H
 #define MAL_AUDIO_PULSEAUDIO_H
 
-#include <dlfcn.h>
-#include <stdbool.h>
-#include <stdio.h>
 #include <pulse/pulseaudio.h>
 
 #ifdef NDEBUG
 #  define MAL_LOG(...) do { } while(0)
 #else
+#  include <stdio.h>
 #  define MAL_LOG(...) do { printf("Mal: " __VA_ARGS__); printf("\n"); } while(0)
 #endif
 
 // MARK: Dynamic library loading
 
+#ifndef MAL_PULSEAUDIO_STATIC
+
+#include <dlfcn.h>
+
 static void *libpulseHandle = NULL;
 
-static typeof(pa_threaded_mainloop_new) *mal_pa_threaded_mainloop_new;
-#define pa_threaded_mainloop_new mal_pa_threaded_mainloop_new
-static typeof(pa_threaded_mainloop_free) *mal_pa_threaded_mainloop_free;
-#define pa_threaded_mainloop_free mal_pa_threaded_mainloop_free
+#define FUNC_PREFIX(name) _mal_##name
+#define FUNC_DECLARE(name) static __typeof(name) *FUNC_PREFIX(name)
+#define FUNC_LOAD(handle, name) do { \
+    _mal_##name = (__typeof(name))_malLoadSym(handle, #name); \
+    if (!_mal_##name) { \
+        goto fail; \
+    } \
+} while(0)
+
+FUNC_DECLARE(pa_threaded_mainloop_new);
+FUNC_DECLARE(pa_threaded_mainloop_free);
+FUNC_DECLARE(pa_threaded_mainloop_get_api);
+FUNC_DECLARE(pa_threaded_mainloop_start);
+FUNC_DECLARE(pa_threaded_mainloop_stop);
+FUNC_DECLARE(pa_threaded_mainloop_wait);
+FUNC_DECLARE(pa_threaded_mainloop_lock);
+FUNC_DECLARE(pa_threaded_mainloop_unlock);
+FUNC_DECLARE(pa_threaded_mainloop_signal);
+FUNC_DECLARE(pa_context_new);
+FUNC_DECLARE(pa_context_unref);
+FUNC_DECLARE(pa_context_connect);
+FUNC_DECLARE(pa_context_disconnect);
+FUNC_DECLARE(pa_context_set_state_callback);
+FUNC_DECLARE(pa_context_get_state);
+
+#define pa_threaded_mainloop_new FUNC_PREFIX(pa_threaded_mainloop_new)
+#define pa_threaded_mainloop_free FUNC_PREFIX(pa_threaded_mainloop_free)
+#define pa_threaded_mainloop_get_api FUNC_PREFIX(pa_threaded_mainloop_get_api)
+#define pa_threaded_mainloop_start FUNC_PREFIX(pa_threaded_mainloop_start)
+#define pa_threaded_mainloop_stop FUNC_PREFIX(pa_threaded_mainloop_stop)
+#define pa_threaded_mainloop_wait FUNC_PREFIX(pa_threaded_mainloop_wait)
+#define pa_threaded_mainloop_lock FUNC_PREFIX(pa_threaded_mainloop_lock)
+#define pa_threaded_mainloop_unlock FUNC_PREFIX(pa_threaded_mainloop_unlock)
+#define pa_threaded_mainloop_signal FUNC_PREFIX(pa_threaded_mainloop_signal)
+#define pa_context_new FUNC_PREFIX(pa_context_new)
+#define pa_context_unref FUNC_PREFIX(pa_context_unref)
+#define pa_context_connect FUNC_PREFIX(pa_context_connect)
+#define pa_context_disconnect FUNC_PREFIX(pa_context_disconnect)
+#define pa_context_set_state_callback FUNC_PREFIX(pa_context_set_state_callback)
+#define pa_context_get_state FUNC_PREFIX(pa_context_get_state)
 
 static void *_malLoadSym(void *handle, const char *name) {
     dlerror();
@@ -53,39 +91,50 @@ static void *_malLoadSym(void *handle, const char *name) {
     }
 }
 
-#define loadSymOrFail(handle, name) do { \
-    mal_##name = _malLoadSym(handle, #name); \
-    if (!mal_##name) { \
-        goto fail; \
-    } \
-} while(0)
-
-static bool _malLoadLibpulse() {
+static int _malLoadLibpulse() {
     if (libpulseHandle) {
-        return true;
+        return PA_OK;
     }
     dlerror();
+#if defined(__APPLE__)
+    void *handle = dlopen("libpulse.0.dylib", RTLD_NOW);
+#else
     void *handle = dlopen("libpulse.so.0", RTLD_NOW);
+#endif
     if (dlerror() || !handle) {
-        return false;
+        return PA_ERR_MODINITFAILED;
     }
 
-    bool success = false;
+    FUNC_LOAD(handle, pa_threaded_mainloop_new);
+    FUNC_LOAD(handle, pa_threaded_mainloop_free);
+    FUNC_LOAD(handle, pa_threaded_mainloop_get_api);
+    FUNC_LOAD(handle, pa_threaded_mainloop_start);
+    FUNC_LOAD(handle, pa_threaded_mainloop_stop);
+    FUNC_LOAD(handle, pa_threaded_mainloop_wait);
+    FUNC_LOAD(handle, pa_threaded_mainloop_lock);
+    FUNC_LOAD(handle, pa_threaded_mainloop_unlock);
+    FUNC_LOAD(handle, pa_threaded_mainloop_signal);
+    FUNC_LOAD(handle, pa_context_new);
+    FUNC_LOAD(handle, pa_context_unref);
+    FUNC_LOAD(handle, pa_context_connect);
+    FUNC_LOAD(handle, pa_context_disconnect);
+    FUNC_LOAD(handle, pa_context_set_state_callback);
+    FUNC_LOAD(handle, pa_context_get_state);
 
-    loadSymOrFail(handle, pa_threaded_mainloop_new);
-    loadSymOrFail(handle, pa_threaded_mainloop_free);
-
-    success = true;
     libpulseHandle = handle;
+    return PA_OK;
 
 fail:
-    return success;
+    return PA_ERR_MODINITFAILED;
 }
+
+#endif // MAL_PULSEAUDIO_STATIC
 
 // MARK: Implementation
 
 struct _MalContext {
     pa_threaded_mainloop *mainloop;
+    pa_context *context;
 };
 
 struct _MalBuffer {
@@ -100,27 +149,79 @@ struct _MalPlayer {
 
 // MARK: Context
 
+static void _malPulseAudioContextStateCallback(pa_context *context, void *userdata) {
+    pa_threaded_mainloop *mainloop = userdata;
+    pa_threaded_mainloop_signal(mainloop, 0);
+}
+
 static bool _malContextInit(MalContext *context, void *androidActivity,
                             const char **errorMissingAudioSystem) {
     (void)androidActivity;
+    struct _MalContext *pa = &context->data;
 
-    if (!_malLoadLibpulse()) {
+#ifndef MAL_PULSEAUDIO_STATIC
+    // Load libpulse library
+    if (_malLoadLibpulse() != PA_OK) {
         if (errorMissingAudioSystem) {
             *errorMissingAudioSystem = "PulseAudio";
         }
         return false;
     }
-    context->data.mainloop = pa_threaded_mainloop_new();
-    if (!context->data.mainloop) {
-        return false;
+#endif
+
+    // Create and start mainloop
+    pa->mainloop = pa_threaded_mainloop_new();
+    if (!pa->mainloop || pa_threaded_mainloop_start(pa->mainloop) != PA_OK) {
+        goto fail;
     }
+
+    // Create context
+    pa_mainloop_api *mainloop_api = pa_threaded_mainloop_get_api(pa->mainloop);
+    pa->context = pa_context_new(mainloop_api, NULL);
+    if (!pa->context) {
+        goto fail;
+    }
+
+    // Connect context and wait for PA_CONTEXT_READY state
+    pa_context_state_t state = PA_CONTEXT_UNCONNECTED;
+    pa_threaded_mainloop_lock(pa->mainloop);
+    pa_context_set_state_callback(pa->context, _malPulseAudioContextStateCallback, pa->mainloop);
+    if (pa_context_connect(pa->context, NULL, PA_CONTEXT_NOFLAGS, NULL) == PA_OK) {
+        while (1) {
+            state = pa_context_get_state(pa->context);
+            if (state == PA_CONTEXT_READY || !PA_CONTEXT_IS_GOOD(state)) {
+                break;
+            }
+            pa_threaded_mainloop_wait(pa->mainloop);
+        }
+    }
+    pa_context_set_state_callback(pa->context, NULL, NULL);
+    pa_threaded_mainloop_unlock(pa->mainloop);
+    if (state != PA_CONTEXT_READY) {
+        goto fail;
+    }
+
     return true;
+
+fail:
+    _malContextDispose(context);
+    return false;
 }
 
 static void _malContextDispose(MalContext *context) {
-    if (context->data.mainloop) {
-        pa_threaded_mainloop_free(context->data.mainloop);
-        context->data.mainloop = NULL;
+    struct _MalContext *pa = &context->data;
+
+    if (pa->mainloop) {
+        pa_threaded_mainloop_stop(pa->mainloop);
+    }
+    if (pa->context) {
+        pa_context_disconnect(pa->context);
+        pa_context_unref(pa->context);
+        pa->context = NULL;
+    }
+    if (pa->mainloop) {
+        pa_threaded_mainloop_free(pa->mainloop);
+        pa->mainloop = NULL;
     }
 }
 
