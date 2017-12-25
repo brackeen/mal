@@ -263,6 +263,7 @@ static OSStatus _malOnRestartHandler(AudioObjectID inObjectID,
 }
 
 static void _malContextSetSampleRate(MalContext *context) {
+    const double sampleRateEpsilon = 0.01;
     AudioDeviceID defaultOutputDeviceID;
     AudioObjectPropertyAddress propertyAddress;
     OSStatus status = noErr;
@@ -287,7 +288,8 @@ static void _malContextSetSampleRate(MalContext *context) {
 
     // Set sample rate
     Float64 requestedSampleRate = context->requestedSampleRate;
-    if (requestedSampleRate > MAL_DEFAULT_SAMPLE_RATE) {
+    if (requestedSampleRate > MAL_DEFAULT_SAMPLE_RATE &&
+        fabs(requestedSampleRate - currentSampleRate) > sampleRateEpsilon) {
         // Find best match in kAudioDevicePropertyAvailableNominalSampleRates
         // If a valid value isn't chosen, setting the sample rate could fail.
         AudioValueRange *values = NULL;
@@ -330,7 +332,6 @@ static void _malContextSetSampleRate(MalContext *context) {
         }
 
         // Set sample rate (if different from current rate)
-        const double sampleRateEpsilon = 0.01;
         if (fabs(currentSampleRate - requestedSampleRate) > sampleRateEpsilon) {
             // Set sample rate
             Float64 sampleRate = (Float64)requestedSampleRate;
