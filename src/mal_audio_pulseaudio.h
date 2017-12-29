@@ -476,29 +476,21 @@ static bool _malPlayerInit(MalPlayer *player) {
     return true;
 }
 
-static void _malPlayerDisposeWithLock(MalPlayer *player, bool lock) {
+static void _malPlayerDispose(MalPlayer *player) {
     if (!player->context) {
         return;
     }
     struct _MalContext *pa = &player->context->data;
 
     if (pa->mainloop && player->data.stream) {
-        if (lock) {
-            pa_threaded_mainloop_lock(pa->mainloop);
-        }
+        pa_threaded_mainloop_lock(pa->mainloop);
         pa_stream_set_write_callback(player->data.stream, NULL, NULL);
         pa_stream_disconnect(player->data.stream);
         pa_stream_unref(player->data.stream);
-        if (lock) {
-            pa_threaded_mainloop_unlock(pa->mainloop);
-        }
+        pa_threaded_mainloop_unlock(pa->mainloop);
 
         player->data.stream = NULL;
     }
-}
-
-static void _malPlayerDispose(MalPlayer *player) {
-    _malPlayerDisposeWithLock(player, true);
 }
 
 static bool _malPlayerSetFormat(MalPlayer *player, MalFormat format) {
@@ -536,7 +528,7 @@ static bool _malPlayerSetFormat(MalPlayer *player, MalFormat format) {
     }
 
     if (player->data.stream) {
-        _malPlayerDisposeWithLock(player, false);
+        _malPlayerDispose(player);
     }
 
     pa_sample_format_t sampleFormat;
