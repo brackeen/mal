@@ -82,6 +82,7 @@ FUNC_DECLARE(pa_stream_cork);
 FUNC_DECLARE(pa_stream_drain);
 FUNC_DECLARE(pa_stream_disconnect);
 FUNC_DECLARE(pa_stream_unref);
+FUNC_DECLARE(pa_channel_map_init_auto);
 
 #define pa_threaded_mainloop_new FUNC_PREFIX(pa_threaded_mainloop_new)
 #define pa_threaded_mainloop_free FUNC_PREFIX(pa_threaded_mainloop_free)
@@ -114,6 +115,7 @@ FUNC_DECLARE(pa_stream_unref);
 #define pa_stream_drain FUNC_PREFIX(pa_stream_drain)
 #define pa_stream_disconnect FUNC_PREFIX(pa_stream_disconnect)
 #define pa_stream_unref FUNC_PREFIX(pa_stream_unref)
+#define pa_channel_map_init_auto FUNC_PREFIX(pa_channel_map_init_auto)
 
 static void *_malLoadSym(void *handle, const char *name) {
     dlerror();
@@ -171,6 +173,7 @@ static int _malLoadLibpulse() {
     FUNC_LOAD(handle, pa_stream_drain);
     FUNC_LOAD(handle, pa_stream_disconnect);
     FUNC_LOAD(handle, pa_stream_unref);
+    FUNC_LOAD(handle, pa_channel_map_init_auto);
 
     libpulseHandle = handle;
     return PA_OK;
@@ -225,7 +228,6 @@ static void _malPulseAudioServerInfoCallback(pa_context *c, const pa_server_info
                                              void *userData) {
     struct MalContext *context = userData;
     if (info) {
-        // TODO: Thread issue
         context->actualSampleRate = info->sample_spec.rate;
     }
     pa_threaded_mainloop_signal(context->data.mainloop, 0);
@@ -514,7 +516,6 @@ static bool _malPlayerSetFormat(MalPlayer *player, MalFormat format) {
     struct _MalContext *pa = &player->context->data;
     double sampleRate = (format.sampleRate <= MAL_DEFAULT_SAMPLE_RATE ?
                          malContextGetSampleRate(player->context) : format.sampleRate);
-    bool success = false;
 
     pa_threaded_mainloop_lock(pa->mainloop);
 
@@ -528,84 +529,92 @@ static bool _malPlayerSetFormat(MalPlayer *player, MalFormat format) {
         _malPulseAudioOperationWait(pa->mainloop, operation);
 
         const pa_sample_spec *sampleSpec = pa_stream_get_sample_spec(player->data.stream);
-        success = fabs(sampleSpec->rate - sampleRate) <= 1;
-    }
-
-    // Create a new stream
-    if (!success) {
-        if (player->data.stream) {
-            _malPlayerDisposeWithLock(player, false);
-        }
-
-        pa_sample_format_t sampleFormat;
-        switch (player->format.bitDepth) {
-            case 8:
-                sampleFormat = PA_SAMPLE_U8;
-                break;
-            case 16: default:
-                sampleFormat = isLittleEndian ? PA_SAMPLE_S16LE : PA_SAMPLE_S16BE;
-                break;
-            case 24:
-                sampleFormat = isLittleEndian ? PA_SAMPLE_S24LE : PA_SAMPLE_S24BE;
-                break;
-            case 32:
-                sampleFormat = isLittleEndian ? PA_SAMPLE_S32LE : PA_SAMPLE_S32BE;
-                break;
-        }
-
-        pa_sample_spec sampleSpec;
-        sampleSpec.format = sampleFormat;
-        sampleSpec.rate = (uint32_t)player->format.sampleRate;
-        sampleSpec.channels = player->format.numChannels;
-
-        pa_buffer_attr bufferAttributes;
-        bufferAttributes.maxlength = (uint32_t)-1;
-        bufferAttributes.minreq = (uint32_t)-1;
-        bufferAttributes.prebuf = 0;
-        bufferAttributes.tlength = (uint32_t)-1;
-        bufferAttributes.fragsize = (uint32_t)-1;
-
-        int flags = (PA_STREAM_START_CORKED |       // Start paused
-                     PA_STREAM_ADJUST_LATENCY |     // Let server pick buffer metrics
-                     PA_STREAM_INTERPOLATE_TIMING | // For pa_stream_get_time()
-                     PA_STREAM_NOT_MONOTONIC |      // For pa_stream_get_time()
-                     PA_STREAM_AUTO_TIMING_UPDATE | // For pa_stream_get_time()
-                     PA_STREAM_VARIABLE_RATE);      // For pa_stream_update_sample_rate()
-
-        pa_stream *stream = pa_stream_new(pa->context, "Playback Stream", &sampleSpec, NULL);
-        if (stream) {
-            pa_stream_state_t state = PA_STREAM_UNCONNECTED;
-            pa_stream_set_state_callback(stream, _malStreamStateCallback, pa->mainloop);
-            if (pa_stream_connect_playback(stream, NULL, &bufferAttributes,
-                                           (pa_stream_flags_t)flags, NULL, NULL) == PA_OK) {
-                while (1) {
-                    state = pa_stream_get_state(stream);
-                    if (state == PA_STREAM_READY || !PA_STREAM_IS_GOOD(state)) {
-                        break;
-                    }
-                    pa_threaded_mainloop_wait(pa->mainloop);
-                }
-            }
-            pa_stream_set_state_callback(stream, NULL, NULL);
-
-            if (state == PA_STREAM_READY) {
-                pa_stream_set_write_callback(stream, _malStreamWriteCallback, player);
-                player->data.stream = stream;
-                success = true;
-            } else {
-                pa_stream_unref(stream);
-            }
+        if (fabs(sampleSpec->rate - sampleRate) <= 1) {
+            // Success
+            goto quit;
         }
     }
 
+    if (player->data.stream) {
+        _malPlayerDisposeWithLock(player, false);
+    }
+
+    pa_sample_format_t sampleFormat;
+    switch (player->format.bitDepth) {
+        case 8:
+            sampleFormat = PA_SAMPLE_U8;
+            break;
+        case 16: default:
+            sampleFormat = isLittleEndian ? PA_SAMPLE_S16LE : PA_SAMPLE_S16BE;
+            break;
+        case 24:
+            sampleFormat = isLittleEndian ? PA_SAMPLE_S24LE : PA_SAMPLE_S24BE;
+            break;
+        case 32:
+            sampleFormat = isLittleEndian ? PA_SAMPLE_S32LE : PA_SAMPLE_S32BE;
+            break;
+    }
+
+    pa_sample_spec sampleSpec;
+    sampleSpec.format = sampleFormat;
+    sampleSpec.rate = (uint32_t)format.sampleRate;
+    sampleSpec.channels = format.numChannels;
+
+    pa_buffer_attr bufferAttributes;
+    bufferAttributes.maxlength = (uint32_t)-1;
+    bufferAttributes.minreq = (uint32_t)-1;
+    bufferAttributes.prebuf = 0;
+    bufferAttributes.tlength = (uint32_t)-1;
+    bufferAttributes.fragsize = (uint32_t)-1;
+
+    pa_channel_map channelMap;
+    if (!pa_channel_map_init_auto(&channelMap, format.numChannels, PA_CHANNEL_MAP_WAVEEX)) {
+        goto quit;
+    }
+
+    int flags = (PA_STREAM_START_CORKED |       // Start paused
+                 PA_STREAM_ADJUST_LATENCY |     // Let server pick buffer metrics
+                 PA_STREAM_INTERPOLATE_TIMING | // For pa_stream_get_time()
+                 PA_STREAM_NOT_MONOTONIC |      // For pa_stream_get_time()
+                 PA_STREAM_AUTO_TIMING_UPDATE | // For pa_stream_get_time()
+                 PA_STREAM_VARIABLE_RATE);      // For pa_stream_update_sample_rate()
+
+    pa_stream *stream = pa_stream_new(pa->context, "Playback Stream", &sampleSpec, &channelMap);
+    if (!stream) {
+        goto quit;
+    }
+
+    pa_stream_state_t state = PA_STREAM_UNCONNECTED;
+    pa_stream_set_state_callback(stream, _malStreamStateCallback, pa->mainloop);
+    if (pa_stream_connect_playback(stream, NULL, &bufferAttributes,
+                                   (pa_stream_flags_t)flags, NULL, NULL) == PA_OK) {
+        while (1) {
+            state = pa_stream_get_state(stream);
+            if (state == PA_STREAM_READY || !PA_STREAM_IS_GOOD(state)) {
+                break;
+            }
+            pa_threaded_mainloop_wait(pa->mainloop);
+        }
+    }
+    pa_stream_set_state_callback(stream, NULL, NULL);
+
+    if (state != PA_STREAM_READY) {
+        pa_stream_unref(stream);
+        goto quit;
+    }
+
+    pa_stream_set_write_callback(stream, _malStreamWriteCallback, player);
+    player->data.stream = stream;
+
+quit:
     pa_threaded_mainloop_unlock(pa->mainloop);
 
-    if (success) {
+    if (player->data.stream) {
         _malPlayerSetGain(player, player->gain);
         _malPlayerSetBuffer(player, player->buffer);
     }
 
-    return success;
+    return (player->data.stream != NULL);
 }
 
 static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer) {
