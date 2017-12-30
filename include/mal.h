@@ -122,7 +122,8 @@ bool malContextSetActive(MalContext *context, bool active);
 /**
  * Sends any pending events requested via #malPlayerSetFinishedFunc().
  *
- * This function is required only on Windows. On other platforms, this functions does nothing.
+ * This function is required only on Windows and Linux. On other platforms, this functions does
+ * nothing.
  *
  * @param context The audio context. If `NULL`, this function does nothing.
  */
@@ -358,7 +359,7 @@ const MalBuffer *malPlayerGetBuffer(const MalPlayer *player);
  *
  * The player may still be in the #MAL_PLAYER_STATE_PLAYING state when this function is called.
  *
- * On Windows, the function is invoked only when #malContextPollEvents() is invoked.
+ * On Windows and Linux, the function is invoked only when #malContextPollEvents() is invoked.
  *
  * On other platforms, this function is invoked on the main thread. (On Android, the main thread
  * is the thread that invoked #malContextSetActive().
