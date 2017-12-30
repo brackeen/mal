@@ -79,7 +79,7 @@ FUNC_DECLARE(pa_stream_connect_playback);
 FUNC_DECLARE(pa_stream_begin_write);
 FUNC_DECLARE(pa_stream_write);
 FUNC_DECLARE(pa_stream_cork);
-FUNC_DECLARE(pa_stream_drain);
+FUNC_DECLARE(pa_stream_set_underflow_callback);
 FUNC_DECLARE(pa_stream_disconnect);
 FUNC_DECLARE(pa_stream_unref);
 FUNC_DECLARE(pa_channel_map_init_auto);
@@ -112,7 +112,7 @@ FUNC_DECLARE(pa_channel_map_init_auto);
 #define pa_stream_begin_write FUNC_PREFIX(pa_stream_begin_write)
 #define pa_stream_write FUNC_PREFIX(pa_stream_write)
 #define pa_stream_cork FUNC_PREFIX(pa_stream_cork)
-#define pa_stream_drain FUNC_PREFIX(pa_stream_drain)
+#define pa_stream_set_underflow_callback FUNC_PREFIX(pa_stream_set_underflow_callback)
 #define pa_stream_disconnect FUNC_PREFIX(pa_stream_disconnect)
 #define pa_stream_unref FUNC_PREFIX(pa_stream_unref)
 #define pa_channel_map_init_auto FUNC_PREFIX(pa_channel_map_init_auto)
@@ -170,7 +170,7 @@ static int _malLoadLibpulse() {
     FUNC_LOAD(handle, pa_stream_begin_write);
     FUNC_LOAD(handle, pa_stream_write);
     FUNC_LOAD(handle, pa_stream_cork);
-    FUNC_LOAD(handle, pa_stream_drain);
+    FUNC_LOAD(handle, pa_stream_set_underflow_callback);
     FUNC_LOAD(handle, pa_stream_disconnect);
     FUNC_LOAD(handle, pa_stream_unref);
     FUNC_LOAD(handle, pa_channel_map_init_auto);
@@ -188,6 +188,13 @@ fail:
 
 #include "mal.h"
 
+typedef enum {
+    MAL_STREAM_INACTIVE = 0,
+    MAL_STREAM_STARTING,
+    MAL_STREAM_PLAYING,
+    MAL_STREAM_DRAINING,
+} MalStreamState;
+
 struct _MalContext {
     pa_threaded_mainloop *mainloop;
     pa_context *context;
@@ -201,10 +208,8 @@ struct _MalPlayer {
     pa_stream *stream;
     
     uint32_t nextFrame;
-    // TODO: Stream state?
-    pa_seek_mode_t seekMode;
-    bool isDraining;
     MalPlayerState state;
+    MalStreamState streamState;
 };
 
 #define MAL_USE_MUTEX
@@ -374,101 +379,77 @@ static void _malStreamSuccessCallback(pa_stream *stream, int success, void *user
     pa_threaded_mainloop_signal(mainloop, 0);
 }
 
-static void _malStreamDrainCallback(pa_stream *stream, int success, void *userData) {
+static void _malStreamUnderflowCallback(pa_stream *stream, void *userData) {
     MalPlayer *player = userData;
-    // TODO: Thread issue
-    player->data.isDraining = false;
-    player->data.state = MAL_PLAYER_STATE_STOPPED;
-    pa_operation_unref(pa_stream_cork(player->data.stream, 1, NULL, NULL));
+    MAL_LOCK(player);
+    if (player->data.streamState == MAL_STREAM_DRAINING) {
+        player->data.streamState = MAL_STREAM_INACTIVE;
+        if (player->data.state == MAL_PLAYER_STATE_PLAYING && player->onFinishedId) {
+            // TODO: finished callback
+        }
+        player->data.state = MAL_PLAYER_STATE_STOPPED;
+        pa_operation_unref(pa_stream_cork(player->data.stream, 1, NULL, NULL));
+    }
+    MAL_UNLOCK(player);
 }
 
 static void _malStreamWriteCallback(pa_stream *stream, size_t length, void *userData) {
     MalPlayer *player = userData;
     MAL_LOCK(player);
-    if (player->data.isDraining) {
+    if (player->data.streamState == MAL_STREAM_DRAINING ||
+        player->data.state == MAL_PLAYER_STATE_STOPPED ||
+        player->buffer == NULL || player->buffer->managedData == NULL) {
         MAL_UNLOCK(player);
         return;
     }
 
+    pa_seek_mode_t seekMode = ((player->data.streamState == MAL_STREAM_STARTING) ?
+                               PA_SEEK_RELATIVE_ON_READ : PA_SEEK_RELATIVE);
+    player->data.streamState = MAL_STREAM_PLAYING;
     void *buffer;
     if (pa_stream_begin_write(stream, &buffer, &length) != PA_OK) {
         MAL_UNLOCK(player);
         return;
     }
+    const uint32_t numFrames = player->buffer->numFrames;
+    const uint32_t frameSize = ((player->buffer->format.bitDepth / 8) *
+                                player->buffer->format.numChannels);
+    size_t bytesWritten = 0;
+    uint8_t *dst = buffer;
+    uint32_t dstRemaining = (uint32_t)length;
+    uint8_t *src = player->buffer->managedData;
+    src += player->data.nextFrame * frameSize;
+    while (dstRemaining > 0) {
+        uint32_t playerFrames = numFrames - player->data.nextFrame;
+        uint32_t maxFrames = dstRemaining / frameSize;
+        uint32_t copyFrames = playerFrames < maxFrames ? playerFrames : maxFrames;
+        uint32_t copyBytes = copyFrames * frameSize;
 
-    pa_seek_mode_t seekMode = player->data.seekMode;
-    player->data.seekMode = PA_SEEK_RELATIVE;
-    MalPlayerState state = player->data.state;
-    if (player->buffer == NULL || player->buffer->managedData == NULL ||
-        state == MAL_PLAYER_STATE_STOPPED ||
-        player->data.nextFrame >= player->buffer->numFrames) {
+        if (copyBytes == 0) {
+            break;
+        }
 
-        bool shouldDrain = false;
-        if (state == MAL_PLAYER_STATE_PLAYING ||
-            player->buffer == NULL || player->buffer->managedData == NULL) {
-            // Stop
+        memcpy(dst, src, copyBytes);
+        player->data.nextFrame += copyFrames;
+        dst += copyBytes;
+        src += copyBytes;
+        dstRemaining -= copyBytes;
+        bytesWritten += copyBytes;
+
+        if (player->data.nextFrame >= player->buffer->numFrames) {
             player->data.nextFrame = 0;
-            player->data.isDraining = true;
-            shouldDrain = true;
-
-            if (state == MAL_PLAYER_STATE_PLAYING && player->onFinishedId) {
-                // TODO: finished callback
-            }
-        }
-
-        MAL_UNLOCK(player);
-
-        // Silence for end of playback, or because the player is paused.
-        memset(buffer, 0, length);
-        pa_stream_write(stream, buffer, length, NULL, 0, seekMode);
-
-        if (shouldDrain) {
-            // TODO: Drain without writing silence bytes?
-            pa_operation_unref(pa_stream_drain(stream, _malStreamDrainCallback, player));
-        }
-    } else {
-        // TODO: Looping too long?
-        const uint32_t numFrames = player->buffer->numFrames;
-        const uint32_t frameSize = ((player->buffer->format.bitDepth / 8) *
-                                    player->buffer->format.numChannels);
-        uint8_t *dst = buffer;
-        uint32_t dstRemaining = (uint32_t)length;
-        uint8_t *src = player->buffer->managedData;
-        src += player->data.nextFrame * frameSize;
-        while (dstRemaining > 0) {
-            uint32_t playerFrames = numFrames - player->data.nextFrame;
-            uint32_t maxFrames = dstRemaining / frameSize;
-            uint32_t copyFrames = playerFrames < maxFrames ? playerFrames : maxFrames;
-            uint32_t copyBytes = copyFrames * frameSize;
-
-            if (copyBytes == 0) {
+            if (player->looping) {
+                src = player->buffer->managedData;
+            } else {
+                player->data.streamState = MAL_STREAM_DRAINING;
                 break;
             }
-
-            memcpy(dst, src, copyBytes);
-            player->data.nextFrame += copyFrames;
-            dst += copyBytes;
-            src += copyBytes;
-            dstRemaining -= copyBytes;
-
-            if (player->data.nextFrame >= player->buffer->numFrames) {
-                if (player->looping) {
-                    player->data.nextFrame = 0;
-                    src = player->buffer->managedData;
-                } else {
-                    break;
-                }
-            }
         }
-
-        MAL_UNLOCK(player);
-
-        // Silence
-        if (dstRemaining > 0) {
-            memset(dst, 0, dstRemaining);
-        }
-        pa_stream_write(stream, buffer, length, NULL, 0, seekMode);
     }
+
+    MAL_UNLOCK(player);
+
+    pa_stream_write(stream, buffer, bytesWritten, NULL, 0, seekMode);
 }
 
 static bool _malPlayerInit(MalPlayer *player) {
@@ -485,6 +466,7 @@ static void _malPlayerDispose(MalPlayer *player) {
     if (pa->mainloop && player->data.stream) {
         pa_threaded_mainloop_lock(pa->mainloop);
         pa_stream_set_write_callback(player->data.stream, NULL, NULL);
+        pa_stream_set_underflow_callback(player->data.stream, NULL, NULL);
         pa_stream_disconnect(player->data.stream);
         pa_stream_unref(player->data.stream);
         pa_threaded_mainloop_unlock(pa->mainloop);
@@ -552,8 +534,12 @@ static bool _malPlayerSetFormat(MalPlayer *player, MalFormat format) {
     sampleSpec.rate = (uint32_t)format.sampleRate;
     sampleSpec.channels = format.numChannels;
 
+    double maxBufferDuration = 0.5;
+
     pa_buffer_attr bufferAttributes;
-    bufferAttributes.maxlength = (uint32_t)-1;
+    bufferAttributes.maxlength = ((player->format.bitDepth / 8) *
+                                  player->format.numChannels *
+                                  (uint32_t)(maxBufferDuration * format.sampleRate));
     bufferAttributes.minreq = (uint32_t)-1;
     bufferAttributes.prebuf = 0;
     bufferAttributes.tlength = (uint32_t)-1;
@@ -596,6 +582,7 @@ static bool _malPlayerSetFormat(MalPlayer *player, MalFormat format) {
     }
 
     pa_stream_set_write_callback(stream, _malStreamWriteCallback, player);
+    pa_stream_set_underflow_callback(stream, _malStreamUnderflowCallback, player);
     player->data.stream = stream;
 
 quit:
@@ -656,6 +643,7 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPl
         default: {
             pa_operation_unref(pa_stream_cork(player->data.stream, 1, NULL, NULL));
             player->data.nextFrame = 0;
+            player->data.streamState = MAL_STREAM_INACTIVE;
             break;
         }
         case MAL_PLAYER_STATE_PAUSED: {
@@ -663,8 +651,8 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPl
             break;
         }
         case MAL_PLAYER_STATE_PLAYING: {
-            player->data.seekMode = ((oldState == MAL_PLAYER_STATE_PAUSED) ? PA_SEEK_RELATIVE :
-                                     PA_SEEK_RELATIVE_ON_READ);
+            player->data.streamState = ((oldState == MAL_PLAYER_STATE_PAUSED) ? MAL_STREAM_PLAYING :
+                                        MAL_STREAM_STARTING);
             pa_operation_unref(pa_stream_cork(player->data.stream, 0, NULL, NULL));
             break;
         }
