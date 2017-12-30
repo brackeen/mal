@@ -44,6 +44,14 @@ static pthread_mutex_t globalMutex = PTHREAD_MUTEX_INITIALIZER;
 #  define MAL_UNLOCK_GLOBAL() do { } while(0)
 #endif
 
+#if defined(MAL_NO_STDATOMIC)
+#  if !defined(__STDC_VERSION__) || (__STDC_VERSION__ < 201112L)
+#    define _Atomic(T) T
+#  endif
+#  define atomic_load(object) *(object)
+#  define atomic_store(object, value) *(object) = value
+#endif
+
 // Audio subsystems need to implement these structs and functions.
 // All functions that return a `bool` should return `true` on success, `false` otherwise.
 
@@ -130,7 +138,7 @@ struct MalPlayer {
 
     malPlaybackFinishedFunc onFinished;
     void *onFinishedUserData;
-    MalCallbackId onFinishedId;
+    _Atomic(MalCallbackId) onFinishedId;
 
 #ifdef MAL_USE_MUTEX
     pthread_mutex_t mutex;
@@ -471,8 +479,8 @@ void malPlayerSetFinishedFunc(MalPlayer *player, malPlaybackFinishedFunc onFinis
             newOnFinishedId = 0;
         }
         MAL_LOCK(player);
-        oldOnFinishedId = player->onFinishedId;
-        player->onFinishedId = newOnFinishedId;
+        oldOnFinishedId = atomic_load(&player->onFinishedId);
+        atomic_store(&player->onFinishedId, newOnFinishedId);
         player->onFinished = onFinished;
         player->onFinishedUserData = userData;
         MAL_UNLOCK(player);

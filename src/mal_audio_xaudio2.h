@@ -63,9 +63,8 @@ struct _MalContext {
 #endif
     IXAudio2 *xAudio2;
     IXAudio2MasteringVoice *masteringVoice;
-    CRITICAL_SECTION lock;
-    struct ok_vec_of(MalCallbackId) finishedCallbackIds;
-    bool hasPolledEvents;
+    struct ok_queue_of(MalCallbackId) finishedCallbackIds;
+    _Atomic(bool) hasPolledEvents;
     bool shouldUninitializeCOM;
 };
 
@@ -77,9 +76,7 @@ struct _MalPlayer {
     IXAudio2SourceVoice *sourceVoice;
     MalVoiceCallback *callback;
     MalPlayerState state;
-    bool bufferQueued;
-    // Same value as MalPlayer, but locked via CRITICAL_SECTION
-    MalCallbackId onFinishedId;
+    _Atomic(bool) bufferQueued;
 };
 
 #define MAL_INCLUDE_SAMPLE_RATE_FUNCTIONS
@@ -91,11 +88,7 @@ static bool _malContextInit(MalContext *context, void *androidActivity,
                             const char **errorMissingAudioSystem) {
     (void)androidActivity;
 
-    ok_vec_init(&context->data.finishedCallbackIds);
-
-    if (!InitializeCriticalSectionAndSpinCount(&context->data.lock, 20)) {
-        return false;
-    }
+    ok_queue_init(&context->data.finishedCallbackIds);
 
     // Initialize COM
     HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
@@ -182,7 +175,7 @@ static void _malContextDispose(MalContext *context) {
         context->data.shouldUninitializeCOM = false;
         CoUninitialize();
     }
-    DeleteCriticalSection(&context->data.lock);
+    ok_queue_deinit(&context->data.finishedCallbackIds);
 }
 
 static bool _malContextSetActive(MalContext *context, bool active) {
@@ -210,27 +203,11 @@ void malContextPollEvents(MalContext *context) {
     if (!context) {
         return;
     }
-    context->data.hasPolledEvents = true;
+    atomic_store(&context->data.hasPolledEvents, true);
 
-    while (true) {
-        bool done = false;
-        MalCallbackId onFinishedId = 0;
-
-        EnterCriticalSection(&context->data.lock);
-        size_t count = context->data.finishedCallbackIds.count;
-        if (count == 0) {
-            done = true;
-        } else {
-            onFinishedId = ok_vec_get(&context->data.finishedCallbackIds, count - 1);
-            ok_vec_remove_at(&context->data.finishedCallbackIds, count - 1);
-        }
-        LeaveCriticalSection(&context->data.lock);
-
-        if (done) {
-            break;
-        } else {
-            _malHandleOnFinishedCallback(onFinishedId);
-        }
+    MalCallbackId onFinishedId = 0;
+    while (ok_queue_pop(&context->data.finishedCallbackIds, &onFinishedId)) {
+        _malHandleOnFinishedCallback(onFinishedId);
     }
 }
 
@@ -280,13 +257,12 @@ public:
     MalVoiceCallback& operator=(MalVoiceCallback&&) = delete;
 
     void STDMETHODCALLTYPE OnStreamEnd() override {
-        player->data.bufferQueued = false;
-        if (player->data.onFinishedId) {
+        atomic_store(&player->data.bufferQueued, false);
+        MalCallbackId onFinishedId = atomic_load(&player->onFinishedId);
+        if (onFinishedId) {
             MalContext *context = player->context;
-            if (context && context->data.hasPolledEvents) {
-                EnterCriticalSection(&context->data.lock);
-                ok_vec_push(&context->data.finishedCallbackIds, player->data.onFinishedId);
-                LeaveCriticalSection(&context->data.lock);
+            if (context && atomic_load(&context->data.hasPolledEvents)) {
+                ok_queue_push(&context->data.finishedCallbackIds, onFinishedId);
             }
         }
     }
@@ -348,7 +324,7 @@ static bool _malPlayerSetFormat(MalPlayer *player, MalFormat format) {
         } else if (player->format.bitDepth == format.bitDepth &&
                    player->format.numChannels == format.numChannels) {
             player->data.sourceVoice->FlushSourceBuffers();
-            player->data.bufferQueued = false;
+            atomic_store(&player->data.bufferQueued, false);
             HRESULT hr = player->data.sourceVoice->SetSourceSampleRate((UINT32)sampleRate);
             success = SUCCEEDED(hr);
         }
@@ -359,7 +335,7 @@ static bool _malPlayerSetFormat(MalPlayer *player, MalFormat format) {
         if (player->data.sourceVoice) {
             player->data.sourceVoice->DestroyVoice();
             player->data.sourceVoice = NULL;
-            player->data.bufferQueued = false;
+            atomic_store(&player->data.bufferQueued, false);
         }
 
         WAVEFORMATEX xAudioFormat = { 0 };
@@ -390,7 +366,7 @@ static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer) {
     }
     player->data.sourceVoice->FlushSourceBuffers();
     if (!buffer) {
-        player->data.bufferQueued = false;
+        atomic_store(&player->data.bufferQueued, false);
         return true;
     } else {
         XAUDIO2_BUFFER bufferInfo = { 0 };
@@ -400,7 +376,7 @@ static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer) {
         bufferInfo.pAudioData = (const BYTE *)buffer->managedData;
         bufferInfo.LoopCount = (UINT32)(player->looping ? XAUDIO2_LOOP_INFINITE : 0);
         bool success = SUCCEEDED(player->data.sourceVoice->SubmitSourceBuffer(&bufferInfo));
-        player->data.bufferQueued = success;
+        atomic_store(&player->data.bufferQueued, success);
         return success;
     }
 }
@@ -430,18 +406,15 @@ static void _malPlayerSetLooping(MalPlayer *player, bool looping) {
 }
 
 static void _malPlayerDidSetFinishedCallback(MalPlayer *player) {
-    if (player->context) {
-        EnterCriticalSection(&player->context->data.lock);
-        player->data.onFinishedId = player->onFinishedId;
-        LeaveCriticalSection(&player->context->data.lock);
-    }
+    (void)player;
 }
 
 static MalPlayerState _malPlayerGetState(const MalPlayer *player) {
     if (!player->data.sourceVoice) {
         return MAL_PLAYER_STATE_STOPPED;
     }
-    if (player->data.state == MAL_PLAYER_STATE_PLAYING && !player->data.bufferQueued) {
+    if (player->data.state == MAL_PLAYER_STATE_PLAYING &&
+        !atomic_load(&player->data.bufferQueued)) {
         return MAL_PLAYER_STATE_STOPPED;
     } else {
         return player->data.state;
@@ -459,7 +432,7 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPl
         _malPlayerSetBuffer(player, player->buffer);
         break;
     case MAL_PLAYER_STATE_PLAYING:
-        if (!player->data.bufferQueued) {
+        if (!atomic_load(&player->data.bufferQueued)) {
             _malPlayerSetBuffer(player, player->buffer);
         }
         player->data.sourceVoice->Start();

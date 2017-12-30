@@ -338,7 +338,7 @@ static void _malBufferQueueCallback(SLBufferQueueItf queue, void *voidPlayer) {
             if (player->onFinished && player->context && player->context->data.looper) {
                 struct looperMessage msg = {
                     .type = ON_PLAYER_FINISHED_MAGIC,
-                    .onFinishedId = player->onFinishedId,
+                    .onFinishedId = atomic_load(&player->onFinishedId),
                 };
                 _malLooperPost(player->context->data.looperMessagePipe[1], &msg);
             }

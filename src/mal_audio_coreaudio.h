@@ -411,9 +411,9 @@ static void _malBufferDispose(MalBuffer *buffer) {
 // MARK: Player
 
 static void _malHandleOnFinished(void *userData) {
-    MalCallbackId *onFinishedId = userData;
-    _malHandleOnFinishedCallback(*onFinishedId);
-    free(onFinishedId);
+    uintptr_t userDataInt = (uintptr_t)userData;
+    MalCallbackId onFinishedId = (MalCallbackId)userDataInt;
+    _malHandleOnFinishedCallback(onFinishedId);
 }
 
 static OSStatus audioRenderCallback(void *userData, AudioUnitRenderActionFlags *flags,
@@ -445,11 +445,11 @@ static OSStatus audioRenderCallback(void *userData, AudioUnitRenderActionFlags *
                 AUGraphUpdate(player->context->data.graph, &updated);
             }
 
-            if (state == MAL_PLAYER_STATE_PLAYING && player->onFinishedId) {
-                MalCallbackId *onFinishedId = malloc(sizeof(MalCallbackId));
+            if (state == MAL_PLAYER_STATE_PLAYING) {
+                MalCallbackId onFinishedId = atomic_load(&player->onFinishedId);
                 if (onFinishedId) {
-                    *onFinishedId = player->onFinishedId;
-                    dispatch_async_f(dispatch_get_main_queue(), onFinishedId,
+                    uintptr_t userData = onFinishedId;
+                    dispatch_async_f(dispatch_get_main_queue(), (void *)userData,
                                      &_malHandleOnFinished);
                 }
             }
