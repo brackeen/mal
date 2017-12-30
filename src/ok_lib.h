@@ -88,11 +88,9 @@
  Check if two variables have the same type.
  */
 #if defined(__GNUC__)
-#  define ok_static_assert_types_compatible(A, B) \
-     ok_static_assert(__builtin_types_compatible_p(__typeof(A), __typeof(B)), "Incompatible type")
+#  define ok_types_compatible(A, B) __builtin_types_compatible_p(__typeof(A), __typeof(B))
 #else
-#  define ok_static_assert_types_compatible(A, B)\
-     ok_static_assert(sizeof(A) == sizeof(B), "Incompatible type")
+#  define ok_types_compatible(A, B) (sizeof(A) == sizeof(B))
 #endif
 
 // MARK: Vector
@@ -738,7 +736,7 @@
 
  When finished using the queue, the #ok_queue_deinit() function must be called.
  */
-#define OK_QUEUE_INIT { { NULL, NULL, NULL, false, false, OK_QUEUE_DEFAULT_CAPACITY }, 0 }
+#define OK_QUEUE_INIT { { NULL, NULL, NULL, false, false, OK_QUEUE_DEFAULT_CAPACITY }, NULL }
 
 /**
  Declares a generic `ok_queue` struct or typedef.
@@ -757,7 +755,7 @@
  */
 #define ok_queue_of(value_type) { \
     struct _ok_queue q; \
-    value_type v; \
+    value_type *v; \
 }
 
 /**
@@ -788,7 +786,7 @@
  @tparam capacity The minimum number of values the queue can hold.
  */
 #define ok_queue_init_with_capacity(queue, capacity) \
-    _ok_queue_init(&(queue)->q, sizeof((queue)->v), capacity)
+    _ok_queue_init(&(queue)->q, sizeof(*(queue)->v), capacity)
 
 /**
  Deinits the queue. The queue may be used again by calling #ok_queue_init().
@@ -808,7 +806,7 @@
  @tparam deallocator The deallocator function, declared as `void (*deallocator)(void *)`.
  */
 #define ok_queue_deinit_with_deallocator(queue, deallocator) \
-    _ok_queue_deinit(&(queue)->q, sizeof((queue)->v), (deallocator))
+    _ok_queue_deinit(&(queue)->q, sizeof(*(queue)->v), (deallocator))
 
 /**
  Adds a value to the back of the queue.
@@ -817,8 +815,8 @@
  @tparam value The value to add. Must be an addressable rvalue.
  */
 #define ok_queue_push(queue, value) do { \
-     ok_static_assert_types_compatible((queue)->v, value); \
-    _ok_queue_push(&(queue)->q, sizeof((queue)->v), &(value)); \
+    ok_static_assert(ok_types_compatible(*(queue)->v, value), "Incompatible types"); \
+    _ok_queue_push(&(queue)->q, sizeof(*(queue)->v), &(value)); \
 } while (0)
 
 /**
@@ -829,8 +827,8 @@
  @return true on success, false if the queue is empty.
  */
 #define ok_queue_pop(queue, value_ptr) (\
-    (ok_static_assert_types_compatible((queue)->v, *(value_ptr)), 0), \
-    _ok_queue_pop(&(queue)->q, sizeof((queue)->v), (value_ptr)) \
+    sizeof(char[ok_types_compatible(*(queue)->v, *(value_ptr)) ? 1 : -1]) && /* Type check */ \
+    _ok_queue_pop(&(queue)->q, sizeof(*(queue)->v), (value_ptr)) \
 )
 
 #endif // __EMSCRIPTEN__
@@ -1073,8 +1071,10 @@ OK_LIB_API ok_hash_t ok_int32_hash(int32_t key) {
 }
 
 OK_LIB_API ok_hash_t ok_float_hash(float key) {
-    ok_static_assert(sizeof(float) == sizeof(uint32_t), "float must be be 32-bit");
-    return ok_uint32_hash(*(uint32_t *)&key);
+    uint32_t int_key;
+    ok_static_assert(sizeof(key) == sizeof(int_key), "float must be be 32-bit");
+    memcpy(&int_key, &key, sizeof(int_key));
+    return ok_uint32_hash(int_key);
 }
 
 OK_LIB_API ok_hash_t ok_uint64_hash(uint64_t key) {
@@ -1093,8 +1093,10 @@ OK_LIB_API ok_hash_t ok_int64_hash(int64_t key) {
 }
 
 OK_LIB_API ok_hash_t ok_double_hash(double key) {
-    ok_static_assert(sizeof(double) == sizeof(uint64_t), "double must be 64-bit");
-    return ok_uint64_hash(*(uint64_t *)&key);
+    uint64_t int_key;
+    ok_static_assert(sizeof(key) == sizeof(int_key), "double must be 64-bit");
+    memcpy(&int_key, &key, sizeof(int_key));
+    return ok_uint64_hash(int_key);
 }
 
 OK_LIB_API ok_hash_t ok_const_str_hash(const char *key) {
@@ -1117,9 +1119,13 @@ OK_LIB_API ok_hash_t ok_str_hash(char *key) {
 
 OK_LIB_API ok_hash_t ok_const_ptr_hash(const void *key) {
 #if UINTPTR_MAX == UINT32_MAX
-    return ok_uint32_hash(*(uint32_t *)&key);
+    uint32_t int_key;
+    memcpy(&int_key, &key, sizeof(int_key));
+    return ok_uint32_hash(int_key);
 #elif UINTPTR_MAX == UINT64_MAX
-    return ok_uint64_hash(*(uint64_t *)&key);
+    uint64_t int_key;
+    memcpy(&int_key, &key, sizeof(int_key));
+    return ok_uint64_hash(int_key);
 #else
     ok_static_assert(false, "Unknown pointer size");
     return 0;
@@ -1518,6 +1524,7 @@ OK_LIB_API bool _ok_map_remove(struct _ok_map *map, const void *key, ok_hash_t k
 #endif
 #if defined(OK_LIB_USE_STDATOMIC)
 #  include <stdatomic.h>
+#  define OK_LOCK_TYPE _Atomic(bool)
 #  define OK_LOCK(lock) do { } while (atomic_exchange_explicit((lock), true, memory_order_acquire))
 #  define OK_UNLOCK(lock) atomic_store_explicit((lock), false, memory_order_release)
 #elif defined(_MSC_VER)
@@ -1525,40 +1532,52 @@ OK_LIB_API bool _ok_map_remove(struct _ok_map *map, const void *key, ok_hash_t k
 #  pragma warning(push, 0)
 #  include <windows.h>
 #  pragma warning(pop)
-#  define _Atomic(T) T
+#  define _Atomic(T) T volatile
 #  define atomic_load(object) (MemoryBarrier(), *(object))
 #  define atomic_store(object, desired) do { *(object) = (desired); MemoryBarrier(); } while (0)
 #  define atomic_compare_exchange_strong(object, expected, desired) \
-     (InterlockedCompareExchangePointer((volatile PVOID *)(object), (desired), *(expected)) \
+     (InterlockedCompareExchangePointer((PVOID volatile *)(object), (desired), *(expected)) \
        == *(expected))
-#  define OK_LOCK(lock) do { } while (InterlockedExchange8((char *)(lock), 1))
+#  define OK_LOCK_TYPE LONG volatile
+#  define OK_LOCK(lock) do { } while (InterlockedExchange((lock), 1))
 #  define OK_UNLOCK(lock) atomic_store((lock), 0)
 #elif defined(__GCC_HAVE_SYNC_COMPARE_AND_SWAP_4)
-#  define _Atomic(T) T
+#  define _Atomic(T) T volatile
 #  define atomic_load(object) __atomic_load_n((object), __ATOMIC_SEQ_CST)
-#  define atomic_store(object, desired) __atomic_store_n(object, desired, __ATOMIC_SEQ_CST);
+#  define atomic_store(object, desired) __atomic_store_n((object), (desired), __ATOMIC_SEQ_CST)
 #  define atomic_compare_exchange_strong(object, expected, desired) \
-     __atomic_compare_exchange_n(object, expected, desired, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)
+     __atomic_compare_exchange_n((object), (expected), (desired), 0, __ATOMIC_SEQ_CST, \
+                                 __ATOMIC_SEQ_CST)
+#  define OK_LOCK_TYPE bool volatile
 #  define OK_LOCK(lock) do { } while (__atomic_exchange_n((lock), true, __ATOMIC_ACQUIRE))
 #  define OK_UNLOCK(lock) (void)__atomic_exchange_n((lock), false, __ATOMIC_RELEASE)
 #else
 #  error stdatomic.h required
 #endif
+#if defined(_MSC_VER)
+#  define OK_ALIGNAS(N) __declspec(align(N))
+#elif defined(__GNUC__)
+#  define OK_ALIGNAS(N) __attribute__((aligned(N)))
+#else
+#  define OK_ALIGNAS(N) _Alignas(N)
+#endif
+
+#define OK_CACHELINE_SIZE 64
 
 struct _ok_queue_block {
-    void *values;
-    struct _ok_queue_block *next;
-    size_t head_index;
-    _Atomic(size_t) tail_index;
+    OK_ALIGNAS(OK_CACHELINE_SIZE) void *values;
+    OK_ALIGNAS(OK_CACHELINE_SIZE) struct _ok_queue_block *next;
+    OK_ALIGNAS(OK_CACHELINE_SIZE) size_t head_index;
+    OK_ALIGNAS(OK_CACHELINE_SIZE) _Atomic(size_t) tail_index;
 };
 
 struct _ok_queue {
-    _Atomic(struct _ok_queue_block *) head_block;
-    _Atomic(struct _ok_queue_block *) tail_block;
-    _Atomic(struct _ok_queue_block *) free_block;
-    _Atomic(bool) head_lock;
-    _Atomic(bool) tail_lock;
-    size_t block_capacity;
+    OK_ALIGNAS(OK_CACHELINE_SIZE) _Atomic(struct _ok_queue_block *) head_block;
+    OK_ALIGNAS(OK_CACHELINE_SIZE) _Atomic(struct _ok_queue_block *) tail_block;
+    OK_ALIGNAS(OK_CACHELINE_SIZE) _Atomic(struct _ok_queue_block *) free_block;
+    OK_ALIGNAS(OK_CACHELINE_SIZE) OK_LOCK_TYPE head_lock;
+    OK_ALIGNAS(OK_CACHELINE_SIZE) OK_LOCK_TYPE tail_lock;
+    OK_ALIGNAS(OK_CACHELINE_SIZE) size_t block_capacity;
 };
 
 OK_LIB_API struct _ok_queue_block *_ok_queue_new_block(const struct _ok_queue *queue,
@@ -1724,9 +1743,6 @@ OK_LIB_API void _ok_queue_deinit(struct _ok_queue *queue, size_t value_size,
     OK_UNLOCK(&queue->head_lock);
     OK_UNLOCK(&queue->tail_lock);
 }
-
-#undef OK_LOCK
-#undef OK_UNLOCK
 
 #endif // __EMSCRIPTEN__
 
