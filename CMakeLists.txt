@@ -65,7 +65,7 @@ elseif (CMAKE_C_COMPILER_ID MATCHES "GNU")
     set_target_properties(mal PROPERTIES COMPILE_FLAGS "-Wall -Wextra -Wwrite-strings -Wno-unused-function ${MAL_COMPILE_FLAGS}")
 elseif (CMAKE_C_COMPILER_ID MATCHES "MSVC")
     # Disable `padding` warning
-    set_target_properties(mal PROPERTIES COMPILE_FLAGS "/Wall /wd4820 ${MAL_COMPILE_FLAGS}")
+    set_target_properties(mal PROPERTIES COMPILE_FLAGS "/Wall /wd4820 /wd4324 ${MAL_COMPILE_FLAGS}")
 
     # Use XAudio2 2.7 for Windows 7 and XP compatability
     # Install DirectX SDK (June 2010) from https://www.microsoft.com/en-us/download/details.aspx?id=6812
