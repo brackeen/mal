@@ -560,15 +560,14 @@ static bool _malPlayerSetFormat(MalPlayer *player, MalFormat format) {
     sampleSpec.rate = (uint32_t)format.sampleRate;
     sampleSpec.channels = format.numChannels;
 
-    double maxBufferDuration = 0.5;
-
+    double targetBufferDuration = 0.5;
     pa_buffer_attr bufferAttributes;
-    bufferAttributes.maxlength = ((player->format.bitDepth / 8) *
-                                  player->format.numChannels *
-                                  (uint32_t)(maxBufferDuration * format.sampleRate));
+    bufferAttributes.tlength = ((player->format.bitDepth / 8) *
+                                player->format.numChannels *
+                                (uint32_t)(targetBufferDuration * format.sampleRate));
+    bufferAttributes.maxlength = (uint32_t)-1;
     bufferAttributes.minreq = (uint32_t)-1;
     bufferAttributes.prebuf = 0;
-    bufferAttributes.tlength = (uint32_t)-1;
     bufferAttributes.fragsize = (uint32_t)-1;
 
     pa_channel_map channelMap;
