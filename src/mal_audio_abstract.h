@@ -298,8 +298,12 @@ void malContextFree(MalContext *context) {
     }
 }
 
-bool malContextIsFormatEqual(const MalContext *context, MalFormat format1, MalFormat format2) {
+static bool _malSampleRatesEqual(double sampleRate1, double sampleRate2) {
     const double sampleRateEpsilon = 0.01;
+    return fabs(sampleRate1 - sampleRate2) <= sampleRateEpsilon;
+}
+
+bool malContextIsFormatEqual(const MalContext *context, MalFormat format1, MalFormat format2) {
     if (format1.sampleRate <= MAL_DEFAULT_SAMPLE_RATE) {
         format1.sampleRate = malContextGetSampleRate(context);
     }
@@ -308,7 +312,7 @@ bool malContextIsFormatEqual(const MalContext *context, MalFormat format1, MalFo
     }
     return (format1.bitDepth == format2.bitDepth &&
             format1.numChannels == format2.numChannels &&
-            fabs(format1.sampleRate - format2.sampleRate) <= sampleRateEpsilon);
+            _malSampleRatesEqual(format1.sampleRate, format2.sampleRate));
 }
 
 // MARK: Buffer
