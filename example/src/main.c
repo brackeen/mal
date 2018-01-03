@@ -217,6 +217,11 @@ static void onError(int error, const char *description) {
     printf("Error: %s\n", description);
 }
 
+static void onFocusChange(GLFWwindow *window, int focused) {
+    MalApp *app = glfwGetWindowUserPointer(window);
+    malContextSetActive(app->context, focused == GLFW_TRUE);
+}
+
 static void onMouseClick(GLFWwindow *window, int button, int action, int mods) {
     if (action == GLFW_PRESS) {
         int viewWidth;
@@ -251,6 +256,7 @@ int main(void) {
     MalApp *app = calloc(1, sizeof(MalApp));
     malExampleInit(app);
     glfwSetWindowUserPointer(window, app);
+    glfwSetWindowFocusCallback(window, onFocusChange);
     glfwSetMouseButtonCallback(window, onMouseClick);
 
     while (!glfwWindowShouldClose(window)) {
@@ -261,7 +267,12 @@ int main(void) {
         glClear(GL_COLOR_BUFFER_BIT);
 
         glfwSwapBuffers(window);
-        glfwPollEvents();
+
+        if (glfwGetWindowAttrib(window, GLFW_FOCUSED) == GLFW_FALSE) {
+            glfwWaitEvents();
+        } else {
+            glfwPollEvents();
+        }
         malContextPollEvents(app->context);
     }
     glfwDestroyWindow(window);
