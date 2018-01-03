@@ -1,7 +1,7 @@
 /*
  Mal
  https://github.com/brackeen/mal
- Copyright (c) 2014-2017 David Brackeen
+ Copyright (c) 2014-2018 David Brackeen
 
  Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
  associated documentation files (the "Software"), to deal in the Software without restriction,
@@ -64,14 +64,17 @@ FUNC_DECLARE(pa_context_new);
 FUNC_DECLARE(pa_context_unref);
 FUNC_DECLARE(pa_context_connect);
 FUNC_DECLARE(pa_context_disconnect);
-FUNC_DECLARE(pa_context_set_state_callback);
 FUNC_DECLARE(pa_context_get_state);
 FUNC_DECLARE(pa_context_get_server_info);
+FUNC_DECLARE(pa_context_set_sink_input_mute);
+FUNC_DECLARE(pa_context_set_sink_input_volume);
+FUNC_DECLARE(pa_context_set_state_callback);
 FUNC_DECLARE(pa_operation_get_state);
 FUNC_DECLARE(pa_operation_unref);
 FUNC_DECLARE(pa_stream_new);
 FUNC_DECLARE(pa_stream_get_state);
 FUNC_DECLARE(pa_stream_get_sample_spec);
+FUNC_DECLARE(pa_stream_get_index);
 FUNC_DECLARE(pa_stream_set_write_callback);
 FUNC_DECLARE(pa_stream_set_state_callback);
 FUNC_DECLARE(pa_stream_update_sample_rate);
@@ -83,6 +86,7 @@ FUNC_DECLARE(pa_stream_set_underflow_callback);
 FUNC_DECLARE(pa_stream_disconnect);
 FUNC_DECLARE(pa_stream_unref);
 FUNC_DECLARE(pa_channel_map_init_auto);
+FUNC_DECLARE(pa_sw_volume_from_linear);
 
 #define pa_threaded_mainloop_new FUNC_PREFIX(pa_threaded_mainloop_new)
 #define pa_threaded_mainloop_free FUNC_PREFIX(pa_threaded_mainloop_free)
@@ -97,14 +101,17 @@ FUNC_DECLARE(pa_channel_map_init_auto);
 #define pa_context_unref FUNC_PREFIX(pa_context_unref)
 #define pa_context_connect FUNC_PREFIX(pa_context_connect)
 #define pa_context_disconnect FUNC_PREFIX(pa_context_disconnect)
-#define pa_context_set_state_callback FUNC_PREFIX(pa_context_set_state_callback)
 #define pa_context_get_state FUNC_PREFIX(pa_context_get_state)
 #define pa_context_get_server_info FUNC_PREFIX(pa_context_get_server_info)
+#define pa_context_set_sink_input_mute FUNC_PREFIX(pa_context_set_sink_input_mute)
+#define pa_context_set_sink_input_volume FUNC_PREFIX(pa_context_set_sink_input_volume)
+#define pa_context_set_state_callback FUNC_PREFIX(pa_context_set_state_callback)
 #define pa_operation_get_state FUNC_PREFIX(pa_operation_get_state)
 #define pa_operation_unref FUNC_PREFIX(pa_operation_unref)
 #define pa_stream_new FUNC_PREFIX(pa_stream_new)
 #define pa_stream_get_state FUNC_PREFIX(pa_stream_get_state)
 #define pa_stream_get_sample_spec FUNC_PREFIX(pa_stream_get_sample_spec)
+#define pa_stream_get_index FUNC_PREFIX(pa_stream_get_index)
 #define pa_stream_set_write_callback FUNC_PREFIX(pa_stream_set_write_callback)
 #define pa_stream_set_state_callback FUNC_PREFIX(pa_stream_set_state_callback)
 #define pa_stream_update_sample_rate FUNC_PREFIX(pa_stream_update_sample_rate)
@@ -116,6 +123,7 @@ FUNC_DECLARE(pa_channel_map_init_auto);
 #define pa_stream_disconnect FUNC_PREFIX(pa_stream_disconnect)
 #define pa_stream_unref FUNC_PREFIX(pa_stream_unref)
 #define pa_channel_map_init_auto FUNC_PREFIX(pa_channel_map_init_auto)
+#define pa_sw_volume_from_linear FUNC_PREFIX(pa_sw_volume_from_linear)
 
 static void *_malLoadSym(void *handle, const char *name) {
     dlerror();
@@ -155,14 +163,17 @@ static int _malLoadLibpulse() {
     FUNC_LOAD(handle, pa_context_unref);
     FUNC_LOAD(handle, pa_context_connect);
     FUNC_LOAD(handle, pa_context_disconnect);
-    FUNC_LOAD(handle, pa_context_set_state_callback);
     FUNC_LOAD(handle, pa_context_get_state);
     FUNC_LOAD(handle, pa_context_get_server_info);
+    FUNC_LOAD(handle, pa_context_set_sink_input_mute);
+    FUNC_LOAD(handle, pa_context_set_sink_input_volume);
+    FUNC_LOAD(handle, pa_context_set_state_callback);
     FUNC_LOAD(handle, pa_operation_get_state);
     FUNC_LOAD(handle, pa_operation_unref);
     FUNC_LOAD(handle, pa_stream_new);
     FUNC_LOAD(handle, pa_stream_get_state);
     FUNC_LOAD(handle, pa_stream_get_sample_spec);
+    FUNC_LOAD(handle, pa_stream_get_index);
     FUNC_LOAD(handle, pa_stream_set_write_callback);
     FUNC_LOAD(handle, pa_stream_set_state_callback);
     FUNC_LOAD(handle, pa_stream_update_sample_rate);
@@ -174,6 +185,7 @@ static int _malLoadLibpulse() {
     FUNC_LOAD(handle, pa_stream_disconnect);
     FUNC_LOAD(handle, pa_stream_unref);
     FUNC_LOAD(handle, pa_channel_map_init_auto);
+    FUNC_LOAD(handle, pa_sw_volume_from_linear);
 
     libpulseHandle = handle;
     return PA_OK;
@@ -219,6 +231,9 @@ struct _MalPlayer {
 
 #define MAL_USE_MUTEX
 #include "mal_audio_abstract.h"
+
+static void _malPlayerUpdateMute(MalPlayer *player);
+static void _malPlayerUpdateGain(MalPlayer *player);
 
 // MARK: Context
 
@@ -337,15 +352,13 @@ static bool _malContextSetActive(MalContext *context, bool active) {
 }
 
 static void _malContextSetMute(MalContext *context, bool mute) {
-    (void)context;
     (void)mute;
-    // TODO: Mute/gain
+    ok_vec_apply(&context->players, _malPlayerUpdateMute);
 }
 
 static void _malContextSetGain(MalContext *context, float gain) {
-    (void)context;
     (void)gain;
-    // TODO: Mute/gain
+    ok_vec_apply(&context->players, _malPlayerUpdateGain);
 }
 
 void malContextPollEvents(MalContext *context) {
@@ -627,16 +640,45 @@ static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer) {
     return true;
 }
 
+static void _malPlayerUpdateMute(MalPlayer *player) {
+    if (player && player->context && player->data.stream) {
+        struct _MalContext *pa = &player->context->data;
+        bool mute = player->context->mute || player->mute;
+
+        pa_threaded_mainloop_lock(pa->mainloop);
+        uint32_t index = pa_stream_get_index(player->data.stream);
+        pa_operation_unref(pa_context_set_sink_input_mute(pa->context, index, mute ? 1 : 0,
+                                                          NULL, NULL));
+        pa_threaded_mainloop_unlock(pa->mainloop);
+    }
+}
+
+static void _malPlayerUpdateGain(MalPlayer *player) {
+    if (player && player->context && player->data.stream) {
+        struct _MalContext *pa = &player->context->data;
+        float gain = player->context->gain * player->gain;
+
+        pa_volume_t volume = pa_sw_volume_from_linear((double)gain);
+        pa_cvolume cvolume;
+        cvolume.channels = player->format.numChannels;
+        for (int i = 0; i < cvolume.channels; i++) {
+            cvolume.values[i] = volume;
+        }
+
+        pa_threaded_mainloop_lock(pa->mainloop);
+        uint32_t index = pa_stream_get_index(player->data.stream);
+        pa_operation_unref(pa_context_set_sink_input_volume(pa->context, index, &cvolume,
+                                                            NULL, NULL));
+        pa_threaded_mainloop_unlock(pa->mainloop);
+    }
+}
+
 static void _malPlayerSetMute(MalPlayer *player, bool mute) {
-    (void)player;
-    (void)mute;
-    // TODO: Mute/gain
+    _malPlayerUpdateMute(player);
 }
 
 static void _malPlayerSetGain(MalPlayer *player, float gain) {
-    (void)player;
-    (void)gain;
-    // TODO: Mute/gain
+    _malPlayerUpdateGain(player);
 }
 
 static void _malPlayerSetLooping(MalPlayer *player, bool looping) {
