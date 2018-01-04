@@ -1,7 +1,7 @@
 /*
  Mal
  https://github.com/brackeen/mal
- Copyright (c) 2014-2017 David Brackeen
+ Copyright (c) 2014-2018 David Brackeen
 
  Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
  associated documentation files (the "Software"), to deal in the Software without restriction,
@@ -66,8 +66,8 @@ static void _malContextWillDispose(MalContext *context);
 static void _malContextDispose(MalContext *context);
 static void _malContextDidSetActive(MalContext *context, bool active);
 static bool _malContextSetActive(MalContext *context, bool active);
-static void _malContextSetMute(MalContext *context, bool mute);
-static void _malContextSetGain(MalContext *context, float gain);
+static void _malContextUpdateMute(MalContext *context);
+static void _malContextUpdateGain(MalContext *context);
 static void _malContextCheckRoutes(MalContext *context);
 /**
  Either `copiedData` or `managedData` will be non-null, but not both. If `copiedData` is set,
@@ -83,8 +83,8 @@ static bool _malPlayerInit(MalPlayer *player);
 static void _malPlayerDispose(MalPlayer *player);
 static bool _malPlayerSetFormat(MalPlayer *player, MalFormat format);
 static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer);
-static void _malPlayerSetMute(MalPlayer *player, bool mute);
-static void _malPlayerSetGain(MalPlayer *player, float gain);
+static void _malPlayerUpdateMute(MalPlayer *player);
+static void _malPlayerUpdateGain(MalPlayer *player);
 static void _malPlayerSetLooping(MalPlayer *player, bool looping);
 static void _malPlayerDidSetFinishedCallback(MalPlayer *player);
 static MalPlayerState _malPlayerGetState(const MalPlayer *player);
@@ -235,7 +235,7 @@ bool malContextGetMute(const MalContext *context) {
 void malContextSetMute(MalContext *context, bool mute) {
     if (context) {
         context->mute = mute;
-        _malContextSetMute(context, mute);
+        _malContextUpdateMute(context);
     }
 }
 
@@ -246,7 +246,7 @@ float malContextGetGain(const MalContext *context) {
 void malContextSetGain(MalContext *context, float gain) {
     if (context) {
         context->gain = gain;
-        _malContextSetGain(context, gain);
+        _malContextUpdateGain(context);
     }
 }
 
@@ -527,7 +527,7 @@ void malPlayerSetMute(MalPlayer *player, bool mute) {
     if (player) {
         MAL_LOCK(player);
         player->mute = mute;
-        _malPlayerSetMute(player, mute);
+        _malPlayerUpdateMute(player);
         MAL_UNLOCK(player);
     }
 }
@@ -540,7 +540,7 @@ void malPlayerSetGain(MalPlayer *player, float gain) {
     if (player) {
         MAL_LOCK(player);
         player->gain = gain;
-        _malPlayerSetGain(player, gain);
+        _malPlayerUpdateGain(player);
         MAL_UNLOCK(player);
     }
 }

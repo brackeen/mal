@@ -1,7 +1,7 @@
 /*
  Mal
  https://github.com/brackeen/mal
- Copyright (c) 2014-2017 David Brackeen
+ Copyright (c) 2014-2018 David Brackeen
 
  Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
  associated documentation files (the "Software"), to deal in the Software without restriction,
@@ -106,14 +106,13 @@ static bool _malContextSetActive(MalContext *context, bool active) {
     return true;
 }
 
-static void _malContextSetMute(MalContext *context, bool mute) {
-    (void)mute;
-    _malContextSetGain(context, context->gain);
+static void _malContextUpdateMute(MalContext *context) {
+    _malContextUpdateGain(context);
 }
 
-static void _malContextSetGain(MalContext *context, float gain) {
+static void _malContextUpdateGain(MalContext *context) {
     if (context->data.contextId) {
-        float totalGain = context->mute ? 0.0f : gain;
+        float totalGain = context->mute ? 0.0f : context->gain;
         EM_ASM_ARGS({
             malContexts[$0].outputNode.gain.value = $1;
         }, context->data.contextId, totalGain);
@@ -248,15 +247,14 @@ static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer) {
     }
 }
 
-static void _malPlayerSetMute(MalPlayer *player, bool mute) {
-    (void)mute;
-    _malPlayerSetGain(player, player->gain);
+static void _malPlayerUpdateMute(MalPlayer *player) {
+    _malPlayerUpdateGain(player);
 }
 
-static void _malPlayerSetGain(MalPlayer *player, float gain) {
+static void _malPlayerUpdateGain(MalPlayer *player) {
     MalContext *context = player->context;
     if (context && context->data.contextId && player->data.playerId) {
-        float totalGain = player->mute ? 0.0f : gain;
+        float totalGain = player->mute ? 0.0f : player->gain;
         EM_ASM_ARGS({
             var player = malContexts[$0].players[$1];
             if (player && player.gainNode) {
@@ -350,7 +348,7 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState,
                 } catch (e) { }
             }
         }, context->data.contextId, player->data.playerId, player->buffer->data.bufferId);
-        _malPlayerSetGain(player, player->gain);
+        _malPlayerUpdateGain(player);
         _malPlayerSetLooping(player, player->looping);
         int success = EM_ASM_INT({
             var contextData = malContexts[$0];

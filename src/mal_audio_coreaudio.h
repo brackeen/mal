@@ -1,7 +1,7 @@
 /*
  Mal
  https://github.com/brackeen/mal
- Copyright (c) 2014-2017 David Brackeen
+ Copyright (c) 2014-2018 David Brackeen
 
  Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
  associated documentation files (the "Software"), to deal in the Software without restriction,
@@ -213,7 +213,7 @@ static bool _malContextInit(MalContext *context, void *androidActivity,
     }
 
     // Set output volume
-    _malContextSetGain(context, context->gain);
+    _malContextUpdateGain(context);
 
     // Init
     status = AUGraphInitialize(context->data.graph);
@@ -245,8 +245,7 @@ static void _malContextReset(MalContext *context) {
     MAL_LOCK(context);
     _malContextDispose(context);
     _malContextInit(context, NULL, NULL);
-    _malContextSetMute(context, context->mute);
-    _malContextSetGain(context, context->gain);
+    _malContextUpdateGain(context);
     MAL_UNLOCK(context);
     malContextSetActive(context, active);
     ok_vec_foreach(&context->players, MalPlayer *player) {
@@ -254,8 +253,7 @@ static void _malContextReset(MalContext *context) {
         if (!success) {
             MAL_LOG("Couldn't reset player");
         } else {
-            _malPlayerSetMute(player, player->mute);
-            _malPlayerSetGain(player, player->gain);
+            _malPlayerUpdateGain(player);
             _malPlayerSetFormat(player, player->format);
             if (player->data.state == MAL_PLAYER_STATE_PLAYING) {
                 player->data.state = MAL_PLAYER_STATE_STOPPED;
@@ -305,12 +303,12 @@ static bool _malContextSetActive(MalContext *context, bool active) {
     return status == noErr;
 }
 
-static void _malContextSetMute(MalContext *context, bool mute) {
-    _malContextSetGain(context, context->gain);
+static void _malContextUpdateMute(MalContext *context) {
+    _malContextUpdateGain(context);
 }
 
-static void _malContextSetGain(MalContext *context, float gain) {
-    float totalGain = context->mute ? 0.0f : gain;
+static void _malContextUpdateGain(MalContext *context) {
+    float totalGain = context->mute ? 0.0f : context->gain;
     OSStatus status = AudioUnitSetParameter(context->data.mixerUnit,
                                             kMultiChannelMixerParam_Volume,
                                             kAudioUnitScope_Output,
@@ -654,13 +652,13 @@ static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer) {
     return true;
 }
 
-static void _malPlayerSetMute(MalPlayer *player, bool mute) {
-    _malPlayerSetGain(player, player->gain);
+static void _malPlayerUpdateMute(MalPlayer *player) {
+    _malPlayerUpdateGain(player);
 }
 
-static void _malPlayerSetGain(MalPlayer *player, float gain) {
+static void _malPlayerUpdateGain(MalPlayer *player) {
     if (player && player->context && player->context->data.mixerUnit) {
-        float totalGain = player->mute ? 0.0f : gain;
+        float totalGain = player->mute ? 0.0f : player->gain;
         OSStatus status = AudioUnitSetParameter(player->context->data.mixerUnit,
                                                 kMultiChannelMixerParam_Volume,
                                                 kAudioUnitScope_Input,

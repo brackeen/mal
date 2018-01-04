@@ -232,9 +232,6 @@ struct _MalPlayer {
 #define MAL_USE_MUTEX
 #include "mal_audio_abstract.h"
 
-static void _malPlayerUpdateMute(MalPlayer *player);
-static void _malPlayerUpdateGain(MalPlayer *player);
-
 // MARK: Context
 
 static void _malPulseAudioOperationWait(pa_threaded_mainloop *mainloop, pa_operation *operation) {
@@ -351,13 +348,11 @@ static bool _malContextSetActive(MalContext *context, bool active) {
     return true;
 }
 
-static void _malContextSetMute(MalContext *context, bool mute) {
-    (void)mute;
+static void _malContextUpdateMute(MalContext *context) {
     ok_vec_apply(&context->players, _malPlayerUpdateMute);
 }
 
-static void _malContextSetGain(MalContext *context, float gain) {
-    (void)gain;
+static void _malContextUpdateGain(MalContext *context) {
     ok_vec_apply(&context->players, _malPlayerUpdateGain);
 }
 
@@ -627,7 +622,8 @@ quit:
     pa_threaded_mainloop_unlock(pa->mainloop);
 
     if (player->data.stream) {
-        _malPlayerSetGain(player, player->gain);
+        _malPlayerUpdateMute(player);
+        _malPlayerUpdateGain(player);
         _malPlayerSetBuffer(player, player->buffer);
     }
 
@@ -671,14 +667,6 @@ static void _malPlayerUpdateGain(MalPlayer *player) {
                                                             NULL, NULL));
         pa_threaded_mainloop_unlock(pa->mainloop);
     }
-}
-
-static void _malPlayerSetMute(MalPlayer *player, bool mute) {
-    _malPlayerUpdateMute(player);
-}
-
-static void _malPlayerSetGain(MalPlayer *player, float gain) {
-    _malPlayerUpdateGain(player);
 }
 
 static void _malPlayerSetLooping(MalPlayer *player, bool looping) {

@@ -1,7 +1,7 @@
 /*
  Mal
  https://github.com/brackeen/mal
- Copyright (c) 2014-2017 David Brackeen
+ Copyright (c) 2014-2018 David Brackeen
 
  Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
  associated documentation files (the "Software"), to deal in the Software without restriction,
@@ -189,13 +189,12 @@ static bool _malContextSetActive(MalContext *context, bool active) {
     }
 }
 
-static void _malContextSetMute(MalContext *context, bool mute) {
-    (void)mute;
-    _malContextSetGain(context, context->gain);
+static void _malContextUpdateMute(MalContext *context) {
+    _malContextUpdateGain(context);
 }
 
-static void _malContextSetGain(MalContext *context, float gain) {
-    float totalGain = context->mute ? 0.0f : gain;
+static void _malContextUpdateGain(MalContext *context) {
+    float totalGain = context->mute ? 0.0f : context->gain;
     context->data.masteringVoice->SetVolume(totalGain);
 }
 
@@ -354,7 +353,7 @@ static bool _malPlayerSetFormat(MalPlayer *player, MalFormat format) {
     }
 
     if (success) {
-        _malPlayerSetGain(player, player->gain);
+        _malPlayerUpdateGain(player);
         _malPlayerSetBuffer(player, player->buffer);
     }
     return success;
@@ -381,14 +380,13 @@ static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer) {
     }
 }
 
-static void _malPlayerSetMute(MalPlayer *player, bool mute) {
-    (void)mute;
-    _malPlayerSetGain(player, player->gain);
+static void _malPlayerUpdateMute(MalPlayer *player) {
+    _malPlayerUpdateGain(player);
 }
 
-static void _malPlayerSetGain(MalPlayer *player, float gain) {
+static void _malPlayerUpdateGain(MalPlayer *player) {
     if (player->data.sourceVoice) {
-        float totalGain = player->mute ? 0.0f : gain;
+        float totalGain = player->mute ? 0.0f : player->gain;
         player->data.sourceVoice->SetVolume(totalGain);
     }
 }

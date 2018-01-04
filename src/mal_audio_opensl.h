@@ -1,7 +1,7 @@
 /*
  Mal
  https://github.com/brackeen/mal
- Copyright (c) 2014-2017 David Brackeen
+ Copyright (c) 2014-2018 David Brackeen
 
  Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
  associated documentation files (the "Software"), to deal in the Software without restriction,
@@ -71,8 +71,6 @@ struct _MalPlayer {
 #define MAL_USE_MUTEX
 #include "mal_audio_abstract.h"
 #include <math.h>
-
-static void _malPlayerUpdateGain(MalPlayer *player);
 
 // MARK: Context
 
@@ -243,8 +241,8 @@ static bool _malContextSetActive(MalContext *context, bool active) {
             if (active) {
                 if (!player->data.slObject) {
                     malPlayerSetFormat(player, player->format);
-                    _malPlayerSetGain(player, player->gain);
-                    _malPlayerSetMute(player, player->mute);
+                    _malPlayerUpdateMute(player);
+                    _malPlayerUpdateGain(player);
                 } else if (player->data.backgroundPaused &&
                            malPlayerGetState(player) == MAL_PLAYER_STATE_PAUSED) {
                     malPlayerSetState(player, MAL_PLAYER_STATE_PLAYING);
@@ -273,13 +271,11 @@ static bool _malContextSetActive(MalContext *context, bool active) {
     return true;
 }
 
-static void _malContextSetMute(MalContext *context, bool mute) {
-    (void)mute;
-    ok_vec_apply(&context->players, _malPlayerUpdateGain);
+static void _malContextUpdateMute(MalContext *context) {
+    ok_vec_apply(&context->players, _malPlayerUpdateMute);
 }
 
-static void _malContextSetGain(MalContext *context, float gain) {
-    (void)gain;
+static void _malContextUpdateGain(MalContext *context) {
     ok_vec_apply(&context->players, _malPlayerUpdateGain);
 }
 
@@ -347,24 +343,24 @@ static void _malBufferQueueCallback(SLBufferQueueItf queue, void *voidPlayer) {
     }
 }
 
+static void _malPlayerUpdateMute(MalPlayer *player) {
+    if (player && player->context && player->data.slVolume) {
+        bool mute = player->mute || player->context->mute;
+        (*player->data.slVolume)->SetMute(player->data.slVolume,
+                                          mute ? SL_BOOLEAN_TRUE : SL_BOOLEAN_FALSE);
+    }
+}
+
 static void _malPlayerUpdateGain(MalPlayer *player) {
     if (player && player->context && player->data.slVolume) {
-        float gain = 0;
-        if (!player->context->mute && !player->mute) {
-            gain = player->context->gain * player->gain;
+        float gain = player->context->gain * player->gain;
+        SLmillibel millibelVolume = (SLmillibel)lroundf(2000 * log10f(gain));
+        if (millibelVolume < SL_MILLIBEL_MIN) {
+            millibelVolume = SL_MILLIBEL_MIN;
+        } else if (millibelVolume > 0) {
+            millibelVolume = 0;
         }
-        if (gain <= 0) {
-            (*player->data.slVolume)->SetMute(player->data.slVolume, SL_BOOLEAN_TRUE);
-        } else {
-            SLmillibel millibelVolume = (SLmillibel)lroundf(2000 * log10f(gain));
-            if (millibelVolume < SL_MILLIBEL_MIN) {
-                millibelVolume = SL_MILLIBEL_MIN;
-            } else if (millibelVolume > 0) {
-                millibelVolume = 0;
-            }
-            (*player->data.slVolume)->SetVolumeLevel(player->data.slVolume, millibelVolume);
-            (*player->data.slVolume)->SetMute(player->data.slVolume, SL_BOOLEAN_FALSE);
-        }
+        (*player->data.slVolume)->SetVolumeLevel(player->data.slVolume, millibelVolume);
     }
 }
 
@@ -480,6 +476,7 @@ static bool _malPlayerSetFormat(MalPlayer *player, MalFormat format) {
     }
 
     player->format = format;
+    _malPlayerUpdateMute(player);
     _malPlayerUpdateGain(player);
     return true;
 }
@@ -489,16 +486,6 @@ static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer) {
     (void)buffer;
     // Do nothing
     return true;
-}
-
-static void _malPlayerSetMute(MalPlayer *player, bool mute) {
-    (void)mute;
-    _malPlayerUpdateGain(player);
-}
-
-static void _malPlayerSetGain(MalPlayer *player, float gain) {
-    (void)gain;
-    _malPlayerUpdateGain(player);
 }
 
 static void _malPlayerSetLooping(MalPlayer *player, bool looping) {
