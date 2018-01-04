@@ -1,7 +1,7 @@
 /*
  Mal
  https://github.com/brackeen/mal
- Copyright (c) 2014-2017 David Brackeen
+ Copyright (c) 2014-2018 David Brackeen
 
  Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
  associated documentation files (the "Software"), to deal in the Software without restriction,
@@ -23,6 +23,34 @@
 #include <TargetConditionals.h>
 #endif
 #if TARGET_OS_OSX
+
+#ifdef USE_PULSEAUDIO
+
+#include "mal_audio_pulseaudio.h"
+
+static void _malContextCheckRoutes(MalContext *context) {
+    (void)context;
+    // Do nothing
+}
+
+static void _malContextDidCreate(MalContext *context) {
+    (void)context;
+    // Do nothing
+}
+
+static void _malContextWillDispose(MalContext *context) {
+    (void)context;
+    // Do nothing
+}
+
+static void _malContextDidSetActive(MalContext *context, bool active) {
+    (void)context;
+    (void)active;
+    // Do nothing
+}
+
+#else
+
 #include <IOKit/audio/IOAudioTypes.h> // For terminal types
 #include "mal_audio_coreaudio.h"
 
@@ -396,5 +424,7 @@ static void _malContextWillDispose(MalContext *context) {
 static void _malContextDidSetActive(MalContext *context, bool active) {
     // Do nothing
 }
+
+#endif
 
 #endif
