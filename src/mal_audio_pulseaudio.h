@@ -227,6 +227,7 @@ struct _MalPlayer {
     uint32_t nextFrame;
     MalPlayerState state;
     MalStreamState streamState;
+    bool backgroundPaused;
 };
 
 #define MAL_USE_MUTEX
@@ -341,9 +342,39 @@ static void _malContextDispose(MalContext *context) {
 
 static bool _malContextSetActive(MalContext *context, bool active) {
     if (context->active != active) {
-        // TODO: When inactive, pause running streams, release stopped streams.
+        // When inactive, pause running streams, release stopped streams.
         // NOTE: Playback streams are a limited system-wide resource (32 on PulseAudio 4.0 and
         // older, 256 on PulseAudio 5.0 and newer).
+        ok_vec_foreach(&context->players, MalPlayer *player) {
+            if (active) {
+                if (!player->data.stream) {
+                    malPlayerSetFormat(player, player->format);
+                    _malPlayerUpdateMute(player);
+                    _malPlayerUpdateGain(player);
+                } else if (player->data.backgroundPaused &&
+                           malPlayerGetState(player) == MAL_PLAYER_STATE_PAUSED) {
+                    malPlayerSetState(player, MAL_PLAYER_STATE_PLAYING);
+                }
+                player->data.backgroundPaused = false;
+            } else {
+                switch (malPlayerGetState(player)) {
+                    case MAL_PLAYER_STATE_STOPPED:
+                        MAL_LOCK(player);
+                        _malPlayerDispose(player);
+                        MAL_UNLOCK(player);
+                        player->data.backgroundPaused = false;
+                        break;
+                    case MAL_PLAYER_STATE_PAUSED:
+                        player->data.backgroundPaused = false;
+                        break;
+                    case MAL_PLAYER_STATE_PLAYING: {
+                        bool success = malPlayerSetState(player, MAL_PLAYER_STATE_PAUSED);
+                        player->data.backgroundPaused = success;
+                        break;
+                    }
+                }
+            }
+        }
     }
     return true;
 }
