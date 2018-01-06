@@ -472,7 +472,13 @@ void malPlayerSetFinishedFunc(MalPlayer *player, malPlaybackFinishedFunc onFinis
         MAL_LOCK_GLOBAL();
         if (!globalActiveCallbacks) {
             globalActiveCallbacks = (MalCallbackMap *)malloc(sizeof(MalCallbackMap));
-            ok_map_init_custom(globalActiveCallbacks, ok_uint32_hash, ok_32bit_equals);
+            if (globalActiveCallbacks == NULL ||
+                !ok_map_init_custom(globalActiveCallbacks, ok_uint32_hash, ok_32bit_equals)) {
+                // Failure
+                free(globalActiveCallbacks);
+                MAL_UNLOCK_GLOBAL();
+                return;
+            }
         }
         MalCallbackId oldOnFinishedId;
         MalCallbackId newOnFinishedId;

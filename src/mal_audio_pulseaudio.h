@@ -22,10 +22,14 @@
 #ifndef MAL_AUDIO_PULSEAUDIO_H
 #define MAL_AUDIO_PULSEAUDIO_H
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Weverything"
-#include <pulse/pulseaudio.h>
-#pragma clang diagnostic pop
+#ifdef __clang__
+#  pragma clang diagnostic push
+#  pragma clang diagnostic ignored "-Weverything"
+#  include <pulse/pulseaudio.h>
+#  pragma clang diagnostic pop
+#else
+#  include <pulse/pulseaudio.h>
+#endif
 
 #ifdef NDEBUG
 #  define MAL_LOG(...) do { } while(0)
@@ -243,12 +247,14 @@ static void _malPulseAudioOperationWait(pa_threaded_mainloop *mainloop, pa_opera
 }
 
 static void _malPulseAudioContextStateCallback(pa_context *context, void *userData) {
+    (void)context;
     pa_threaded_mainloop *mainloop = userData;
     pa_threaded_mainloop_signal(mainloop, 0);
 }
 
 static void _malPulseAudioServerInfoCallback(pa_context *c, const pa_server_info *info,
                                              void *userData) {
+    (void)c;
     struct MalContext *context = userData;
     if (info) {
         context->actualSampleRate = info->sample_spec.rate;
@@ -404,6 +410,7 @@ void malContextPollEvents(MalContext *context) {
 static bool _malBufferInit(MalContext *context, MalBuffer *buffer,
                            const void *copiedData, void *managedData,
                            const malDeallocatorFunc dataDeallocator) {
+    (void)context;
     if (managedData) {
         buffer->managedData = managedData;
         buffer->managedDataDeallocator = dataDeallocator;
@@ -429,16 +436,20 @@ static void _malBufferDispose(MalBuffer *buffer) {
 // MARK: Player
 
 static void _malStreamStateCallback(pa_stream *stream, void *userData) {
+    (void)stream;
     pa_threaded_mainloop *mainloop = userData;
     pa_threaded_mainloop_signal(mainloop, 0);
 }
 
 static void _malStreamSuccessCallback(pa_stream *stream, int success, void *userData) {
+    (void)stream;
+    (void)success;
     pa_threaded_mainloop *mainloop = userData;
     pa_threaded_mainloop_signal(mainloop, 0);
 }
 
 static void _malStreamUnderflowCallback(pa_stream *stream, void *userData) {
+    (void)stream;
     MalPlayer *player = userData;
     MAL_LOCK(player);
     if (player->data.streamState == MAL_STREAM_DRAINING) {
