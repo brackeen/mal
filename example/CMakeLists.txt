@@ -1,7 +1,7 @@
 if (CMAKE_SYSTEM_NAME MATCHES "Windows")
     cmake_minimum_required(VERSION 3.6.0)
 else()
-    cmake_minimum_required(VERSION 3.5.0)
+    cmake_minimum_required(VERSION 3.2.0)
 endif()
 
 if ((CMAKE_SYSTEM_NAME MATCHES "Emscripten") OR
@@ -47,6 +47,8 @@ elseif ((CMAKE_SYSTEM_NAME MATCHES "Darwin") OR (CMAKE_SYSTEM_NAME MATCHES "Wind
         set_target_properties(glfw PROPERTIES
             XCODE_ATTRIBUTE_MACOSX_DEPLOYMENT_TARGET 10.7
         )
+    elseif (CMAKE_SYSTEM_NAME MATCHES "Linux")
+        set_target_properties(mal_example PROPERTIES COMPILE_FLAGS "-std=gnu99")
     endif()
 
     if (CMAKE_C_COMPILER_ID MATCHES "MSVC")
