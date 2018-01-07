@@ -16,7 +16,6 @@
 #include "file_compat.h"
 
 #define kMaxPlayers 16
-#define kTestFreeBufferDuringPlayback 0
 #define kTestAudioPause 0
 
 typedef struct {
@@ -35,15 +34,7 @@ static void onFinished(MalPlayer *player, void *userData) {
 }
 
 static void playSound(MalApp *app, MalBuffer *buffer, float gain) {
-#if kTestFreeBufferDuringPlayback
-    // This is useful to test buffer freeing during playback
-    if (app->buffer) {
-        malBufferFree(app->buffer[0]);
-        malBufferFree(app->buffer[1]);
-        app->buffer[0] = NULL;
-        app->buffer[1] = NULL;
-    }
-#elif kTestAudioPause
+#if kTestAudioPause
     for (int i = 0; i < kMaxPlayers; i++) {
         if (app->players[i]) {
             MalPlayerState state = malPlayerGetState(app->players[i]);
