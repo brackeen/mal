@@ -25,7 +25,7 @@ typedef struct {
     MalPlayer *players[kMaxPlayers];
 } MalApp;
 
-static void onFinished(void *userData, MalPlayer *player) {
+static void onFinished(MalPlayer *player, void *userData) {
     MalApp *app = userData;
     for (int i = 0; i < kMaxPlayers; i++) {
         if (player == app->players[i]) {

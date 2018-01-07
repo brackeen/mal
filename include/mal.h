@@ -69,7 +69,7 @@ typedef struct MalBuffer MalBuffer;
 typedef struct MalPlayer MalPlayer;
 
 typedef void (*malDeallocatorFunc)(void *);
-typedef void (*malPlaybackFinishedFunc)(void *userData, MalPlayer *player);
+typedef void (*malPlaybackFinishedFunc)(MalPlayer *player, void *userData);
 
 /**
  * The value to use in the #malContextCreate() call to use the default platform sample rate.

@@ -521,7 +521,7 @@ static void _malHandleOnFinishedCallback(MalCallbackId onFinishedId) {
     MAL_UNLOCK_GLOBAL();
     // Send callback
     if (player && player->onFinished) {
-        player->onFinished(player->onFinishedUserData, player);
+        player->onFinished(player, player->onFinishedUserData);
     }
 }
 
