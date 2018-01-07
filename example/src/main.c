@@ -22,10 +22,10 @@ typedef struct {
     MalContext *context;
     MalBuffer *buffer[2];
     MalPlayer *players[kMaxPlayers];
-} MalApp;
+} ExampleApp;
 
 static void onFinished(MalPlayer *player, void *userData) {
-    MalApp *app = userData;
+    ExampleApp *app = userData;
     for (int i = 0; i < kMaxPlayers; i++) {
         if (player == app->players[i]) {
             printf("FINISHED player=%i\n", i);
@@ -33,7 +33,7 @@ static void onFinished(MalPlayer *player, void *userData) {
     }
 }
 
-static void playSound(MalApp *app, MalBuffer *buffer, float gain) {
+static void playSound(ExampleApp *app, MalBuffer *buffer, float gain) {
 #if kTestAudioPause
     for (int i = 0; i < kMaxPlayers; i++) {
         if (app->players[i]) {
@@ -68,7 +68,7 @@ static void playSound(MalApp *app, MalBuffer *buffer, float gain) {
 #endif
 }
 
-static bool malExampleInit(MalApp *app) {
+static bool malExampleInit(ExampleApp *app) {
     void *androidActivity = NULL;
 #if defined(MAL_EXAMPLE_WITH_GLFM) && defined(__ANDROID__)
     androidActivity = glfmAndroidGetActivity();
@@ -134,7 +134,7 @@ static bool malExampleInit(MalApp *app) {
     return true;
 }
 
-static void malExampleFree(MalApp *app) {
+static void malExampleFree(ExampleApp *app) {
     malBufferFree(app->buffer[0]);
     malBufferFree(app->buffer[1]);
     for (int i = 0; i < kMaxPlayers; i++) {
@@ -150,12 +150,12 @@ static void malExampleFree(MalApp *app) {
 
 // Be a good app citizen - set Mal to inactive when pausing.
 static void onAppPause(GLFMDisplay *display) {
-    MalApp *app = glfmGetUserData(display);
+    ExampleApp *app = glfmGetUserData(display);
     malContextSetActive(app->context, false);
 }
 
 static void onAppResume(GLFMDisplay *display) {
-    MalApp *app = glfmGetUserData(display);
+    ExampleApp *app = glfmGetUserData(display);
     malContextSetActive(app->context, true);
 }
 
@@ -163,7 +163,7 @@ static bool onTouch(GLFMDisplay *display, int touch, GLFMTouchPhase phase, doubl
     if (phase == GLFMTouchPhaseBegan) {
         int width, height;
         glfmGetDisplaySize(display, &width, &height);
-        MalApp *app = glfmGetUserData(display);
+        ExampleApp *app = glfmGetUserData(display);
         int index = x < width / 2 ? 0 : 1;
         playSound(app, app->buffer[index], 0.05f + 0.60f * (height - (float)y) / height);
     }
@@ -180,7 +180,7 @@ static void onFrame(GLFMDisplay *display, double frameTime) {
 }
 
 void glfmMain(GLFMDisplay *display) {
-    MalApp *app = calloc(1, sizeof(MalApp));
+    ExampleApp *app = calloc(1, sizeof(ExampleApp));
 
     bool success = malExampleInit(app);
     if (!success) {
@@ -209,7 +209,7 @@ static void onError(int error, const char *description) {
 }
 
 static void onFocusChange(GLFWwindow *window, int focused) {
-    MalApp *app = glfwGetWindowUserPointer(window);
+    ExampleApp *app = glfwGetWindowUserPointer(window);
     malContextSetActive(app->context, focused == GLFW_TRUE);
 }
 
@@ -221,7 +221,7 @@ static void onMouseClick(GLFWwindow *window, int button, int action, int mods) {
         double x, y;
         glfwGetCursorPos(window, &x, &y);
 
-        MalApp *app = glfwGetWindowUserPointer(window);
+        ExampleApp *app = glfwGetWindowUserPointer(window);
         int index = x < viewWidth / 2 ? 0 : 1;
         playSound(app, app->buffer[index], 0.05f + 0.60f * (viewHeight - (float)y) / viewHeight);
     }
@@ -244,7 +244,7 @@ int main(void) {
     gladLoadGLLoader((GLADloadproc) glfwGetProcAddress);
     glfwSwapInterval(1);
 
-    MalApp *app = calloc(1, sizeof(MalApp));
+    ExampleApp *app = calloc(1, sizeof(ExampleApp));
     malExampleInit(app);
     glfwSetWindowUserPointer(window, app);
     glfwSetWindowFocusCallback(window, onFocusChange);
