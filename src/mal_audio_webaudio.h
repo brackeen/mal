@@ -285,7 +285,7 @@ static void _malPlayerUpdateGain(MalPlayer *player) {
     }
 }
 
-static void _malPlayerSetLooping(MalPlayer *player, bool looping) {
+static bool _malPlayerSetLooping(MalPlayer *player, bool looping) {
     MalContext *context = player->context;
     if (context && context->data.contextId && player->data.playerId) {
         EM_ASM_ARGS({
@@ -295,6 +295,7 @@ static void _malPlayerSetLooping(MalPlayer *player, bool looping) {
             }
         }, context->data.contextId, player->data.playerId, looping);
     }
+    return true;
 }
 
 static MalPlayerState _malPlayerGetState(const MalPlayer *player) {

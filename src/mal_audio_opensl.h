@@ -490,10 +490,11 @@ static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer) {
     return true;
 }
 
-static void _malPlayerSetLooping(MalPlayer *player, bool looping) {
+static bool _malPlayerSetLooping(MalPlayer *player, bool looping) {
     (void)player;
     (void)looping;
     // Do nothing
+    return true;
 }
 
 static MalPlayerState _malPlayerGetState(const MalPlayer *player) {

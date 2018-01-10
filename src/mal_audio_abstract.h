@@ -86,7 +86,7 @@ static bool _malPlayerSetFormat(MalPlayer *player, MalFormat format);
 static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer);
 static void _malPlayerUpdateMute(MalPlayer *player);
 static void _malPlayerUpdateGain(MalPlayer *player);
-static void _malPlayerSetLooping(MalPlayer *player, bool looping);
+static bool _malPlayerSetLooping(MalPlayer *player, bool looping);
 static void _malPlayerDidSetFinishedCallback(MalPlayer *player);
 static MalPlayerState _malPlayerGetState(const MalPlayer *player);
 static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPlayerState state);
@@ -558,10 +558,15 @@ bool malPlayerIsLooping(const MalPlayer *player) {
     return player ? player->looping : false;
 }
 
-void malPlayerSetLooping(MalPlayer *player, bool looping) {
-    if (player) {
-        atomic_store(&player->looping, looping);
-        _malPlayerSetLooping(player, looping);
+bool malPlayerSetLooping(MalPlayer *player, bool looping) {
+    if (!player) {
+        return false;
+    } else {
+        bool success = _malPlayerSetLooping(player, looping);
+        if (success) {
+            atomic_store(&player->looping, looping);
+        }
+        return success;
     }
 }
 

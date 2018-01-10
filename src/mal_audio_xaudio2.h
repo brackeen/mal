@@ -396,15 +396,20 @@ static void _malPlayerUpdateGain(MalPlayer *player) {
     }
 }
 
-static void _malPlayerSetLooping(MalPlayer *player, bool looping) {
+static bool _malPlayerSetLooping(MalPlayer *player, bool looping) {
     if (_malPlayerGetState(player) == MAL_PLAYER_STATE_STOPPED) {
+        atomic_store(&player->looping, looping);
         _malPlayerSetBuffer(player, player->buffer);
+        return true;
     } else if (player->data.sourceVoice) {
         if (looping) {
-            // TODO: Return failure - can't enable looping on an already playing sound
+            return false;
         } else {
             player->data.sourceVoice->ExitLoop();
+            return true;
         }
+    } else {
+        return false;
     }
 }
 

@@ -676,8 +676,11 @@ static void _malPlayerUpdateGain(MalPlayer *player) {
     }
 }
 
-static void _malPlayerSetLooping(MalPlayer *player, bool looping) {
+static bool _malPlayerSetLooping(MalPlayer *player, bool looping) {
+    (void)player;
+    (void)looping;
     // Do nothing
+    return true;
 }
 
 static MalPlayerState _malPlayerGetState(const MalPlayer *player) {

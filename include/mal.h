@@ -423,10 +423,14 @@ bool malPlayerIsLooping(const MalPlayer *player);
 /**
  * Sets the looping state for the player.
  *
+ * On Windows, this function will fail is `looping` is `true` and the player is not in the
+ * #MAL_PLAYER_STATE_STOPPED state.
+ *
  * @param player The player. If `NULL`, this function does nothing.
  * @param looping The looping state. Set to `true` to loop, `false` otherwise.
+ * @return `true` if successful.
  */
-void malPlayerSetLooping(MalPlayer *player, bool looping);
+bool malPlayerSetLooping(MalPlayer *player, bool looping);
 
 /**
  * Gets the state of the player.
