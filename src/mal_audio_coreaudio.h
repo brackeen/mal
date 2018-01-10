@@ -418,9 +418,9 @@ static void _malHandleOnFinished(void *userData) {
     _malHandleOnFinishedCallback(onFinishedId);
 }
 
-static OSStatus audioRenderCallback(void *userData, AudioUnitRenderActionFlags *flags,
-                                    const AudioTimeStamp *timestamp, UInt32 bus,
-                                    UInt32 inFrames, AudioBufferList *data) {
+static OSStatus _malPlayerRenderCallback(void *userData, AudioUnitRenderActionFlags *flags,
+                                         const AudioTimeStamp *timestamp, UInt32 bus,
+                                         UInt32 inFrames, AudioBufferList *data) {
     MalPlayer *player = userData;
 
     MAL_LOCK(player);
@@ -726,7 +726,7 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPl
 
             AURenderCallbackStruct renderCallback;
             memset(&renderCallback, 0, sizeof(renderCallback));
-            renderCallback.inputProc = audioRenderCallback;
+            renderCallback.inputProc = _malPlayerRenderCallback;
             renderCallback.inputProcRefCon = player;
             AUGraphSetNodeInputCallback(player->context->data.graph,
                                         player->data.converterNode,

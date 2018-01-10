@@ -321,7 +321,7 @@ static void _malBufferDispose(MalBuffer *buffer) {
 // The Android team recommends "non-blocking synchronization", but the lock will be uncontended in
 // most cases.
 // Also, Chromium has locks in their OpenSLES-based audio implementation.
-static void _malBufferQueueCallback(SLBufferQueueItf queue, void *voidPlayer) {
+static void _malPlayerRenderCallback(SLBufferQueueItf queue, void *voidPlayer) {
     MalPlayer *player = (MalPlayer *)voidPlayer;
     if (player && queue) {
         MAL_LOCK(player);
@@ -465,7 +465,7 @@ static bool _malPlayerSetFormat(MalPlayer *player, MalFormat format) {
 
     // Register buffer queue callback
     result = (*player->data.slBufferQueue)->RegisterCallback(player->data.slBufferQueue,
-                                                             _malBufferQueueCallback, player);
+                                                             _malPlayerRenderCallback, player);
     if (result != SL_RESULT_SUCCESS) {
         _malPlayerDispose(player);
         return false;

@@ -451,7 +451,7 @@ static void _malStreamSuccessCallback(pa_stream *stream, int success, void *user
     pa_threaded_mainloop_signal(mainloop, 0);
 }
 
-static void _malStreamUnderflowCallback(pa_stream *stream, void *userData) {
+static void _malPlayerUnderflowCallback(pa_stream *stream, void *userData) {
     (void)stream;
     MalPlayer *player = userData;
     MAL_LOCK(player);
@@ -472,7 +472,7 @@ static void _malStreamUnderflowCallback(pa_stream *stream, void *userData) {
     MAL_UNLOCK(player);
 }
 
-static void _malStreamWriteCallback(pa_stream *stream, size_t length, void *userData) {
+static void _malPlayerRenderCallback(pa_stream *stream, size_t length, void *userData) {
     MalPlayer *player = userData;
     MAL_LOCK(player);
     if (player->data.streamState == MAL_STREAM_DRAINING ||
@@ -659,8 +659,8 @@ static bool _malPlayerSetFormat(MalPlayer *player, MalFormat format) {
         goto quit;
     }
 
-    pa_stream_set_write_callback(stream, _malStreamWriteCallback, player);
-    pa_stream_set_underflow_callback(stream, _malStreamUnderflowCallback, player);
+    pa_stream_set_write_callback(stream, _malPlayerRenderCallback, player);
+    pa_stream_set_underflow_callback(stream, _malPlayerUnderflowCallback, player);
     player->data.stream = stream;
 
 quit:
