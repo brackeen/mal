@@ -214,7 +214,6 @@ static void _malLooperPost(int pipe, struct looperMessage *msg) {
 
 static bool _malContextSetActive(MalContext *context, bool active) {
     if (context->active != active) {
-        context->active = active;
 
 #if defined(__ANDROID__)
         if (active) {

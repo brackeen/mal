@@ -268,7 +268,6 @@ static bool _malContextSetActive(MalContext *context, bool active) {
         return true;
     }
     OSStatus status;
-    context->active = active;
     if (active) {
         Boolean running = false;
         AUGraphIsRunning(context->data.graph, &running);
