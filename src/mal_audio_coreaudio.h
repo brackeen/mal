@@ -32,7 +32,7 @@
 #endif
 
 struct _MalRamp {
-    int value; // -1 for fade out, 1 for fade in, 0 for no fade
+    _Atomic(int) value; // -1 for fade out, 1 for fade in, 0 for no fade
     uint32_t frames;
     uint32_t framesPosition;
 };
@@ -274,12 +274,12 @@ static bool _malContextSetActive(MalContext *context, bool active) {
         AUGraphIsRunning(context->data.graph, &running);
         if (running) {
             // Hasn't called AUGraphStop yet - do nothing
-            context->data.ramp.value = 0;
+            atomic_store(&context->data.ramp.value, 0);
             status = noErr;
         } else {
             if (!context->data.firstTime && context->data.canRampOutputGain) {
                 // Fade in
-                context->data.ramp.value = 1;
+                atomic_store(&context->data.ramp.value, 1);
                 context->data.ramp.frames = 4096;
                 context->data.ramp.framesPosition = 0;
             }
@@ -289,7 +289,7 @@ static bool _malContextSetActive(MalContext *context, bool active) {
     } else {
         if (context->data.canRampOutputGain) {
             // Fade out
-            context->data.ramp.value = -1;
+            atomic_store(&context->data.ramp.value, -1);
             context->data.ramp.frames = 4096;
             context->data.ramp.framesPosition = 0;
             status = noErr;
@@ -319,6 +319,10 @@ static void _malContextUpdateGain(MalContext *context) {
     if (status != noErr) {
         MAL_LOG("Couldn't set volume (err %i)", (int)status);
     }
+}
+
+static void _malContextSync(MalContext *context) {
+    AUGraphUpdate(context->data.graph, NULL);
 }
 
 static bool _malRamp(MalContext *context, AudioUnitScope scope, AudioUnitElement bus,
@@ -360,10 +364,10 @@ static OSStatus renderNotification(void *userData, AudioUnitRenderActionFlags *f
                                     UInt32 inFrames, AudioBufferList *data) {
     if (*flags & kAudioUnitRenderAction_PreRender) {
         MalContext *context = userData;
-        if (context->data.ramp.value != 0) {
+        if (atomic_load(&context->data.ramp.value) != 0) {
             MAL_LOCK(context);
             // Double-checked locking
-            if (context->data.ramp.value != 0) {
+            if (atomic_load(&context->data.ramp.value) != 0) {
                 bool done = _malRamp(context, kAudioUnitScope_Output, bus,
                                       inFrames, context->gain, &context->data.ramp);
                 if (done && context->active == false && context->data.graph) {
@@ -479,7 +483,7 @@ static OSStatus audioRenderCallback(void *userData, AudioUnitRenderActionFlags *
                 dstRemaining -= copyBytes;
 
                 if (player->data.nextFrame >= player->buffer->numFrames) {
-                    if (player->looping) {
+                    if (atomic_load(&player->looping)) {
                         player->data.nextFrame = 0;
                         src = player->buffer->managedData;
                     } else {
@@ -603,7 +607,6 @@ static bool _malPlayerInit(MalPlayer *player) {
 
 static void _malPlayerDispose(MalPlayer *player) {
     if (player->context && player->data.converterNode) {
-        AudioUnitUninitialize(player->data.converterUnit);
         AUGraphRemoveNode(player->context->data.graph, player->data.converterNode);
         player->data.converterUnit = NULL;
         player->data.converterNode = 0;
@@ -633,12 +636,15 @@ static bool _malPlayerSetFormat(MalPlayer *player, MalFormat format) {
     streamDesc.mBytesPerPacket = streamDesc.mBytesPerFrame;
     streamDesc.mFormatFlags = (kLinearPCMFormatFlagIsSignedInteger |
                                kAudioFormatFlagsNativeEndian | kLinearPCMFormatFlagIsPacked);
+    MAL_LOCK(player);
     OSStatus status = AudioUnitSetProperty(player->data.converterUnit,
                                            kAudioUnitProperty_StreamFormat,
                                            kAudioUnitScope_Input,
                                            0,
                                            &streamDesc,
                                            sizeof(streamDesc));
+    MAL_UNLOCK(player);
+
     if (status != noErr) {
         MAL_LOG("Couldn't set stream format (err %i)", (int)status);
         return false;

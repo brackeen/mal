@@ -69,6 +69,7 @@ static bool _malContextSetActive(MalContext *context, bool active);
 static void _malContextUpdateMute(MalContext *context);
 static void _malContextUpdateGain(MalContext *context);
 static void _malContextCheckRoutes(MalContext *context);
+static void _malContextSync(MalContext *context);
 /**
  Either `copiedData` or `managedData` will be non-null, but not both. If `copiedData` is set,
  the data must be copied (don't keep a reference to `copiedData`).
@@ -134,7 +135,7 @@ struct MalPlayer {
     const MalBuffer *buffer;
     float gain;
     bool mute;
-    bool looping;
+    _Atomic(bool) looping;
 
     malPlaybackFinishedFunc onFinished;
     void *onFinishedUserData;
@@ -270,10 +271,8 @@ void malContextFree(MalContext *context) {
         // Delete players
         ok_vec_foreach(&context->players, MalPlayer *player) {
             malPlayerSetBuffer(player, NULL);
-            MAL_LOCK(player);
             _malPlayerDispose(player);
             player->context = NULL;
-            MAL_UNLOCK(player);
         }
         ok_vec_deinit(&context->players);
 
@@ -422,6 +421,16 @@ MalPlayer *malPlayerCreate(MalContext *context, MalFormat format) {
     return player;
 }
 
+static void _malPlayerStopSynced(MalPlayer *player) {
+    MAL_LOCK(player);
+    MalPlayerState oldState = _malPlayerGetState(player);
+    if (oldState != MAL_PLAYER_STATE_STOPPED) {
+        _malPlayerSetState(player, oldState, MAL_PLAYER_STATE_STOPPED);
+        _malContextSync(player->context);
+    }
+    MAL_UNLOCK(player);
+}
+
 MalFormat malPlayerGetFormat(const MalPlayer *player) {
     if (player) {
         return player->format;
@@ -433,13 +442,11 @@ MalFormat malPlayerGetFormat(const MalPlayer *player) {
 
 bool malPlayerSetFormat(MalPlayer *player, MalFormat format) {
     if (player && malContextIsFormatValid(player->context, format)) {
-        malPlayerSetState(player, MAL_PLAYER_STATE_STOPPED);
-        MAL_LOCK(player);
+        _malPlayerStopSynced(player);
         bool success = _malPlayerSetFormat(player, format);
         if (success) {
             player->format = format;
         }
-        MAL_UNLOCK(player);
         return success;
     }
     return false;
@@ -449,7 +456,7 @@ bool malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer) {
     if (!player) {
         return false;
     } else {
-        malPlayerSetState(player, MAL_PLAYER_STATE_STOPPED);
+        _malPlayerStopSynced(player);
         MAL_LOCK(player);
         bool success = _malPlayerSetBuffer(player, buffer);
         if (success) {
@@ -531,10 +538,8 @@ bool malPlayerGetMute(const MalPlayer *player) {
 
 void malPlayerSetMute(MalPlayer *player, bool mute) {
     if (player) {
-        MAL_LOCK(player);
         player->mute = mute;
         _malPlayerUpdateMute(player);
-        MAL_UNLOCK(player);
     }
 }
 
@@ -544,10 +549,8 @@ float malPlayerGetGain(const MalPlayer *player) {
 
 void malPlayerSetGain(MalPlayer *player, float gain) {
     if (player) {
-        MAL_LOCK(player);
         player->gain = gain;
         _malPlayerUpdateGain(player);
-        MAL_UNLOCK(player);
     }
 }
 
@@ -557,10 +560,8 @@ bool malPlayerIsLooping(const MalPlayer *player) {
 
 void malPlayerSetLooping(MalPlayer *player, bool looping) {
     if (player) {
-        MAL_LOCK(player);
-        player->looping = looping;
+        atomic_store(&player->looping, looping);
         _malPlayerSetLooping(player, looping);
-        MAL_UNLOCK(player);
     }
 }
 
@@ -594,8 +595,8 @@ void malPlayerFree(MalPlayer *player) {
     if (player) {
         malPlayerSetBuffer(player, NULL);
         malPlayerSetFinishedFunc(player, NULL, NULL);
-        MAL_LOCK(player);
         _malPlayerDispose(player);
+        MAL_LOCK(player);
         if (player->context) {
             ok_vec_remove(&player->context->players, player);
             player->context = NULL;

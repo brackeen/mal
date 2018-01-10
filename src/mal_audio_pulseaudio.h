@@ -365,9 +365,7 @@ static bool _malContextSetActive(MalContext *context, bool active) {
             } else {
                 switch (malPlayerGetState(player)) {
                     case MAL_PLAYER_STATE_STOPPED:
-                        MAL_LOCK(player);
                         _malPlayerDispose(player);
-                        MAL_UNLOCK(player);
                         player->data.backgroundPaused = false;
                         break;
                     case MAL_PLAYER_STATE_PAUSED:
@@ -403,6 +401,11 @@ void malContextPollEvents(MalContext *context) {
     while (ok_queue_pop(&context->data.finishedCallbackIds, &onFinishedId)) {
         _malHandleOnFinishedCallback(onFinishedId);
     }
+}
+
+static void _malContextSync(MalContext *context) {
+    (void)context;
+    // Do nothing
 }
 
 // MARK: Buffer
@@ -514,7 +517,7 @@ static void _malStreamWriteCallback(pa_stream *stream, size_t length, void *user
 
         if (player->data.nextFrame >= player->buffer->numFrames) {
             player->data.nextFrame = 0;
-            if (player->looping) {
+            if (atomic_load(&player->looping)) {
                 src = player->buffer->managedData;
             } else {
                 player->data.streamState = MAL_STREAM_DRAINING;
@@ -666,7 +669,6 @@ quit:
     if (player->data.stream) {
         _malPlayerUpdateMute(player);
         _malPlayerUpdateGain(player);
-        _malPlayerSetBuffer(player, player->buffer);
     }
 
     return (player->data.stream != NULL);
@@ -733,31 +735,36 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPl
 
     struct _MalContext *pa = &player->context->data;
 
-    pa_threaded_mainloop_lock(pa->mainloop);
-
+    int shouldCork;
     switch (state) {
         case MAL_PLAYER_STATE_STOPPED:
         default: {
-            pa_operation_unref(pa_stream_cork(player->data.stream, 1, NULL, NULL));
+            shouldCork = 1;
             player->data.nextFrame = 0;
             player->data.streamState = MAL_STREAM_INACTIVE;
             break;
         }
         case MAL_PLAYER_STATE_PAUSED: {
-            pa_operation_unref(pa_stream_cork(player->data.stream, 1, NULL, NULL));
+            shouldCork = 1;
             break;
         }
         case MAL_PLAYER_STATE_PLAYING: {
+            shouldCork = 0;
             player->data.streamState = ((oldState == MAL_PLAYER_STATE_PAUSED) ? MAL_STREAM_PLAYING :
                                         MAL_STREAM_STARTING);
-            pa_operation_unref(pa_stream_cork(player->data.stream, 0, NULL, NULL));
             break;
         }
     }
 
-    pa_threaded_mainloop_unlock(pa->mainloop);
-
     player->data.state = state;
+
+    // The player is locked here. Unlock to prevent deadlocks in the write callback.
+    MAL_UNLOCK(player);
+    pa_threaded_mainloop_lock(pa->mainloop);
+    pa_operation_unref(pa_stream_cork(player->data.stream, shouldCork, NULL, NULL));
+    pa_threaded_mainloop_unlock(pa->mainloop);
+    MAL_LOCK(player);
+
     return true;
 }
 

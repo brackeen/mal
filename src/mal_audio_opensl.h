@@ -170,6 +170,11 @@ static void _malContextDispose(MalContext *context) {
 #endif
 }
 
+static void _malContextSync(MalContext *context) {
+    (void)context;
+    // Do nothing
+}
+
 #if defined(__ANDROID__)
 enum looperMessageType {
     ON_PLAYER_FINISHED_MAGIC = 0x1df11fb1
@@ -251,9 +256,7 @@ static bool _malContextSetActive(MalContext *context, bool active) {
             } else {
                 switch (malPlayerGetState(player)) {
                     case MAL_PLAYER_STATE_STOPPED:
-                        MAL_LOCK(player);
                         _malPlayerDispose(player);
-                        MAL_UNLOCK(player);
                         player->data.backgroundPaused = false;
                         break;
                     case MAL_PLAYER_STATE_PAUSED:
@@ -322,7 +325,7 @@ static void _malBufferQueueCallback(SLBufferQueueItf queue, void *voidPlayer) {
     MalPlayer *player = (MalPlayer *)voidPlayer;
     if (player && queue) {
         MAL_LOCK(player);
-        if (player->looping && player->buffer &&
+        if (atomic_load(&player->looping) && player->buffer &&
             player->buffer->managedData &&
             _malPlayerGetState(player) == MAL_PLAYER_STATE_PLAYING) {
             const MalBuffer *buffer = player->buffer;

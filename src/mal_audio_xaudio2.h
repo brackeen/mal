@@ -210,6 +210,11 @@ void malContextPollEvents(MalContext *context) {
     }
 }
 
+static void _malContextSync(MalContext *context) {
+    (void)context;
+    // Do nothing
+}
+
 #pragma endregion
 
 #pragma region Buffer
@@ -373,7 +378,7 @@ static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer) {
         bufferInfo.AudioBytes = ((buffer->format.bitDepth / 8) *
                                  buffer->format.numChannels * buffer->numFrames);
         bufferInfo.pAudioData = (const BYTE *)buffer->managedData;
-        bufferInfo.LoopCount = (UINT32)(player->looping ? XAUDIO2_LOOP_INFINITE : 0);
+        bufferInfo.LoopCount = (UINT32)(atomic_load(&player->looping) ? XAUDIO2_LOOP_INFINITE : 0);
         bool success = SUCCEEDED(player->data.sourceVoice->SubmitSourceBuffer(&bufferInfo));
         atomic_store(&player->data.bufferQueued, success);
         return success;

@@ -119,6 +119,11 @@ static void _malContextUpdateGain(MalContext *context) {
     }
 }
 
+static void _malContextSync(MalContext *context) {
+    (void)context;
+    // Do nothing
+}
+
 // MARK: Buffer
 
 static bool _malBufferInit(MalContext *context, MalBuffer *buffer,
@@ -349,7 +354,7 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState,
             }
         }, context->data.contextId, player->data.playerId, player->buffer->data.bufferId);
         _malPlayerUpdateGain(player);
-        _malPlayerSetLooping(player, player->looping);
+        _malPlayerSetLooping(player, atomic_load(&player->looping));
         int success = EM_ASM_INT({
             var contextData = malContexts[$0];
             var player = contextData.players[$1];
