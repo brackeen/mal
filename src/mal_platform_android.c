@@ -143,28 +143,28 @@ static void _malContextGetSampleRate(MalContext *context) {
     _jniClearException(jniEnv);
 
     if ((*jniEnv)->PushLocalFrame(jniEnv, 16) == JNI_OK) {
-        #define _JNI_CHECK(x) if (!(x) || (*jniEnv)->ExceptionCheck(jniEnv)) goto cleanup
+        #define MAL_JNI_CHECK(x) if (!(x) || (*jniEnv)->ExceptionCheck(jniEnv)) goto cleanup
 
         jclass contextClass = (*jniEnv)->FindClass(jniEnv, "android/content/Context");
-        _JNI_CHECK(contextClass);
+        MAL_JNI_CHECK(contextClass);
         jstring audioServiceKey = _jniGetStaticField(jniEnv, contextClass, "AUDIO_SERVICE",
                                                      "Ljava/lang/String;", Object);
-        _JNI_CHECK(audioServiceKey);
+        MAL_JNI_CHECK(audioServiceKey);
         jobject audioManager = _jniCallMethodWithArgs(jniEnv, context->data.appContext,
                                                       "getSystemService",
                                                       "(Ljava/lang/String;)Ljava/lang/Object;",
                                                        Object, audioServiceKey);
-        _JNI_CHECK(audioManager);
+        MAL_JNI_CHECK(audioManager);
         jclass audioManagerClass = (*jniEnv)->GetObjectClass(jniEnv, audioManager);
-        _JNI_CHECK(audioManagerClass);
+        MAL_JNI_CHECK(audioManagerClass);
         jstring sampleRateKey = _jniGetStaticField(jniEnv, audioManagerClass,
                                                    "PROPERTY_OUTPUT_SAMPLE_RATE",
                                                    "Ljava/lang/String;", Object);
-        _JNI_CHECK(sampleRateKey);
+        MAL_JNI_CHECK(sampleRateKey);
         jstring sampleRate = _jniCallMethodWithArgs(jniEnv, audioManager, "getProperty",
                                                     "(Ljava/lang/String;)Ljava/lang/String;",
                                                     Object, sampleRateKey);
-        _JNI_CHECK(sampleRate);
+        MAL_JNI_CHECK(sampleRate);
         const char *sampleRateString = (*jniEnv)->GetStringUTFChars(jniEnv, sampleRate, NULL);
         if (sampleRateString) {
             int sampleRateInt = atoi(sampleRateString);
@@ -172,7 +172,7 @@ static void _malContextGetSampleRate(MalContext *context) {
             (*jniEnv)->ReleaseStringUTFChars(jniEnv, sampleRate, sampleRateString);
         }
 cleanup:
-        #undef _JNI_CHECK
+        #undef MAL_JNI_CHECK
         _jniClearException(jniEnv);
         (*jniEnv)->PopLocalFrame(jniEnv, NULL);
     }
