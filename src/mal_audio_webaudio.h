@@ -81,6 +81,7 @@ static bool _malContextInit(MalContext *context, void *androidActivity,
         context->actualSampleRate = EM_ASM_DOUBLE({
             return malContexts[$0].context.sampleRate || 0;
         }, context->data.contextId);
+        context->active = true;
         return true;
     } else {
         if (errorMissingAudioSystem) {
@@ -93,6 +94,10 @@ static bool _malContextInit(MalContext *context, void *androidActivity,
 static void _malContextDispose(MalContext *context) {
     if (context->data.contextId) {
         EM_ASM_ARGS({
+            var context = malContexts[$0].context;
+            if (typeof context.close === "function") {
+                context.close();
+            }
             delete malContexts[$0];
         }, context->data.contextId);
         context->data.contextId = 0;
@@ -100,9 +105,20 @@ static void _malContextDispose(MalContext *context) {
 }
 
 static bool _malContextSetActive(MalContext *context, bool active) {
-    (void)context;
-    (void)active;
-    // Do nothing
+    if (context->active != active) {
+        EM_ASM_ARGS({
+            var context = malContexts[$0].context;
+            if ($1) {
+                if (typeof context.resume === "function") {
+                    context.resume();
+                }
+            } else {
+                if (typeof context.suspend === "function") {
+                    context.suspend();
+                }
+            }
+        }, context->data.contextId, active);
+    }
     return true;
 }
 
