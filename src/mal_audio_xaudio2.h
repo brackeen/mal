@@ -296,9 +296,33 @@ public:
     }
 };
 
-static bool _malPlayerInit(MalPlayer *player) {
+static bool _malPlayerInit(MalPlayer *player, MalFormat format) {
     player->data.callback = new MalVoiceCallback(player);
-    return (player->data.callback != NULL);
+
+    if (!player->context || player->data.callback == NULL) {
+        return false;
+    }
+
+    double sampleRate = (format.sampleRate <= MAL_DEFAULT_SAMPLE_RATE ?
+                         malContextGetSampleRate(player->context) : format.sampleRate);
+
+    WAVEFORMATEX xAudioFormat = { 0 };
+    xAudioFormat.wFormatTag = WAVE_FORMAT_PCM;
+    xAudioFormat.nChannels = format.numChannels;
+    xAudioFormat.nSamplesPerSec = (DWORD)sampleRate;
+    xAudioFormat.wBitsPerSample = format.bitDepth;
+    xAudioFormat.nBlockAlign = (xAudioFormat.nChannels * xAudioFormat.wBitsPerSample) / 8u;
+    xAudioFormat.nAvgBytesPerSec = (DWORD)sampleRate * xAudioFormat.nBlockAlign;
+    xAudioFormat.cbSize = 0;
+
+    IXAudio2 *xAudio2 = player->context->data.xAudio2;
+    HRESULT hr = xAudio2->CreateSourceVoice(&player->data.sourceVoice, &xAudioFormat, 0,
+                                            XAUDIO2_DEFAULT_FREQ_RATIO, player->data.callback);
+    bool success = SUCCEEDED(hr) && player->data.sourceVoice;
+    if (success) {
+        _malPlayerUpdateGain(player);
+    }
+    return success;
 }
 
 static void _malPlayerDispose(MalPlayer *player) {
@@ -310,58 +334,6 @@ static void _malPlayerDispose(MalPlayer *player) {
         delete player->data.callback;
         player->data.callback = NULL;
     }
-}
-
-static bool _malPlayerSetFormat(MalPlayer *player, MalFormat format) {
-    bool success = false;
-    if (!player->context) {
-        return false;
-    }
-
-    double sampleRate = (format.sampleRate <= MAL_DEFAULT_SAMPLE_RATE ?
-                         malContextGetSampleRate(player->context) : format.sampleRate);
-
-    // Change sample rate without creating a new voice
-    if (player->data.sourceVoice) {
-        if (malContextIsFormatEqual(player->context, player->format, format)) {
-            return true;
-        } else if (player->format.bitDepth == format.bitDepth &&
-                   player->format.numChannels == format.numChannels) {
-            player->data.sourceVoice->FlushSourceBuffers();
-            atomic_store(&player->data.bufferQueued, false);
-            HRESULT hr = player->data.sourceVoice->SetSourceSampleRate((UINT32)sampleRate);
-            success = SUCCEEDED(hr);
-        }
-    }
-
-    // Create a new voice
-    if (!success) {
-        if (player->data.sourceVoice) {
-            player->data.sourceVoice->DestroyVoice();
-            player->data.sourceVoice = NULL;
-            atomic_store(&player->data.bufferQueued, false);
-        }
-
-        WAVEFORMATEX xAudioFormat = { 0 };
-        xAudioFormat.wFormatTag = WAVE_FORMAT_PCM;
-        xAudioFormat.nChannels = format.numChannels;
-        xAudioFormat.nSamplesPerSec = (DWORD)sampleRate;
-        xAudioFormat.wBitsPerSample = format.bitDepth;
-        xAudioFormat.nBlockAlign = (xAudioFormat.nChannels * xAudioFormat.wBitsPerSample) / 8u;
-        xAudioFormat.nAvgBytesPerSec = (DWORD)sampleRate * xAudioFormat.nBlockAlign;
-        xAudioFormat.cbSize = 0;
-
-        IXAudio2 *xAudio2 = player->context->data.xAudio2;
-        HRESULT hr = xAudio2->CreateSourceVoice(&player->data.sourceVoice, &xAudioFormat, 0,
-                                                XAUDIO2_DEFAULT_FREQ_RATIO, player->data.callback);
-        success = SUCCEEDED(hr) && player->data.sourceVoice;
-    }
-
-    if (success) {
-        _malPlayerUpdateGain(player);
-        _malPlayerSetBuffer(player, player->buffer);
-    }
-    return success;
 }
 
 static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer) {

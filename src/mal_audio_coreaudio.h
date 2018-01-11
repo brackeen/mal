@@ -249,12 +249,10 @@ static void _malContextReset(MalContext *context) {
     MAL_UNLOCK(context);
     malContextSetActive(context, active);
     ok_vec_foreach(&context->players, MalPlayer *player) {
-        bool success = _malPlayerInit(player);
+        bool success = _malPlayerInit(player, player->format);
         if (!success) {
             MAL_LOG("Couldn't reset player");
         } else {
-            _malPlayerUpdateGain(player);
-            _malPlayerSetFormat(player, player->format);
             if (player->data.state == MAL_PLAYER_STATE_PLAYING) {
                 player->data.state = MAL_PLAYER_STATE_STOPPED;
                 malPlayerSetState(player, MAL_PLAYER_STATE_PLAYING);
@@ -563,7 +561,7 @@ static bool _malPlayerInitBus(MalPlayer *player) {
     }
 }
 
-static bool _malPlayerInit(MalPlayer *player) {
+static bool _malPlayerInit(MalPlayer *player, MalFormat format) {
     if (!_malPlayerInitBus(player)) {
         return false;
     }
@@ -600,27 +598,7 @@ static bool _malPlayerInit(MalPlayer *player) {
         return false;
     }
 
-    malPlayerSetGain(player, player->gain); // For macOS
-    return true;
-}
-
-static void _malPlayerDispose(MalPlayer *player) {
-    if (player->context && player->data.converterNode) {
-        AUGraphRemoveNode(player->context->data.graph, player->data.converterNode);
-        player->data.converterUnit = NULL;
-        player->data.converterNode = 0;
-    }
-}
-
-static void _malPlayerDidSetFinishedCallback(MalPlayer *player) {
-    // Do nothing
-}
-
-static bool _malPlayerSetFormat(MalPlayer *player, MalFormat format) {
-    if (!player->context) {
-        return false;
-    }
-
+    // Set stream format
     double sampleRate = (format.sampleRate <= MAL_DEFAULT_SAMPLE_RATE ?
                          malContextGetSampleRate(player->context) : format.sampleRate);
 
@@ -635,21 +613,31 @@ static bool _malPlayerSetFormat(MalPlayer *player, MalFormat format) {
     streamDesc.mBytesPerPacket = streamDesc.mBytesPerFrame;
     streamDesc.mFormatFlags = (kLinearPCMFormatFlagIsSignedInteger |
                                kAudioFormatFlagsNativeEndian | kLinearPCMFormatFlagIsPacked);
-    MAL_LOCK(player);
-    OSStatus status = AudioUnitSetProperty(player->data.converterUnit,
-                                           kAudioUnitProperty_StreamFormat,
-                                           kAudioUnitScope_Input,
-                                           0,
-                                           &streamDesc,
-                                           sizeof(streamDesc));
-    MAL_UNLOCK(player);
-
+    status = AudioUnitSetProperty(player->data.converterUnit,
+                                  kAudioUnitProperty_StreamFormat,
+                                  kAudioUnitScope_Input,
+                                  0,
+                                  &streamDesc,
+                                  sizeof(streamDesc));
     if (status != noErr) {
         MAL_LOG("Couldn't set stream format (err %i)", (int)status);
         return false;
     }
 
+    _malPlayerUpdateGain(player);
     return true;
+}
+
+static void _malPlayerDispose(MalPlayer *player) {
+    if (player->context && player->data.converterNode) {
+        AUGraphRemoveNode(player->context->data.graph, player->data.converterNode);
+        player->data.converterUnit = NULL;
+        player->data.converterNode = 0;
+    }
+}
+
+static void _malPlayerDidSetFinishedCallback(MalPlayer *player) {
+    // Do nothing
 }
 
 static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer) {

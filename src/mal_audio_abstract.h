@@ -80,9 +80,8 @@ static bool _malBufferInit(MalContext *context, MalBuffer *buffer,
                            malDeallocatorFunc dataDeallocator);
 static void _malBufferDispose(MalBuffer *buffer);
 
-static bool _malPlayerInit(MalPlayer *player);
+static bool _malPlayerInit(MalPlayer *player, MalFormat format);
 static void _malPlayerDispose(MalPlayer *player);
-static bool _malPlayerSetFormat(MalPlayer *player, MalFormat format);
 static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer);
 static void _malPlayerUpdateMute(MalPlayer *player);
 static void _malPlayerUpdateGain(MalPlayer *player);
@@ -409,10 +408,7 @@ MalPlayer *malPlayerCreate(MalContext *context, MalFormat format) {
         player->format = format;
         player->gain = 1.0f;
 
-        bool success = _malPlayerInit(player);
-        if (success) {
-            success = _malPlayerSetFormat(player, format);
-        }
+        bool success = _malPlayerInit(player, format);
         if (!success) {
             malPlayerFree(player);
             player = NULL;
@@ -438,18 +434,6 @@ MalFormat malPlayerGetFormat(const MalPlayer *player) {
         static const MalFormat null_format = {0, 0, 0};
         return null_format;
     }
-}
-
-bool malPlayerSetFormat(MalPlayer *player, MalFormat format) {
-    if (player && malContextIsFormatValid(player->context, format)) {
-        _malPlayerStopSynced(player);
-        bool success = _malPlayerSetFormat(player, format);
-        if (success) {
-            player->format = format;
-        }
-        return success;
-    }
-    return false;
 }
 
 bool malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer) {

@@ -354,9 +354,7 @@ static bool _malContextSetActive(MalContext *context, bool active) {
         ok_vec_foreach(&context->players, MalPlayer *player) {
             if (active) {
                 if (!player->data.stream) {
-                    malPlayerSetFormat(player, player->format);
-                    _malPlayerUpdateMute(player);
-                    _malPlayerUpdateGain(player);
+                    _malPlayerInit(player, player->format);
                 } else if (player->data.backgroundPaused &&
                            malPlayerGetState(player) == MAL_PLAYER_STATE_PAUSED) {
                     malPlayerSetState(player, MAL_PLAYER_STATE_PLAYING);
@@ -444,13 +442,6 @@ static void _malStreamStateCallback(pa_stream *stream, void *userData) {
     pa_threaded_mainloop_signal(mainloop, 0);
 }
 
-static void _malStreamSuccessCallback(pa_stream *stream, int success, void *userData) {
-    (void)stream;
-    (void)success;
-    pa_threaded_mainloop *mainloop = userData;
-    pa_threaded_mainloop_signal(mainloop, 0);
-}
-
 static void _malPlayerUnderflowCallback(pa_stream *stream, void *userData) {
     (void)stream;
     MalPlayer *player = userData;
@@ -531,37 +522,12 @@ static void _malPlayerRenderCallback(pa_stream *stream, size_t length, void *use
     pa_stream_write(stream, buffer, bytesWritten, NULL, 0, seekMode);
 }
 
-static bool _malPlayerInit(MalPlayer *player) {
-    (void)player;
-    return true;
-}
-
-static void _malPlayerDispose(MalPlayer *player) {
-    if (!player->context) {
-        return;
-    }
-    struct _MalContext *pa = &player->context->data;
-
-    if (pa->mainloop && player->data.stream) {
-        pa_threaded_mainloop_lock(pa->mainloop);
-        pa_stream_set_write_callback(player->data.stream, NULL, NULL);
-        pa_stream_set_underflow_callback(player->data.stream, NULL, NULL);
-        pa_stream_disconnect(player->data.stream);
-        pa_stream_unref(player->data.stream);
-        pa_threaded_mainloop_unlock(pa->mainloop);
-
-        player->data.stream = NULL;
-    }
-}
-
-static bool _malPlayerSetFormat(MalPlayer *player, MalFormat format) {
+static bool _malPlayerInit(MalPlayer *player, MalFormat format) {
     if (!player->context) {
         return false;
     }
-
-    // If the same format, do nothing
-    if (player->data.stream && malContextIsFormatEqual(player->context, player->format, format)) {
-        return true;
+    if (player->data.stream) {
+        _malPlayerDispose(player);
     }
 
     const int n = 1;
@@ -569,28 +535,6 @@ static bool _malPlayerSetFormat(MalPlayer *player, MalFormat format) {
     struct _MalContext *pa = &player->context->data;
     double sampleRate = (format.sampleRate <= MAL_DEFAULT_SAMPLE_RATE ?
                          malContextGetSampleRate(player->context) : format.sampleRate);
-
-    pa_threaded_mainloop_lock(pa->mainloop);
-
-    // Change sample rate without creating a new stream
-    if (player->data.stream && (player->format.bitDepth == format.bitDepth &&
-                                player->format.numChannels == format.numChannels)) {
-        pa_operation *operation = pa_stream_update_sample_rate(player->data.stream,
-                                                               (uint32_t)sampleRate,
-                                                               _malStreamSuccessCallback,
-                                                               pa->mainloop);
-        _malPulseAudioOperationWait(pa->mainloop, operation);
-
-        const pa_sample_spec *sampleSpec = pa_stream_get_sample_spec(player->data.stream);
-        if (fabs(sampleSpec->rate - sampleRate) <= 1) {
-            // Success
-            goto quit;
-        }
-    }
-
-    if (player->data.stream) {
-        _malPlayerDispose(player);
-    }
 
     pa_sample_format_t sampleFormat;
     switch (player->format.bitDepth) {
@@ -610,18 +554,20 @@ static bool _malPlayerSetFormat(MalPlayer *player, MalFormat format) {
 
     pa_sample_spec sampleSpec;
     sampleSpec.format = sampleFormat;
-    sampleSpec.rate = (uint32_t)format.sampleRate;
+    sampleSpec.rate = (uint32_t)sampleRate;
     sampleSpec.channels = format.numChannels;
 
     double targetBufferDuration = 0.5;
     pa_buffer_attr bufferAttributes;
     bufferAttributes.tlength = ((player->format.bitDepth / 8) *
                                 player->format.numChannels *
-                                (uint32_t)(targetBufferDuration * format.sampleRate));
+                                (uint32_t)(targetBufferDuration * sampleRate));
     bufferAttributes.maxlength = (uint32_t)-1;
     bufferAttributes.minreq = (uint32_t)-1;
     bufferAttributes.prebuf = 0;
     bufferAttributes.fragsize = (uint32_t)-1;
+
+    pa_threaded_mainloop_lock(pa->mainloop);
 
     pa_channel_map channelMap;
     if (!pa_channel_map_init_auto(&channelMap, format.numChannels, PA_CHANNEL_MAP_WAVEEX)) {
@@ -672,6 +618,24 @@ quit:
     }
 
     return (player->data.stream != NULL);
+}
+
+static void _malPlayerDispose(MalPlayer *player) {
+    if (!player->context) {
+        return;
+    }
+    struct _MalContext *pa = &player->context->data;
+
+    if (pa->mainloop && player->data.stream) {
+        pa_threaded_mainloop_lock(pa->mainloop);
+        pa_stream_set_write_callback(player->data.stream, NULL, NULL);
+        pa_stream_set_underflow_callback(player->data.stream, NULL, NULL);
+        pa_stream_disconnect(player->data.stream);
+        pa_stream_unref(player->data.stream);
+        pa_threaded_mainloop_unlock(pa->mainloop);
+
+        player->data.stream = NULL;
+    }
 }
 
 static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer) {

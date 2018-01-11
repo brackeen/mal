@@ -206,7 +206,9 @@ static void _malBufferDispose(MalBuffer *buffer) {
 
 // MARK: Player
 
-static bool _malPlayerInit(MalPlayer *player) {
+static bool _malPlayerInit(MalPlayer *player, MalFormat format) {
+    (void)format;
+    
     MalContext *context = player->context;
     if (context && context->data.contextId) {
         player->data.playerId = nextPlayerId;
@@ -246,13 +248,6 @@ static void _malPlayerDidSetFinishedCallback(MalPlayer *player) {
             player.onFinishedId = $2;
         }, context->data.contextId, player->data.playerId, player->onFinishedId);
     }
-}
-
-static bool _malPlayerSetFormat(MalPlayer *player, MalFormat format) {
-    (void)player;
-    (void)format;
-    // Do nothing - format determined by attached buffer
-    return true;
 }
 
 static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer) {

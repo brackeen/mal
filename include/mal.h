@@ -309,33 +309,9 @@ MalPlayer *malPlayerCreate(MalContext *context, MalFormat format);
 MalFormat malPlayerGetFormat(const MalPlayer *player);
 
 /**
- * Sets the playback format of the player.
- *
- * If playing, the player is stopped. The attached buffer, if any, is not changed.
- *
- * On OpenAL and Web Audio implementations, the format of the player is always the same as the 
- * buffer.
- *
- * The format's sample rate may be #MAL_DEFAULT_SAMPLE_RATE, in which case the context's sample
- * rate is used.
- *
- * @param player The audio player. If `NULL`, this function does nothing.
- * @param format The audio format to set the player to.
- * @return `true` if successful.
- */
-bool malPlayerSetFormat(MalPlayer *player, MalFormat format);
-
-/**
  * Attaches a buffer to the player. Any existing buffer is removed.
  *
  * A buffer may be attached to multiple players.
- *
- * On OpenAL and Web Audio implementations, the player's playback format is set to the buffer's 
- * format.
- *
- * On other implementations, the player's playback format is not changed. To set the player's 
- * playback format to the buffer's format, call 
- * `malPlayerSetFormat(player, malBufferGetFormat(buffer));`.
  *
  * @param player The audio player. If `NULL`, this function does nothing.
  * @param buffer The audio buffer. May be `NULL`.

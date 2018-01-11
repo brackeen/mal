@@ -244,9 +244,7 @@ static bool _malContextSetActive(MalContext *context, bool active) {
         ok_vec_foreach(&context->players, MalPlayer *player) {
             if (active) {
                 if (!player->data.slObject) {
-                    malPlayerSetFormat(player, player->format);
-                    _malPlayerUpdateMute(player);
-                    _malPlayerUpdateGain(player);
+                    _malPlayerInit(player, player->format);
                 } else if (player->data.backgroundPaused &&
                            malPlayerGetState(player) == MAL_PLAYER_STATE_PAUSED) {
                     malPlayerSetState(player, MAL_PLAYER_STATE_PLAYING);
@@ -366,34 +364,9 @@ static void _malPlayerUpdateGain(MalPlayer *player) {
     }
 }
 
-static bool _malPlayerInit(MalPlayer *player) {
-    (void)player;
-    // Do nothing
-    return true;
-}
-
-static void _malPlayerDispose(MalPlayer *player) {
-    if (player->data.slObject) {
-        (*player->data.slObject)->Destroy(player->data.slObject);
-        player->data.slObject = NULL;
-        player->data.slBufferQueue = NULL;
-        player->data.slPlay = NULL;
-        player->data.slVolume = NULL;
-    }
-}
-
-static void _malPlayerDidSetFinishedCallback(MalPlayer *player) {
-    (void)player;
-    // Do nothing
-}
-
-static bool _malPlayerSetFormat(MalPlayer *player, MalFormat format) {
+static bool _malPlayerInit(MalPlayer *player, MalFormat format) {
     if (!player->context) {
         return false;
-    }
-
-    if (player->data.slObject && malContextIsFormatEqual(player->context, player->format, format)) {
-        return true;
     }
 
     _malPlayerDispose(player);
@@ -481,6 +454,21 @@ static bool _malPlayerSetFormat(MalPlayer *player, MalFormat format) {
     _malPlayerUpdateMute(player);
     _malPlayerUpdateGain(player);
     return true;
+}
+
+static void _malPlayerDispose(MalPlayer *player) {
+    if (player->data.slObject) {
+        (*player->data.slObject)->Destroy(player->data.slObject);
+        player->data.slObject = NULL;
+        player->data.slBufferQueue = NULL;
+        player->data.slPlay = NULL;
+        player->data.slVolume = NULL;
+    }
+}
+
+static void _malPlayerDidSetFinishedCallback(MalPlayer *player) {
+    (void)player;
+    // Do nothing
 }
 
 static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer) {

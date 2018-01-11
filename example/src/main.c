@@ -54,9 +54,11 @@ static void playSound(ExampleApp *app, MalBuffer *buffer, float gain) {
         }
     }
     // Play new sound
+    MalFormat format = malBufferGetFormat(buffer);
     for (int i = 0; i < kMaxPlayers; i++) {
-        if (app->players[i] && malPlayerGetState(app->players[i]) == MAL_PLAYER_STATE_STOPPED) {
-            malPlayerSetFormat(app->players[i], malBufferGetFormat(buffer));
+        if (app->players[i] && malPlayerGetState(app->players[i]) == MAL_PLAYER_STATE_STOPPED &&
+            malContextIsFormatEqual(app->context, malPlayerGetFormat(app->players[i]), format)) {
+            
             malPlayerSetBuffer(app->players[i], buffer);
             malPlayerSetGain(app->players[i], gain);
             malPlayerSetFinishedFunc(app->players[i], onFinished, app);
@@ -117,7 +119,8 @@ static bool malExampleInit(ExampleApp *app) {
     }
 
     for (int i = 0; i < kMaxPlayers; i++) {
-        app->players[i] = malPlayerCreate(app->context, malBufferGetFormat(app->buffer[0]));
+        // Half have the format of buffer 0, the other half have the format of buffer 1
+        app->players[i] = malPlayerCreate(app->context, malBufferGetFormat(app->buffer[i & 1]));
     }
     bool success = malPlayerSetBuffer(app->players[0], app->buffer[0]);
     if (!success) {
