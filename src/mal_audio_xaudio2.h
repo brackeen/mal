@@ -75,7 +75,7 @@ struct _MalBuffer {
 struct _MalPlayer {
     IXAudio2SourceVoice *sourceVoice;
     MalVoiceCallback *callback;
-    MalPlayerState state;
+    _Atomic(MalPlayerState) state;
     _Atomic(bool) bufferQueued;
 };
 
@@ -257,6 +257,7 @@ public:
 
     void STDMETHODCALLTYPE OnStreamEnd() override {
         atomic_store(&player->data.bufferQueued, false);
+        atomic_store(&player->data.state, MAL_PLAYER_STATE_STOPPED);
         MalCallbackId onFinishedId = atomic_load(&player->onFinishedId);
         if (onFinishedId) {
             MalContext *context = player->context;
@@ -283,6 +284,12 @@ public:
 
     void STDMETHODCALLTYPE OnLoopEnd(void *pBufferContext) override {
         (void)pBufferContext;
+        if (!atomic_load(&player->looping) && 
+            atomic_load(&player->data.state) == MAL_PLAYER_STATE_PLAYING) {
+            // Workaround for XAudio2 bug: Sometimes ExitLoop() does nothing if it is called too
+            // soon after Start()
+            player->data.sourceVoice->ExitLoop();
+        }
     }
 
     void STDMETHODCALLTYPE OnVoiceError(void *pBufferContext, HRESULT error) override {
@@ -387,12 +394,8 @@ static void _malPlayerDidSetFinishedCallback(MalPlayer *player) {
 static MalPlayerState _malPlayerGetState(const MalPlayer *player) {
     if (!player->data.sourceVoice) {
         return MAL_PLAYER_STATE_STOPPED;
-    }
-    if (player->data.state == MAL_PLAYER_STATE_PLAYING &&
-        !atomic_load(&player->data.bufferQueued)) {
-        return MAL_PLAYER_STATE_STOPPED;
     } else {
-        return player->data.state;
+        return atomic_load(&player->data.state);
     }
 }
 
@@ -416,7 +419,7 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPl
         player->data.sourceVoice->Stop();
         break;
     }
-    player->data.state = state;
+    atomic_store(&player->data.state, state);
     return true;
 }
 
