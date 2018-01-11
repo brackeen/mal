@@ -69,7 +69,6 @@ static bool _malContextSetActive(MalContext *context, bool active);
 static void _malContextUpdateMute(MalContext *context);
 static void _malContextUpdateGain(MalContext *context);
 static void _malContextCheckRoutes(MalContext *context);
-static void _malContextSync(MalContext *context);
 /**
  Either `copiedData` or `managedData` will be non-null, but not both. If `copiedData` is set,
  the data must be copied (don't keep a reference to `copiedData`).
@@ -417,16 +416,6 @@ MalPlayer *malPlayerCreate(MalContext *context, MalFormat format) {
     return player;
 }
 
-static void _malPlayerStopSynced(MalPlayer *player) {
-    MAL_LOCK(player);
-    MalPlayerState oldState = _malPlayerGetState(player);
-    if (oldState != MAL_PLAYER_STATE_STOPPED) {
-        _malPlayerSetState(player, oldState, MAL_PLAYER_STATE_STOPPED);
-        _malContextSync(player->context);
-    }
-    MAL_UNLOCK(player);
-}
-
 MalFormat malPlayerGetFormat(const MalPlayer *player) {
     if (player) {
         return player->format;
@@ -440,9 +429,9 @@ bool malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer) {
     if (!player) {
         return false;
     } else {
-        _malPlayerStopSynced(player);
-        MAL_LOCK(player);
+        malPlayerSetState(player, MAL_PLAYER_STATE_STOPPED);
         bool success = _malPlayerSetBuffer(player, buffer);
+        MAL_LOCK(player);
         if (success) {
             player->buffer = buffer;
         } else {

@@ -210,11 +210,6 @@ void malContextPollEvents(MalContext *context) {
     }
 }
 
-static void _malContextSync(MalContext *context) {
-    (void)context;
-    // Do nothing
-}
-
 #pragma endregion
 
 #pragma region Buffer

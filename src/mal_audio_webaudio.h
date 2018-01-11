@@ -135,11 +135,6 @@ static void _malContextUpdateGain(MalContext *context) {
     }
 }
 
-static void _malContextSync(MalContext *context) {
-    (void)context;
-    // Do nothing
-}
-
 // MARK: Buffer
 
 static bool _malBufferInit(MalContext *context, MalBuffer *buffer,

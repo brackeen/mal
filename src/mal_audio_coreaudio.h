@@ -318,10 +318,6 @@ static void _malContextUpdateGain(MalContext *context) {
     }
 }
 
-static void _malContextSync(MalContext *context) {
-    AUGraphUpdate(context->data.graph, NULL);
-}
-
 static bool _malRamp(MalContext *context, AudioUnitScope scope, AudioUnitElement bus,
                      uint32_t inFrames, float gain, struct _MalRamp *ramp) {
     uint32_t t = ramp->frames;
@@ -641,7 +637,20 @@ static void _malPlayerDidSetFinishedCallback(MalPlayer *player) {
 }
 
 static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer) {
-    // Do nothing
+    if (player->context && player->data.converterNode) {
+        UInt32 outNumInteractions = 0;
+        if (AUGraphCountNodeInteractions(player->context->data.graph, player->data.converterNode,
+                                         &outNumInteractions) == noErr) {
+            // If there are two connections, that means the node 1) has a callback and 2) it is in
+            // the graph. Since _malPlayerSetBuffer() can only be called if stopped, that means the
+            // graph is not updated. So, force a sync.
+            // Without this, this warning message occationally appears in stress_test.c:
+            // "[augraph] 2928: DoMakeDisconnection failed with error -10860" 
+            if (outNumInteractions == 2) {
+                AUGraphUpdate(player->context->data.graph, NULL);
+            }
+        }
+    }
     return true;
 }
 

@@ -170,11 +170,6 @@ static void _malContextDispose(MalContext *context) {
 #endif
 }
 
-static void _malContextSync(MalContext *context) {
-    (void)context;
-    // Do nothing
-}
-
 #if defined(__ANDROID__)
 enum looperMessageType {
     ON_PLAYER_FINISHED_MAGIC = 0x1df11fb1
