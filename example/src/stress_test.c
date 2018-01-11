@@ -77,7 +77,8 @@ typedef enum {
 typedef enum {
     PLAYER_ACTION_STOP = 0,
     PLAYER_ACTION_DELETE,
-    PLAYER_ACTION_DELETE_BUFFER
+    PLAYER_ACTION_DELETE_BUFFER,
+    PLAYER_ACTION_STOP_AND_CLEAR_BUFFER
 } PlayerAction;
 
 typedef struct {
@@ -173,6 +174,9 @@ static bool playerAction(StressTestApp *app, PlayerAction action, int index) {
             app->tempBuffers[index] = NULL;
             return malPlayerGetBuffer(app->players[index]) == NULL;
         }
+        case PLAYER_ACTION_STOP_AND_CLEAR_BUFFER:
+            return (malPlayerSetState(app->players[index], MAL_PLAYER_STATE_STOPPED) &&
+                    malPlayerSetBuffer(app->players[index], NULL));
     }
 }
 
@@ -356,12 +360,17 @@ static State testDeleteBufferWhilePlaying(StressTestApp *app) {
     return testDelayedPlayerAction(app, PLAYER_ACTION_DELETE_BUFFER);
 }
 
+static State testStopAndClearBuffer(StressTestApp *app) {
+    return testDelayedPlayerAction(app, PLAYER_ACTION_STOP_AND_CLEAR_BUFFER);
+}
+
 static TestFunction testFunctions[] = {
     testPlayRepeatedly,
     testOnFinishedCallback,
     testStartStopWhilePlaying,
     testDeletePlayerWhilePlaying,
     testDeleteBufferWhilePlaying,
+    testStopAndClearBuffer,
 };
 
 static void stressTestInit(StressTestApp *app) {
@@ -549,7 +558,9 @@ static void doTestIterationAndDraw(StressTestApp *app) {
     glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
     glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 
-    app->drawIteration++;
+    if (app->state != STATE_FAIL) {
+        app->drawIteration++;
+    }
 }
 
 #if defined(MAL_EXAMPLE_WITH_GLFM)
@@ -606,7 +617,7 @@ int main(void) {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    window = glfwCreateWindow(640, 480, "Mal Example", NULL, NULL);
+    window = glfwCreateWindow(640, 480, "Mal Stress Test", NULL, NULL);
     if (!window) {
         glfwTerminate();
         exit(EXIT_FAILURE);
