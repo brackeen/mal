@@ -102,9 +102,9 @@ static void _malHandleNotifications() {
         } else if (notification->type == MAL_NOTIFICATION_TYPE_RESTART) {
             handled = _malAttemptRestart(notification->context);
             if (!handled) {
-                // Give up after 100 attempts
+                // Give up after 200 attempts
                 notification->data++;
-                if (notification->data >= 100) {
+                if (notification->data >= 200) {
                     handled = true;
                 }
             }
@@ -266,6 +266,8 @@ static bool _malAttemptRestart(MalContext *context) {
         _malContextReset(context);
         return true;
     } else {
+        // It may take a while for the reset to complete.
+        usleep(4000);
         return false;
     }
 }
@@ -279,8 +281,6 @@ static OSStatus _malOnDeviceChangedHandler(AudioObjectID inObjectID,
     return noErr;
 }
 
-
-// Test with `sudo killall coreaudiod`
 static OSStatus _malOnRestartHandler(AudioObjectID inObjectID,
                                      UInt32 inNumberAddresses,
                                      const AudioObjectPropertyAddress inAddresses[],

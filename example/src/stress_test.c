@@ -2,13 +2,18 @@
  Plays silent audio in various situations.
 
  The screen color means:
- * Gray: Test running
+ * Gray: Test running.
  * Red: Test failed.
- * Green: Test passed and repeating.
+ * Green: Test passed (and repeating).
 
  The tests run repeatedly to help expose issues that may take some time to appear (thread races).
 
  See "testFunctions" to see the list of tests.
+
+ On macOS, while the test is running, test audio service restart with:
+ 
+     sudo killall coreaudiod
+
  */
 
 #if defined(MAL_EXAMPLE_WITH_GLFM)
@@ -161,7 +166,7 @@ static bool allPlayersStopped(StressTestApp *app) {
     return true;
 }
 
-static bool playerAction(StressTestApp *app, PlayerAction action, int index) {
+static bool playerAction(StressTestApp *app, PlayerAction action, size_t index) {
     switch (action) {
         case PLAYER_ACTION_STOP: default: {
             return malPlayerSetState(app->players[index], MAL_PLAYER_STATE_STOPPED);
@@ -501,7 +506,7 @@ static void doTestIterationAndDraw(StressTestApp *app) {
                     app->successCount++;
                     app->currentTest = 0;
                     double duration = (time_us() - app->startTime) / 1000000.0;
-                    printf("Runs: %zu Duration: %fs\n", app->successCount, duration);
+                    printf("Successful runs: %zu Duration: %fs\n", app->successCount, duration);
                 } else {
                     app->currentTest++;
                 }

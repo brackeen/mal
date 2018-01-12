@@ -69,6 +69,7 @@ struct _MalPlayer {
 #include "mal_audio_abstract.h"
 
 static void _malContextSetSampleRate(MalContext *context);
+static void _malPlayerDidDispose(MalPlayer *player);
 
 // MARK: Context
 
@@ -225,16 +226,20 @@ static bool _malContextInit(MalContext *context, void *androidActivity,
     return true;
 }
 
-static void _malContextDispose(MalContext *context) {
+static void _malContextDidDispose(MalContext *context) {
     context->active = false;
+    context->data.graph = NULL;
+    context->data.mixerUnit = NULL;
+    context->data.mixerNode = 0;
+}
+
+static void _malContextDispose(MalContext *context) {
     if (context->data.graph) {
         AUGraphStop(context->data.graph);
         AUGraphUninitialize(context->data.graph);
         DisposeAUGraph(context->data.graph);
-        context->data.graph = NULL;
-        context->data.mixerUnit = NULL;
-        context->data.mixerNode = 0;
     }
+    _malContextDidDispose(context);
 }
 
 static void _malContextReset(MalContext *context) {
@@ -624,12 +629,16 @@ static bool _malPlayerInit(MalPlayer *player, MalFormat format) {
     return true;
 }
 
+static void _malPlayerDidDispose(MalPlayer *player) {
+    player->data.converterUnit = NULL;
+    player->data.converterNode = 0;
+}
+
 static void _malPlayerDispose(MalPlayer *player) {
     if (player->context && player->data.converterNode) {
         AUGraphRemoveNode(player->context->data.graph, player->data.converterNode);
-        player->data.converterUnit = NULL;
-        player->data.converterNode = 0;
     }
+    _malPlayerDidDispose(player);
 }
 
 static void _malPlayerDidSetFinishedCallback(MalPlayer *player) {
