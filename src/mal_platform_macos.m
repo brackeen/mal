@@ -74,69 +74,74 @@ struct MalNotification {
     uintptr_t data;
 };
 
-typedef struct ok_vec_of(struct MalNotification) MalNotificationVec;
+typedef struct ok_queue_of(struct MalNotification) MalNotificationQueue;
 
-static MalNotificationVec _malPendingNotifications = { 0 };
+static MalNotificationQueue _malPendingNotifications = OK_QUEUE_INIT;
 
 static void _malCancelNotifications(MalContext *context) {
-    pthread_mutex_lock(&globalMutex);
-    for (size_t i = 0; i < _malPendingNotifications.count;) {
-        struct MalNotification *notification = ok_vec_get_ptr(&_malPendingNotifications, i);
-        if (notification->context == context) {
-            ok_vec_remove_at(&_malPendingNotifications, i);
-        } else {
-            i++;
+    bool hasMoreNotifications = false;
+    MalNotificationQueue moreNotifications = OK_QUEUE_INIT;
+    struct MalNotification notification;
+    while (ok_queue_pop(&_malPendingNotifications, &notification)) {
+        if (notification.context != context) {
+            hasMoreNotifications = true;
+            ok_queue_push(&moreNotifications, notification);
         }
     }
-    pthread_mutex_unlock(&globalMutex);
+    if (hasMoreNotifications) {
+        while (ok_queue_pop(&moreNotifications, &notification)) {
+            ok_queue_push(&_malPendingNotifications, notification);
+        }
+        ok_queue_deinit(&moreNotifications);
+    }
 }
 
 static void _malHandleNotifications() {
-    pthread_mutex_lock(&globalMutex);
-    for (size_t i = 0; i < _malPendingNotifications.count;) {
-        struct MalNotification *notification = ok_vec_get_ptr(&_malPendingNotifications, i);
+    bool hasUnhandledNotifications = false;
+    MalNotificationQueue unhandledNotifications = OK_QUEUE_INIT;
+    struct MalNotification notification;
+    while (ok_queue_pop(&_malPendingNotifications, &notification)) {
         bool handled = true;
-        if (notification->type == MAL_NOTIFICATION_TYPE_DEVICE_CHANGED) {
-            _malContextCheckRoutes(notification->context);
-            _malContextSetSampleRate(notification->context);
-        } else if (notification->type == MAL_NOTIFICATION_TYPE_RESTART) {
-            handled = _malAttemptRestart(notification->context);
+        if (notification.type == MAL_NOTIFICATION_TYPE_DEVICE_CHANGED) {
+            _malContextCheckRoutes(notification.context);
+            _malContextSetSampleRate(notification.context);
+        } else if (notification.type == MAL_NOTIFICATION_TYPE_RESTART) {
+            handled = _malAttemptRestart(notification.context);
             if (!handled) {
                 // Give up after 200 attempts
-                notification->data++;
-                if (notification->data >= 200) {
+                notification.data++;
+                if (notification.data >= 200) {
                     handled = true;
                 }
             }
         }
-
-        if (handled) {
-            ok_vec_remove_at(&_malPendingNotifications, i);
-        } else {
-            i++;
+        if (!handled) {
+            hasUnhandledNotifications = true;
+            ok_queue_push(&unhandledNotifications, notification);
         }
     }
-    if (_malPendingNotifications.count > 0) {
+
+    if (hasUnhandledNotifications) {
+        while (ok_queue_pop(&unhandledNotifications, &notification)) {
+            ok_queue_push(&_malPendingNotifications, notification);
+        }
+        ok_queue_deinit(&unhandledNotifications);
         dispatch_async(dispatch_get_main_queue(), ^{
             _malHandleNotifications();
         });
     }
-    pthread_mutex_unlock(&globalMutex);
 }
 
 
 static void _malAddNotification(MalContext *context, MalNotificationType type) {
-    pthread_mutex_lock(&globalMutex);
-    struct MalNotification *notification = ok_vec_push_new(&_malPendingNotifications);
-    if (notification) {
-        notification->context = context;
-        notification->type = type;
-        notification->data = 0;
-    }
+    struct MalNotification notification;
+    notification.context = context;
+    notification.type = type;
+    notification.data = 0;
+    ok_queue_push(&_malPendingNotifications, notification);
     dispatch_async(dispatch_get_main_queue(), ^{
         _malHandleNotifications();
     });
-    pthread_mutex_unlock(&globalMutex);
 }
 
 // MARK: macOS helpers
