@@ -96,7 +96,8 @@ static void _malCancelNotifications(MalContext *context) {
     }
 }
 
-static void _malHandleNotifications() {
+static void _malHandleNotifications(void *userData) {
+    (void)userData;
     bool hasUnhandledNotifications = false;
     MalNotificationQueue unhandledNotifications = OK_QUEUE_INIT;
     struct MalNotification notification;
@@ -126,9 +127,7 @@ static void _malHandleNotifications() {
             ok_queue_push(&_malPendingNotifications, notification);
         }
         ok_queue_deinit(&unhandledNotifications);
-        dispatch_async(dispatch_get_main_queue(), ^{
-            _malHandleNotifications();
-        });
+        dispatch_async_f(dispatch_get_main_queue(), NULL, _malHandleNotifications);
     }
 }
 
@@ -139,9 +138,7 @@ static void _malAddNotification(MalContext *context, MalNotificationType type) {
     notification.type = type;
     notification.data = 0;
     ok_queue_push(&_malPendingNotifications, notification);
-    dispatch_async(dispatch_get_main_queue(), ^{
-        _malHandleNotifications();
-    });
+    dispatch_async_f(dispatch_get_main_queue(), NULL, _malHandleNotifications);
 }
 
 // MARK: macOS helpers
