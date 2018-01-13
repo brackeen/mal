@@ -205,12 +205,16 @@ static bool _malPlayerInit(MalPlayer *player, MalFormat format) {
     (void)format;
     
     MalContext *context = player->context;
+    uintptr_t playerPtr = (uintptr_t)player;
     if (context && context->data.contextId) {
         player->data.playerId = nextPlayerId;
         nextPlayerId++;
         EM_ASM_ARGS({
-            malContexts[$0].players[$1] = { };
-        }, context->data.contextId, player->data.playerId);
+            var player = { };
+            player.malPlayer = $2;
+            player.hasOnFinishedCallback = false;
+            malContexts[$0].players[$1] = player;
+        }, context->data.contextId, player->data.playerId, playerPtr);
         return true;
     } else {
         return false;
@@ -222,6 +226,7 @@ static void _malPlayerDispose(MalPlayer *player) {
     if (context && context->data.contextId && player->data.playerId) {
         EM_ASM_ARGS({
             var player = malContexts[$0].players[$1];
+            player.malPlayer = 0;
             if (player.gainNode) {
                 player.gainNode.disconnect();
             }
@@ -235,13 +240,12 @@ static void _malPlayerDispose(MalPlayer *player) {
 }
 
 static void _malPlayerDidSetFinishedCallback(MalPlayer *player) {
-    ok_static_assert(sizeof(MalCallbackId) <= 4, "MalCallbackId size must be 4 bytes or less");
     MalContext *context = player->context;
     if (context && context->data.contextId && player->data.playerId) {
         EM_ASM_ARGS({
             var player = malContexts[$0].players[$1];
-            player.onFinishedId = $2;
-        }, context->data.contextId, player->data.playerId, player->onFinishedId);
+            player.hasOnFinishedCallback = $2;
+        }, context->data.contextId, player->data.playerId, player->hasOnFinishedCallback);
     }
 }
 
@@ -376,10 +380,10 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState,
                         player.gainNode.disconnect();
                         player.gainNode = null;
                     }
-                    if (player.onFinishedId) {
+                    if (player.hasOnFinishedCallback) {
                         try {
                             Module.ccall('_malHandleOnFinishedCallback2', 'void', ['number'],
-                                         [player.onFinishedId]);
+                                         [player.malPlayer]);
                         } catch (e) { }
                     }
                 };
@@ -411,8 +415,9 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState,
 }
 
 EMSCRIPTEN_KEEPALIVE
-static void _malHandleOnFinishedCallback2(MalCallbackId onFinishedId) {
-    _malHandleOnFinishedCallback(onFinishedId);
+static void _malHandleOnFinishedCallback2(uintptr_t playerPtr) {
+    MalPlayer *player = (MalPlayer *)playerPtr;
+    _malHandleOnFinishedCallback(player);
 }
 
 #endif

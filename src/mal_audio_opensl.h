@@ -23,7 +23,6 @@
 #define MAL_AUDIO_OPENSL_H
 
 #include <SLES/OpenSLES.h>
-#include <stdbool.h>
 #if defined(__ANDROID__)
 #include <android/looper.h>
 #include <android/native_activity.h>
@@ -41,6 +40,9 @@
 #define SLBufferQueueItf SLAndroidSimpleBufferQueueItf
 #endif /* __ANDROID__ */
 
+#include "ok_lib.h"
+#include "mal.h"
+
 struct _MalContext {
     SLObjectItf slObject;
     SLEngineItf slEngine;
@@ -53,6 +55,7 @@ struct _MalContext {
     ALooper *looper;
     int looperMessagePipe[2];
 #endif
+    struct ok_queue_of(MalPlayer *) finishedPlayersWithCallbacks;
 };
 
 struct _MalBuffer {
@@ -77,6 +80,8 @@ struct _MalPlayer {
 static bool _malContextInit(MalContext *context, void *androidActivity,
                             const char **errorMissingAudioSystem) {
     (void)errorMissingAudioSystem;
+
+    ok_queue_init(&context->data.finishedPlayersWithCallbacks);
 
     // Create engine
     SLresult result = slCreateEngine(&context->data.slObject, 0, NULL, 0, NULL, NULL);
@@ -148,6 +153,11 @@ static void _malContextCloseLooper(MalContext *context) {
 }
 
 static void _malContextDispose(MalContext *context) {
+    MalPlayer *player = NULL;
+    while (ok_queue_pop(&context->data.finishedPlayersWithCallbacks, &player)) {
+        malPlayerRelease(player);
+    }
+    
     if (context->data.slOutputMixObject) {
         (*context->data.slOutputMixObject)->Destroy(context->data.slOutputMixObject);
         context->data.slOutputMixObject = NULL;
@@ -168,39 +178,47 @@ static void _malContextDispose(MalContext *context) {
         }
     }
 #endif
+    ok_queue_deinit(&context->data.finishedPlayersWithCallbacks);
 }
 
 #if defined(__ANDROID__)
-enum looperMessageType {
-    ON_PLAYER_FINISHED_MAGIC = 0x1df11fb1
-};
+static void _malContextPollEvents(MalContext *context) {
+    if (context) {
+        MalPlayer *player = NULL;
+        while (ok_queue_pop(&context->data.finishedPlayersWithCallbacks, &player)) {
+            _malHandleOnFinishedCallback(player);
+            malPlayerRelease(player);
+        }
+    }
+}
 
-struct looperMessage {
-    enum looperMessageType type;
-    MalCallbackId onFinishedId;
-};
+typedef uint8_t MalLooperMessage;
 
 static int _malLooperCallback(int fd, int events, void *user) {
-    struct looperMessage msg;
+    MalContext *context = (MalContext *)user;
+    MalLooperMessage msg;
 
     if ((events & ALOOPER_EVENT_INPUT) != 0) {
+        bool found = false;
         while (read(fd, &msg, sizeof(msg)) == sizeof(msg)) {
-            if (msg.type == ON_PLAYER_FINISHED_MAGIC) {
-                _malHandleOnFinishedCallback(msg.onFinishedId);
-            }
+            found = true;
+        }
+        if (found) {
+            _malContextPollEvents(context);
         }
     }
 
     if ((events & ALOOPER_EVENT_HANGUP) != 0) {
         // Not sure this is right
-        _malContextCloseLooper((MalContext *)user);
+        _malContextCloseLooper(context);
     }
 
     return 1;
 }
 
-static void _malLooperPost(int pipe, struct looperMessage *msg) {
-    if (write(pipe, msg, sizeof(*msg)) != sizeof(*msg)) {
+static void _malLooperPost(int pipe) {
+    MalLooperMessage msg;
+    if (write(pipe, &msg, sizeof(msg)) != sizeof(msg)) {
         // The pipe is full. Shouldn't happen, ignore
     }
 }
@@ -326,12 +344,11 @@ static void _malPlayerRenderCallback(SLBufferQueueItf queue, void *voidPlayer) {
             (*queue)->Enqueue(queue, buffer->managedData, len);
         } else if (player->data.slPlay) {
             (*player->data.slPlay)->SetPlayState(player->data.slPlay, SL_PLAYSTATE_STOPPED);
-            if (player->onFinished && player->context && player->context->data.looper) {
-                struct looperMessage msg = {
-                    .type = ON_PLAYER_FINISHED_MAGIC,
-                    .onFinishedId = atomic_load(&player->onFinishedId),
-                };
-                _malLooperPost(player->context->data.looperMessagePipe[1], &msg);
+            if (atomic_load(&player->hasOnFinishedCallback) && player->context &&
+                player->context->data.looper) {
+                malPlayerRetain(player);
+                ok_queue_push(&player->context->data.finishedPlayersWithCallbacks, player);
+                _malLooperPost(player->context->data.looperMessagePipe[1]);
             }
         }
         MAL_UNLOCK(player);

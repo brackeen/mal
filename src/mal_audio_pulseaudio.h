@@ -203,7 +203,6 @@ fail:
 // MARK: Implementation
 
 #include "ok_lib.h"
-#include "mal_audio_abstract_types.h"
 #include "mal.h"
 
 typedef enum {
@@ -218,7 +217,7 @@ struct _MalContext {
     pa_context *context;
 
     _Atomic(bool) hasPolledEvents;
-    struct ok_queue_of(MalCallbackId) finishedCallbackIds;
+    struct ok_queue_of(MalPlayer *) finishedPlayersWithCallbacks;
 };
 
 struct _MalBuffer {
@@ -267,7 +266,7 @@ static bool _malContextInit(MalContext *context, void *androidActivity,
     (void)androidActivity;
     struct _MalContext *pa = &context->data;
 
-    ok_queue_init(&pa->finishedCallbackIds);
+    ok_queue_init(&pa->finishedPlayersWithCallbacks);
 
 #ifndef MAL_PULSEAUDIO_STATIC
     // Load libpulse library
@@ -331,6 +330,11 @@ fail:
 static void _malContextDispose(MalContext *context) {
     struct _MalContext *pa = &context->data;
 
+    MalPlayer *player = NULL;
+    while (ok_queue_pop(&context->data.finishedPlayersWithCallbacks, &player)) {
+        malPlayerRelease(player);
+    }
+
     if (pa->mainloop) {
         pa_threaded_mainloop_stop(pa->mainloop);
     }
@@ -343,7 +347,7 @@ static void _malContextDispose(MalContext *context) {
         pa_threaded_mainloop_free(pa->mainloop);
         pa->mainloop = NULL;
     }
-    ok_queue_deinit(&pa->finishedCallbackIds);
+    ok_queue_deinit(&pa->finishedPlayersWithCallbacks);
 }
 
 static bool _malContextSetActive(MalContext *context, bool active) {
@@ -395,9 +399,10 @@ void malContextPollEvents(MalContext *context) {
     }
     atomic_store(&context->data.hasPolledEvents, true);
 
-    MalCallbackId onFinishedId = 0;
-    while (ok_queue_pop(&context->data.finishedCallbackIds, &onFinishedId)) {
-        _malHandleOnFinishedCallback(onFinishedId);
+    MalPlayer *player = NULL;
+    while (ok_queue_pop(&context->data.finishedPlayersWithCallbacks, &player)) {
+        _malHandleOnFinishedCallback(player);
+        malPlayerRelease(player);
     }
 }
 
@@ -443,13 +448,13 @@ static void _malPlayerUnderflowCallback(pa_stream *stream, void *userData) {
     MAL_LOCK(player);
     if (player->data.streamState == MAL_STREAM_DRAINING) {
         player->data.streamState = MAL_STREAM_INACTIVE;
-        if (player->data.state == MAL_PLAYER_STATE_PLAYING) {
-            MalCallbackId onFinishedId = atomic_load(&player->onFinishedId);
-            if (onFinishedId) {
-                MalContext *context = player->context;
-                if (context && atomic_load(&context->data.hasPolledEvents)) {
-                    ok_queue_push(&context->data.finishedCallbackIds, onFinishedId);
-                }
+        if (player->data.state == MAL_PLAYER_STATE_PLAYING &&
+            atomic_load(&player->hasOnFinishedCallback)) {
+
+            MalContext *context = player->context;
+            if (context && atomic_load(&context->data.hasPolledEvents)) {
+                malPlayerRetain(player);
+                ok_queue_push(&context->data.finishedPlayersWithCallbacks, player);
             }
         }
         player->data.state = MAL_PLAYER_STATE_STOPPED;

@@ -23,7 +23,6 @@
 #define MAL_AUDIO_ABSTRACT_H
 
 #include "mal.h"
-#include "mal_audio_abstract_types.h"
 #include "ok_lib.h"
 #include <math.h>
 
@@ -32,16 +31,11 @@
 // thread.
 #ifdef MAL_USE_MUTEX
 #  include <pthread.h>
-static pthread_mutex_t globalMutex = PTHREAD_MUTEX_INITIALIZER;
 #  define MAL_LOCK(player) pthread_mutex_lock(&player->mutex)
 #  define MAL_UNLOCK(player) pthread_mutex_unlock(&player->mutex)
-#  define MAL_LOCK_GLOBAL() pthread_mutex_lock(&globalMutex)
-#  define MAL_UNLOCK_GLOBAL() pthread_mutex_unlock(&globalMutex)
 #else
 #  define MAL_LOCK(player) do { } while(0)
 #  define MAL_UNLOCK(player) do { } while(0)
-#  define MAL_LOCK_GLOBAL() do { } while(0)
-#  define MAL_UNLOCK_GLOBAL() do { } while(0)
 #endif
 
 // MARK: Atomics
@@ -113,10 +107,6 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPl
 
 typedef struct ok_vec_of(MalPlayer *) MalPlayerVec;
 typedef struct ok_vec_of(MalBuffer *) MalBufferVec;
-typedef struct ok_map_of(MalCallbackId, MalPlayer *) MalCallbackMap;
-
-static MalCallbackMap *globalActiveCallbacks = NULL;
-static MalCallbackId nextFinishedCallbackID = 1;
 
 // MARK: Structs
 
@@ -163,7 +153,7 @@ struct MalPlayer {
 
     malPlaybackFinishedFunc onFinished;
     void *onFinishedUserData;
-    _Atomic(MalCallbackId) onFinishedId;
+    _Atomic(bool) hasOnFinishedCallback;
 
 #ifdef MAL_USE_MUTEX
     pthread_mutex_t mutex;
@@ -494,40 +484,9 @@ const MalBuffer *malPlayerGetBuffer(const MalPlayer *player) {
 void malPlayerSetFinishedFunc(MalPlayer *player, malPlaybackFinishedFunc onFinished,
                               void *userData) {
     if (player) {
-        MAL_LOCK_GLOBAL();
-        if (!globalActiveCallbacks) {
-            globalActiveCallbacks = (MalCallbackMap *)malloc(sizeof(MalCallbackMap));
-            if (globalActiveCallbacks == NULL ||
-                !ok_map_init_custom(globalActiveCallbacks, ok_uint32_hash, ok_32bit_equals)) {
-                // Failure
-                free(globalActiveCallbacks);
-                MAL_UNLOCK_GLOBAL();
-                return;
-            }
-        }
-        MalCallbackId oldOnFinishedId;
-        MalCallbackId newOnFinishedId;
-        if (onFinished != NULL) {
-            newOnFinishedId = nextFinishedCallbackID;
-            nextFinishedCallbackID++;
-        } else {
-            newOnFinishedId = 0;
-        }
-        MAL_LOCK(player);
-        oldOnFinishedId = atomic_load(&player->onFinishedId);
-        atomic_store(&player->onFinishedId, newOnFinishedId);
         player->onFinished = onFinished;
         player->onFinishedUserData = userData;
-        MAL_UNLOCK(player);
-
-        if (oldOnFinishedId) {
-            ok_map_remove(globalActiveCallbacks, oldOnFinishedId);
-        }
-        if (newOnFinishedId) {
-            ok_map_put(globalActiveCallbacks, newOnFinishedId, player);
-        }
-
-        MAL_UNLOCK_GLOBAL();
+        atomic_store(&player->hasOnFinishedCallback, onFinished != NULL);
         _malPlayerDidSetFinishedCallback(player);
     }
 }
@@ -536,15 +495,7 @@ malPlaybackFinishedFunc malPlayerGetFinishedFunc(MalPlayer *player) {
     return player ? player->onFinished : NULL;
 }
 
-static void _malHandleOnFinishedCallback(MalCallbackId onFinishedId) {
-    // Find the player
-    MalPlayer *player = NULL;
-    MAL_LOCK_GLOBAL();
-    if (globalActiveCallbacks) {
-        player = ok_map_get(globalActiveCallbacks, onFinishedId);
-    }
-    MAL_UNLOCK_GLOBAL();
-    // Send callback
+static void _malHandleOnFinishedCallback(MalPlayer *player) {
     if (player && player->onFinished) {
         player->onFinished(player, player->onFinishedUserData);
     }
