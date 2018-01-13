@@ -33,34 +33,6 @@ void malContextPollEvents(MalContext *context) {
     // Do nothing
 }
 
-static void _malContextCheckRoutes(MalContext *context) {
-    if (context) {
-        memset(context->routes, 0, sizeof(context->routes));
-        AVAudioSession *session = [AVAudioSession sharedInstance];
-        NSArray *outputs = session.currentRoute.outputs;
-        for (AVAudioSessionPortDescription *port in outputs) {
-            // This covers all the ports up to iOS 11
-            if ([port.portType isEqualToString:AVAudioSessionPortHeadphones]) {
-                context->routes[MAL_ROUTE_HEADPHONES] = true;
-            } else if ([port.portType isEqualToString:AVAudioSessionPortBuiltInSpeaker]) {
-                context->routes[MAL_ROUTE_SPEAKER] = true;
-            } else if ([port.portType isEqualToString:AVAudioSessionPortBuiltInReceiver]) {
-                context->routes[MAL_ROUTE_RECIEVER] = true;
-            } else if ([port.portType isEqualToString:AVAudioSessionPortBluetoothA2DP] ||
-                       [port.portType isEqualToString:AVAudioSessionPortBluetoothHFP] ||
-                       [port.portType isEqualToString:AVAudioSessionPortBluetoothLE] ||
-                       [port.portType isEqualToString:AVAudioSessionPortAirPlay]) {
-                context->routes[MAL_ROUTE_WIRELESS] = true;
-            } else if ([port.portType isEqualToString:AVAudioSessionPortLineOut] ||
-                       [port.portType isEqualToString:AVAudioSessionPortHDMI] ||
-                       [port.portType isEqualToString:AVAudioSessionPortUSBAudio] ||
-                       [port.portType isEqualToString:AVAudioSessionPortCarAudio]) {
-                context->routes[MAL_ROUTE_LINEOUT] = true;
-            }
-        }
-    }
-}
-
 static void _malNotificationHandler(CFNotificationCenterRef center, void *observer,
                                     CFStringRef name, const void *object,
                                     CFDictionaryRef userInfo) {
@@ -77,9 +49,6 @@ static void _malNotificationHandler(CFNotificationCenterRef center, void *observ
                 malContextSetActive(context, true);
             }
         }
-    } else if ([AVAudioSessionRouteChangeNotification isEqualToString:nsName]) {
-        _malContextCheckRoutes(context);
-        _malContextSetSampleRate(context);
     } else if ([AVAudioSessionMediaServicesWereResetNotification isEqualToString:nsName]) {
         _malContextReset(context);
     }
@@ -96,7 +65,6 @@ static void _malAddNotification(MalContext *context, CFStringRef name) {
 
 static void _malContextDidCreate(MalContext *context) {
     _malAddNotification(context, (__bridge CFStringRef)AVAudioSessionInterruptionNotification);
-    _malAddNotification(context, (__bridge CFStringRef)AVAudioSessionRouteChangeNotification);
     _malAddNotification(context,
                         (__bridge CFStringRef)AVAudioSessionMediaServicesWereResetNotification);
 }

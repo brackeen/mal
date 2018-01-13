@@ -28,11 +28,6 @@
 
 #include "mal_audio_pulseaudio.h"
 
-static void _malContextCheckRoutes(MalContext *context) {
-    (void)context;
-    // Do nothing
-}
-
 static void _malContextDidCreate(MalContext *context) {
     (void)context;
     // Do nothing
@@ -51,7 +46,6 @@ static void _malContextDidSetActive(MalContext *context, bool active) {
 
 #else
 
-#include <IOKit/audio/IOAudioTypes.h> // For terminal types
 #include "mal_audio_coreaudio.h"
 
 void malContextPollEvents(MalContext *context) {
@@ -104,7 +98,6 @@ static void _malHandleNotifications(void *userData) {
     while (ok_queue_pop(&_malPendingNotifications, &notification)) {
         bool handled = true;
         if (notification.type == MAL_NOTIFICATION_TYPE_DEVICE_CHANGED) {
-            _malContextCheckRoutes(notification.context);
             _malContextSetSampleRate(notification.context);
         } else if (notification.type == MAL_NOTIFICATION_TYPE_RESTART) {
             handled = _malAttemptRestart(notification.context);
@@ -162,100 +155,6 @@ static UInt32 _malGetPropertyUInt32(AudioObjectID object,
     } else {
         return propertyValue;
     }
-}
-
-static void _malContextCheckRoutes(MalContext *context) {
-    if (!context) {
-        return;
-    }
-
-    memset(context->routes, 0, sizeof(context->routes));
-
-    AudioObjectPropertyAddress  propertyAddress;
-    AudioDeviceID defaultOutputDeviceID;
-    UInt32 propertySize;
-    AudioStreamID *streamIds = NULL;
-    UInt32 streamCount;
-    UInt32 transportType;
-    UInt32 terminalType;
-    OSStatus status = noErr;
-
-    // TODO: Check all devices? There may be multiple output devices.
-    // kAudioHardwarePropertyDevices
-
-    // Get current output device
-    defaultOutputDeviceID = _malGetPropertyUInt32(kAudioObjectSystemObject,
-                                                  kAudioHardwarePropertyDefaultOutputDevice,
-                                                  kAudioObjectPropertyScopeGlobal,
-                                                  kAudioDeviceUnknown);
-    if (defaultOutputDeviceID == kAudioDeviceUnknown) {
-        goto done;
-    }
-
-    // Get transport type - quick exit if wireless
-    transportType = _malGetPropertyUInt32(defaultOutputDeviceID, kAudioDevicePropertyTransportType,
-                                          kAudioObjectPropertyScopeOutput,
-                                          kAudioDeviceTransportTypeUnknown);
-    if (transportType == kAudioDeviceTransportTypeBluetooth ||
-        transportType == kAudioDeviceTransportTypeBluetoothLE ||
-        transportType == kAudioDeviceTransportTypeAirPlay) {
-        context->routes[MAL_ROUTE_WIRELESS] = true;
-        goto done;
-    }
-
-    // Get stream count
-    propertyAddress.mSelector = kAudioDevicePropertyStreams;
-    propertyAddress.mScope = kAudioDevicePropertyScopeOutput;
-    propertyAddress.mElement = kAudioObjectPropertyElementMaster;
-    propertySize = 0;
-    status = AudioObjectGetPropertyDataSize(defaultOutputDeviceID, &propertyAddress, 0, NULL,
-                                            &propertySize);
-    if (status != noErr) {
-        goto done;
-    }
-
-    streamCount = propertySize / sizeof(AudioStreamID);
-    if (streamCount == 0) {
-        goto done;
-    }
-
-    // Get stream ids
-    streamIds = malloc(propertySize);
-    if (!streamIds) {
-        goto done;
-    }
-    status = AudioObjectGetPropertyData(defaultOutputDeviceID, &propertyAddress, 0, NULL,
-                                        &propertySize, streamIds);
-    if (status != noErr) {
-        goto done;
-    }
-
-    // Get routes
-    for (UInt32 i = 0; i < streamCount; i++) {
-        terminalType = _malGetPropertyUInt32(streamIds[i], kAudioStreamPropertyTerminalType,
-                                             kAudioObjectPropertyScopeOutput,
-                                             kAudioStreamTerminalTypeUnknown);
-
-        // Some devices use the terminal type enums defined in IOKit/audio/IOAudioTypes.h,
-        // others use the terminal type enums defined in CoreAudio/AudioHardwareBase.h.
-        if (terminalType == kAudioStreamTerminalTypeReceiverSpeaker) {
-            context->routes[MAL_ROUTE_RECIEVER] = true;
-        } else if (terminalType == kAudioStreamTerminalTypeHeadphones ||
-                   terminalType == OUTPUT_HEADPHONES ||
-                   terminalType == OUTPUT_HEAD_MOUNTED_DISPLAY_AUDIO) {
-            context->routes[MAL_ROUTE_HEADPHONES] = true;
-        } else if (terminalType == kAudioStreamTerminalTypeLine ||
-                   terminalType == kAudioStreamTerminalTypeDigitalAudioInterface ||
-                   terminalType == kAudioStreamTerminalTypeHDMI ||
-                   terminalType == kAudioStreamTerminalTypeDisplayPort) {
-            context->routes[MAL_ROUTE_LINEOUT] = true;
-        } else if (terminalType != kAudioStreamTerminalTypeUnknown) {
-            context->routes[MAL_ROUTE_SPEAKER] = true;
-        }
-    }
-
-done:
-    free(streamIds);
 }
 
 static bool _malAttemptRestart(MalContext *context) {

@@ -120,17 +120,6 @@ void malContextPollEvents(MalContext *context) {
     // Do nothing
 }
 
-static void _malContextCheckRoutes(MalContext *context) {
-    (void)context;
-    // NOTE: SLAudioIODeviceCapabilitiesItf isn't supported, so there's no way to get routing
-    // information. GetDestinationOutputDeviceIDs only returns SL_DEFAULTDEVICEID_AUDIOOUTPUT.
-    //
-    // With an instance of the AudioManager, this could call the Java functions:
-    // wireless = (isBluetoothA2dpOn() || isBluetoothScoOn())
-    // speaker = isSpeakerphoneOn()
-    // headset = isWiredHeadsetOn()
-}
-
 static void _malContextGetSampleRate(MalContext *context) {
     if (!context->data.appContext || context->data.sdkVersion < 17) {
         return;

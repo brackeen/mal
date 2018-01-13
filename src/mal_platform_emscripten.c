@@ -28,11 +28,6 @@ void malContextPollEvents(MalContext *context) {
     // Do nothing
 }
 
-static void _malContextCheckRoutes(MalContext *context) {
-    (void)context;
-    // Do nothing
-}
-
 static void _malContextDidCreate(MalContext *context) {
     (void)context;
     // Do nothing

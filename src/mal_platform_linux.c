@@ -23,11 +23,6 @@
 
 #include "mal_audio_pulseaudio.h"
 
-static void _malContextCheckRoutes(MalContext *context) {
-    (void)context;
-    // Do nothing
-}
-
 static void _malContextDidCreate(MalContext *context) {
     (void)context;
     // Do nothing

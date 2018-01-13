@@ -82,7 +82,6 @@ static void _malContextDidSetActive(MalContext *context, bool active);
 static bool _malContextSetActive(MalContext *context, bool active);
 static void _malContextUpdateMute(MalContext *context);
 static void _malContextUpdateGain(MalContext *context);
-static void _malContextCheckRoutes(MalContext *context);
 /**
  Either `copiedData` or `managedData` will be non-null, but not both. If `copiedData` is set,
  the data must be copied (don't keep a reference to `copiedData`).
@@ -113,7 +112,6 @@ typedef struct ok_vec_of(MalBuffer *) MalBufferVec;
 struct MalContext {
     MalPlayerVec players;
     MalBufferVec buffers;
-    bool routes[NUM_MAL_ROUTES];
     float gain;
     bool mute;
     bool active;
@@ -237,9 +235,6 @@ bool malContextSetActive(MalContext *context, bool active) {
     MAL_UNLOCK(context);
     if (success) {
         _malContextDidSetActive(context, active);
-        if (active) {
-            _malContextCheckRoutes(context);
-        }
     }
     return success;
 }
@@ -271,14 +266,6 @@ bool malContextIsFormatValid(const MalContext *context, MalFormat format) {
     // TODO: Move to subsystem
     return ((format.bitDepth == 8 || format.bitDepth == 16) &&
             (format.numChannels == 1 || format.numChannels == 2));
-}
-
-bool malContextIsRouteEnabled(const MalContext *context, MalRoute route) {
-    if (context && route < NUM_MAL_ROUTES) {
-        return context->routes[route];
-    } else {
-        return false;
-    }
 }
 
 static void _malContextFree(MalContext *context) {

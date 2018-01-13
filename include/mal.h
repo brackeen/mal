@@ -44,15 +44,6 @@ extern "C" {
 #endif
 
 typedef enum {
-    MAL_ROUTE_RECIEVER = 0,
-    MAL_ROUTE_SPEAKER,
-    MAL_ROUTE_HEADPHONES,
-    MAL_ROUTE_LINEOUT,
-    MAL_ROUTE_WIRELESS,
-    NUM_MAL_ROUTES
-} MalRoute;
-
-typedef enum {
     MAL_PLAYER_STATE_STOPPED = 0,
     MAL_PLAYER_STATE_PLAYING,
     MAL_PLAYER_STATE_PAUSED,
@@ -147,18 +138,6 @@ bool malContextSetActive(MalContext *context, bool active);
  * @param context The audio context. If `NULL`, this function does nothing.
  */
 void malContextPollEvents(MalContext *context);
-
-/**
- * Checks if the audio is currently outputting through a specific route. Multiple output routes may
- * be enabled simultaneously. If all routes return `false`, the route could not be determined.
- *
- * Currently only the iOS implementation reports routes.
- *
- * @param context The audio context. If `NULL`, this function returns `false`.
- * @param route The audio route to check.
- * @return `true` if audio is outputting through the route.
- */
-bool malContextIsRouteEnabled(const MalContext *context, MalRoute route);
 
 /**
  * Checks if the audio context is muted.
