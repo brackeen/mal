@@ -363,7 +363,7 @@ bool malPlayerSetBuffer(MalPlayer *player, MalBuffer *buffer);
  * @param player The audio player. If `NULL`, this function returns `NULL`.
  * @return The buffer attached to the player, or `NULL` if no buffer is currently attached.
  */
-const MalBuffer *malPlayerGetBuffer(const MalPlayer *player);
+MalBuffer *malPlayerGetBuffer(const MalPlayer *player);
 
 /**
  * Sets the function to call when a player has finished playing. The function is not called when

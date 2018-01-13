@@ -477,7 +477,7 @@ bool malPlayerSetBuffer(MalPlayer *player, MalBuffer *buffer) {
     }
 }
 
-const MalBuffer *malPlayerGetBuffer(const MalPlayer *player) {
+MalBuffer *malPlayerGetBuffer(const MalPlayer *player) {
     return player ? player->buffer : NULL;
 }
 
