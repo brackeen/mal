@@ -301,7 +301,7 @@ static State testDelayedPlayerAction(StressTestApp *app, PlayerAction action) {
                     }
                 }
             } else {
-                success = (app->testIteration < lastIteration);
+                success = (app->testIteration < lastIteration && app->onFinishedCallbackCount == 0);
             }
         }
     }
