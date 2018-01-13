@@ -179,7 +179,7 @@ static bool playerAction(StressTestApp *app, PlayerAction action, size_t index) 
         case PLAYER_ACTION_DELETE_BUFFER: {
             malBufferRelease(app->tempBuffers[index]);
             app->tempBuffers[index] = NULL;
-            return malPlayerGetBuffer(app->players[index]) == NULL;
+            return malPlayerSetBuffer(app->players[index], NULL);;
         }
         case PLAYER_ACTION_STOP_AND_CLEAR_BUFFER: {
             return (malPlayerSetState(app->players[index], MAL_PLAYER_STATE_STOPPED) &&

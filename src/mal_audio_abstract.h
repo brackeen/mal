@@ -154,7 +154,7 @@ struct MalBuffer {
 struct MalPlayer {
     MalContext *context;
     MalFormat format;
-    const MalBuffer *buffer;
+    MalBuffer *buffer;
     float gain;
     bool mute;
     _Atomic(bool) looping;
@@ -408,12 +408,6 @@ void *malBufferGetData(const MalBuffer *buffer) {
 
 static void _malBufferFree(MalBuffer *buffer) {
     if (buffer->context) {
-        // First, stop all players that are using this buffer.
-        ok_vec_foreach(&buffer->context->players, MalPlayer *player) {
-            if (player->buffer == buffer) {
-                malPlayerSetBuffer(player, NULL);
-            }
-        }
         ok_vec_remove(&buffer->context->buffers, buffer);
     }
     _malBufferDispose(buffer);
@@ -474,14 +468,16 @@ MalFormat malPlayerGetFormat(const MalPlayer *player) {
     }
 }
 
-bool malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer) {
+bool malPlayerSetBuffer(MalPlayer *player, MalBuffer *buffer) {
     if (!player) {
         return false;
     } else {
         malPlayerSetState(player, MAL_PLAYER_STATE_STOPPED);
         bool success = _malPlayerSetBuffer(player, buffer);
         MAL_LOCK(player);
+        malBufferRelease(player->buffer);
         if (success) {
+            malBufferRetain(buffer);
             player->buffer = buffer;
         } else {
             player->buffer = NULL;

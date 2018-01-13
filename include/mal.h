@@ -116,8 +116,8 @@ void malContextRetain(MalContext *context);
  * Decreases the reference count of the context by one. When the reference count is zero, the
  * context is destroyed.
  *
- * When the context is destroyed, all buffers and players created with the context are also
- * destroyed, regardless of their reference count.
+ * The players and buffers should be released before releasing the context. When the context is
+ * destroyed, all remaining buffers and players created with the context are invalid.
  *
  * @param context The audio context. If `NULL`, this function does nothing.
  */
@@ -328,7 +328,7 @@ void malPlayerRetain(MalPlayer *player);
 
 /**
  * Decreases the reference count of the player by one. When the reference count is zero, the
- * player is destroyed.
+ * player is destroyed. When the player is destroyed, it's attached buffer (if any) is released.
  *
  * @param player The audio player. If `NULL`, this function returns nothing.
  */
@@ -344,15 +344,18 @@ void malPlayerRelease(MalPlayer *player);
 MalFormat malPlayerGetFormat(const MalPlayer *player);
 
 /**
- * Attaches a buffer to the player. Any existing buffer is removed.
+ * Attaches a buffer to the player.
  *
  * A buffer may be attached to multiple players.
+ *
+ * When a buffer is attached to a player, it is retained (it's reference count is incremented), and
+ * the previous buffer (if any) is released (it's reference count is decremented).
  *
  * @param player The audio player. If `NULL`, this function does nothing.
  * @param buffer The audio buffer. May be `NULL`.
  * @return `true` if successful.
  */
-bool malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer);
+bool malPlayerSetBuffer(MalPlayer *player, MalBuffer *buffer);
 
 /**
  * Gets the buffer attached to the player.
