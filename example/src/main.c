@@ -138,12 +138,12 @@ static bool malExampleInit(ExampleApp *app) {
 }
 
 static void malExampleFree(ExampleApp *app) {
-    malBufferFree(app->buffer[0]);
-    malBufferFree(app->buffer[1]);
+    malBufferRelease(app->buffer[0]);
+    malBufferRelease(app->buffer[1]);
     for (int i = 0; i < kMaxPlayers; i++) {
-        malPlayerFree(app->players[i]);
+        malPlayerRelease(app->players[i]);
     }
-    malContextFree(app->context);
+    malContextRelease(app->context);
     free(app);
 }
 

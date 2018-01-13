@@ -44,12 +44,32 @@ static pthread_mutex_t globalMutex = PTHREAD_MUTEX_INITIALIZER;
 #  define MAL_UNLOCK_GLOBAL() do { } while(0)
 #endif
 
+// MARK: Atomics
+
 #if defined(MAL_NO_STDATOMIC)
 #  if !defined(__STDC_VERSION__) || (__STDC_VERSION__ < 201112L)
 #    define _Atomic(T) T
 #  endif
 #  define atomic_load(object) *(object)
 #  define atomic_store(object, value) *(object) = value
+#  define OK_ATOMIC_INC(value) (++(*(value)))
+#  define OK_ATOMIC_DEC(value) (--(*(value)))
+#elif defined(OK_LIB_USE_STDATOMIC)
+#  define OK_ATOMIC_INC(value) (atomic_fetch_add_explicit((value), 1, memory_order_relaxed) + 1)
+#  define OK_ATOMIC_DEC(value) (atomic_fetch_sub_explicit((value), 1, memory_order_relaxed) - 1)
+#elif defined(_MSC_VER)
+#  if UINTPTR_MAX == UINT64_MAX
+#    define OK_ATOMIC_INC(value) InterlockedIncrement64(value)
+#    define OK_ATOMIC_DEC(value) InterlockedDecrement64(value)
+#  else
+#    define OK_ATOMIC_INC(value) InterlockedIncrement(value)
+#    define OK_ATOMIC_DEC(value) InterlockedDecrement(value)
+#  endif
+#elif defined(__GCC_HAVE_SYNC_COMPARE_AND_SWAP_4)
+#  define OK_ATOMIC_INC(value) (__atomic_fetch_add((value), 1, __ATOMIC_RELAXED) + 1)
+#  define OK_ATOMIC_DEC(value) (__atomic_fetch_sub((value), 1, __ATOMIC_RELAXED) - 1)
+#else
+#  error stdatomic.h required
 #endif
 
 // Audio subsystems need to implement these structs and functions.
@@ -110,6 +130,8 @@ struct MalContext {
     double requestedSampleRate;
     double actualSampleRate;
 
+    _Atomic(size_t) refCount;
+
 #ifdef MAL_USE_MUTEX
     pthread_mutex_t mutex;
 #endif
@@ -124,6 +146,8 @@ struct MalBuffer {
     void *managedData;
     malDeallocatorFunc managedDataDeallocator;
 
+    _Atomic(size_t) refCount;
+
     struct _MalBuffer data;
 };
 
@@ -134,6 +158,8 @@ struct MalPlayer {
     float gain;
     bool mute;
     _Atomic(bool) looping;
+
+    _Atomic(size_t) refCount;
 
     malPlaybackFinishedFunc onFinished;
     void *onFinishedUserData;
@@ -180,6 +206,7 @@ MalContext *malContextCreateWithOptions(double requestedSampleRate, void *androi
 #ifdef MAL_USE_MUTEX
         pthread_mutex_init(&context->mutex, NULL);
 #endif
+        atomic_store(&context->refCount, 1);
         context->mute = false;
         context->gain = 1.0f;
         context->requestedSampleRate = requestedSampleRate;
@@ -193,11 +220,11 @@ MalContext *malContextCreateWithOptions(double requestedSampleRate, void *androi
                 context->actualSampleRate = 44100;
             }
             if (!success) {
-                malContextFree(context);
+                malContextRelease(context);
                 context = NULL;
             }
         } else {
-            malContextFree(context);
+            malContextRelease(context);
             context = NULL;
         }
     }
@@ -264,34 +291,44 @@ bool malContextIsRouteEnabled(const MalContext *context, MalRoute route) {
     }
 }
 
-void malContextFree(MalContext *context) {
-    if (context) {
-        // Delete players
-        ok_vec_foreach(&context->players, MalPlayer *player) {
-            malPlayerSetBuffer(player, NULL);
-            _malPlayerDispose(player);
-            player->context = NULL;
-        }
-        ok_vec_deinit(&context->players);
-
-        // Delete buffers
-        ok_vec_foreach(&context->buffers, MalBuffer *buffer) {
-            _malBufferDispose(buffer);
-            buffer->context = NULL;
-        }
-        ok_vec_deinit(&context->buffers);
-
-        // Dispose and free
-        _malContextWillDispose(context);
-        malContextSetActive(context, false);
-        MAL_LOCK(context);
-        _malContextDispose(context);
-        MAL_UNLOCK(context);
-
+static void _malContextFree(MalContext *context) {
+    // Delete players
+    ok_vec_foreach(&context->players, MalPlayer *player) {
+        malPlayerSetBuffer(player, NULL);
+        _malPlayerDispose(player);
+        player->context = NULL;
+    }
+    ok_vec_deinit(&context->players);
+    
+    // Delete buffers
+    ok_vec_foreach(&context->buffers, MalBuffer *buffer) {
+        _malBufferDispose(buffer);
+        buffer->context = NULL;
+    }
+    ok_vec_deinit(&context->buffers);
+    
+    // Dispose and free
+    _malContextWillDispose(context);
+    malContextSetActive(context, false);
+    MAL_LOCK(context);
+    _malContextDispose(context);
+    MAL_UNLOCK(context);
+    
 #ifdef MAL_USE_MUTEX
-        pthread_mutex_destroy(&context->mutex);
+    pthread_mutex_destroy(&context->mutex);
 #endif
-        free(context);
+    free(context);
+}
+
+void malContextRetain(MalContext *context) {
+    if (context) {
+        (void)OK_ATOMIC_INC(&context->refCount);
+    }
+}
+
+void malContextRelease(MalContext *context) {
+    if (context && OK_ATOMIC_DEC(&context->refCount) == 0) {
+        _malContextFree(context);
     }
 }
 
@@ -326,6 +363,7 @@ static MalBuffer *_malBufferCreateInternal(MalContext *context, const MalFormat 
     }
     MalBuffer *buffer = (MalBuffer *)calloc(1, sizeof(MalBuffer));
     if (buffer) {
+        atomic_store(&buffer->refCount, 1);
         ok_vec_push(&context->buffers, buffer);
         buffer->context = context;
         buffer->format = format;
@@ -334,7 +372,7 @@ static MalBuffer *_malBufferCreateInternal(MalContext *context, const MalFormat 
         bool success = _malBufferInit(context, buffer, copiedData, managedData,
                                         dataDeallocator);
         if (!success) {
-            malBufferFree(buffer);
+            malBufferRelease(buffer);
             buffer = NULL;
         }
     }
@@ -355,8 +393,8 @@ MalFormat malBufferGetFormat(const MalBuffer *buffer) {
     if (buffer) {
         return buffer->format;
     } else {
-        static const MalFormat null_format = {0, 0, 0};
-        return null_format;
+        static const MalFormat nullFormat = {0, 0, 0};
+        return nullFormat;
     }
 }
 
@@ -368,25 +406,35 @@ void *malBufferGetData(const MalBuffer *buffer) {
     return buffer ? buffer->managedData : NULL;
 }
 
-void malBufferFree(MalBuffer *buffer) {
+static void _malBufferFree(MalBuffer *buffer) {
+    if (buffer->context) {
+        // First, stop all players that are using this buffer.
+        ok_vec_foreach(&buffer->context->players, MalPlayer *player) {
+            if (player->buffer == buffer) {
+                malPlayerSetBuffer(player, NULL);
+            }
+        }
+        ok_vec_remove(&buffer->context->buffers, buffer);
+    }
+    _malBufferDispose(buffer);
+    if (buffer->managedData) {
+        if (buffer->managedDataDeallocator) {
+            buffer->managedDataDeallocator(buffer->managedData);
+        }
+        buffer->managedData = NULL;
+    }
+    free(buffer);
+}
+
+void malBufferRetain(MalBuffer *buffer) {
     if (buffer) {
-        if (buffer->context) {
-            // First, stop all players that are using this buffer.
-            ok_vec_foreach(&buffer->context->players, MalPlayer *player) {
-                if (player->buffer == buffer) {
-                    malPlayerSetBuffer(player, NULL);
-                }
-            }
-            ok_vec_remove(&buffer->context->buffers, buffer);
-        }
-        _malBufferDispose(buffer);
-        if (buffer->managedData) {
-            if (buffer->managedDataDeallocator) {
-                buffer->managedDataDeallocator(buffer->managedData);
-            }
-            buffer->managedData = NULL;
-        }
-        free(buffer);
+        (void)OK_ATOMIC_INC(&buffer->refCount);
+    }
+}
+
+void malBufferRelease(MalBuffer *buffer) {
+    if (buffer && OK_ATOMIC_DEC(&buffer->refCount) == 0) {
+        _malBufferFree(buffer);
     }
 }
 
@@ -399,6 +447,7 @@ MalPlayer *malPlayerCreate(MalContext *context, MalFormat format) {
     }
     MalPlayer *player = (MalPlayer *)calloc(1, sizeof(MalPlayer));
     if (player) {
+        atomic_store(&player->refCount, 1);
 #ifdef MAL_USE_MUTEX
         pthread_mutex_init(&player->mutex, NULL);
 #endif
@@ -409,7 +458,7 @@ MalPlayer *malPlayerCreate(MalContext *context, MalFormat format) {
 
         bool success = _malPlayerInit(player, format);
         if (!success) {
-            malPlayerFree(player);
+            malPlayerRelease(player);
             player = NULL;
         }
     }
@@ -569,21 +618,32 @@ MalPlayerState malPlayerGetState(MalPlayer *player) {
     }
 }
 
-void malPlayerFree(MalPlayer *player) {
-    if (player) {
-        malPlayerSetBuffer(player, NULL);
-        malPlayerSetFinishedFunc(player, NULL, NULL);
-        _malPlayerDispose(player);
-        MAL_LOCK(player);
-        if (player->context) {
-            ok_vec_remove(&player->context->players, player);
-            player->context = NULL;
-        }
-        MAL_UNLOCK(player);
+static void _malPlayerFree(MalPlayer *player) {
+    malPlayerSetBuffer(player, NULL);
+    malPlayerSetFinishedFunc(player, NULL, NULL);
+    _malPlayerDispose(player);
+    MAL_LOCK(player);
+    if (player->context) {
+        ok_vec_remove(&player->context->players, player);
+        player->context = NULL;
+    }
+    MAL_UNLOCK(player);
 #ifdef MAL_USE_MUTEX
-        pthread_mutex_destroy(&player->mutex);
+    pthread_mutex_destroy(&player->mutex);
 #endif
-        free(player);
+    free(player);
+}
+
+
+void malPlayerRetain(MalPlayer *player) {
+    if (player) {
+        (void)OK_ATOMIC_INC(&player->refCount);
+    }
+}
+
+void malPlayerRelease(MalPlayer *player) {
+    if (player && OK_ATOMIC_DEC(&player->refCount) == 0) {
+        _malPlayerFree(player);
     }
 }
 

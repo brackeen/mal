@@ -25,9 +25,9 @@
 /**
  * @file
  * Audio playback API.
- * Provides functions to play raw PCM audio on iOS, Android, and Emscripten.
+ * Provides functions to play raw PCM audio on Windows, macOS, Linux, iOS, Android, and Emscripten.
  *
- * Uses the platform's audio system (Core Audio, OpenSL ES, etc.). 
+ * Uses the platform's audio system (XAudio2, PulseAudio, Core Audio, OpenSL ES, Web Audio).
  * No sofware audio rendering, no software mixing, no extra buffering.
  *
  * Caveats:
@@ -79,14 +79,14 @@ typedef void (*malPlaybackFinishedFunc)(MalPlayer *player, void *userData);
 // MARK: Context
 
 /**
- * Creates an audio context with the default options. Only one context should be created, and the
- * context should be destroyed with #malContextFree().
+ * Creates an audio context with the default options. Only one context should be created, and when
+ * finished using the context, it should be released with #malContextRelease().
  */
 MalContext *malContextCreate(void);
 
 /**
- * Creates an audio context. Only one context should be created, and the context should be destroyed
- * with #malContextFree().
+ * Creates an audio context. Only one context should be created, and when finished using the
+ * context, it should be released with #malContextRelease().
  *
  * @param sampleRate The requested output sample rate. Typical sample rates are 8000, 11025, 12000,
  * 16000, 22050, 24000, 32000, 44100, 48000, 88200, 96000, 176400, and 192000, although most
@@ -104,6 +104,25 @@ MalContext *malContextCreate(void);
  */
 MalContext *malContextCreateWithOptions(double sampleRate, void *androidActivity,
                                         const char **errorMissingAudioSystem);
+
+/**
+ * Increases the reference count of the context by one.
+ *
+ * @param context The audio context. If `NULL`, this function does nothing.
+ */
+void malContextRetain(MalContext *context);
+
+/**
+ * Decreases the reference count of the context by one. When the reference count is zero, the
+ * context is destroyed.
+ *
+ * When the context is destroyed, all buffers and players created with the context are also
+ * destroyed, regardless of their reference count.
+ *
+ * @param context The audio context. If `NULL`, this function does nothing.
+ */
+void malContextRelease(MalContext *context);
+
 /**
  * Gets the output sample rate.
  */
@@ -194,13 +213,6 @@ bool malContextIsFormatValid(const MalContext *context, MalFormat format);
  */
 bool malContextIsFormatEqual(const MalContext *context, MalFormat format1, MalFormat format2);
 
-/**
- * Frees the context. All buffers and players created with the context will no longer be valid.
- *
- * @param context The audio context. If `NULL`, this function does nothing.
- */
-void malContextFree(MalContext *context);
-
 // MARK: Buffers
 
 /**
@@ -209,7 +221,7 @@ void malContextFree(MalContext *context);
  * The data must be in signed linear PCM format. The byte order must be the same as the native
  * byte order (usually little endian). If stereo, the data must be interleaved.
  *
- * The buffer should be freed with #malBufferFree().
+ * The buffer should be released with #malBufferRelease().
  *
  * @param context The audio context. If `NULL`, this function returns `NULL`.
  * @param format The format of the provided data.
@@ -234,7 +246,7 @@ MalBuffer *malBufferCreate(MalContext *context, MalFormat format, uint32_t numFr
  *
  * The `dataDeallocator` is not called if this function returns `NULL`.
  *
- * The buffer should be freed with #malBufferFree().
+ * The buffer should be released with #malBufferRelease().
  *
  * @param context The audio context. If `NULL`, this function returns `NULL`.
  * @param format The format of the provided data.
@@ -247,6 +259,21 @@ MalBuffer *malBufferCreate(MalContext *context, MalFormat format, uint32_t numFr
  */
 MalBuffer *malBufferCreateNoCopy(MalContext *context, MalFormat format, uint32_t numFrames,
                                  void *data, malDeallocatorFunc dataDeallocator);
+
+/**
+ * Increases the reference count of the buffer by one.
+ *
+ * @param buffer The audio buffer. If `NULL`, this function returns nothing.
+ */
+void malBufferRetain(MalBuffer *buffer);
+
+/**
+ * Decreases the reference count of the buffer by one. When the reference count is zero, the
+ * buffer is destroyed.
+*
+ * @param buffer The audio buffer. If `NULL`, this function returns nothing.
+ */
+void malBufferRelease(MalBuffer *buffer);
 
 /**
  * Gets the format of the buffer.
@@ -276,13 +303,6 @@ uint32_t malBufferGetNumFrames(const MalBuffer *buffer);
  */
 void *malBufferGetData(const MalBuffer *buffer);
 
-/**
- * Frees the buffer. Any players using the buffer are stopped.
- *
- * @param buffer The audio buffer. If `NULL`, this function returns nothing.
- */
-void malBufferFree(MalBuffer *buffer);
-
 // MARK: Players
 
 /**
@@ -291,13 +311,28 @@ void malBufferFree(MalBuffer *buffer);
  * Usually only a limited number of players may be created, depending on the implementation.
  * Typically 16 or 32.
  *
- * The player should be freed with #malPlayerFree().
+ * The player should be released with #malPlayerRelease().
  *
  * @param context The audio context. If `NULL`, this function returns `NULL`.
  * @param format The format of the player to create.
  * @return The player, or `NULL` if the player could not be created.
  */
 MalPlayer *malPlayerCreate(MalContext *context, MalFormat format);
+
+/**
+ * Increases the reference count of the player by one.
+ *
+ * @param player The audio player. If `NULL`, this function returns nothing.
+ */
+void malPlayerRetain(MalPlayer *player);
+
+/**
+ * Decreases the reference count of the player by one. When the reference count is zero, the
+ * player is destroyed.
+ *
+ * @param player The audio player. If `NULL`, this function returns nothing.
+ */
+void malPlayerRelease(MalPlayer *player);
 
 /**
  * Gets the playback format of the player.
@@ -330,8 +365,7 @@ const MalBuffer *malPlayerGetBuffer(const MalPlayer *player);
 /**
  * Sets the function to call when a player has finished playing. The function is not called when
  * the player is forced to stop, for example when calling #malPlayerSetState() with the 
- * #MAL_PLAYER_STATE_STOPPED state, or setting the buffer with #malPlayerSetBuffer(),
- * or calling #malPlayerFree().
+ * #MAL_PLAYER_STATE_STOPPED state.
  *
  * The player may still be in the #MAL_PLAYER_STATE_PLAYING state when this function is called.
  *
@@ -425,13 +459,6 @@ MalPlayerState malPlayerGetState(MalPlayer *player);
  * @return `true` if successful.
  */
 bool malPlayerSetState(MalPlayer *player, MalPlayerState state);
-
-/**
- * Frees the player.
- *
- * @param player The player. If `NULL`, this function does nothing.
- */
-void malPlayerFree(MalPlayer *player);
 
 #ifdef __cplusplus
 }

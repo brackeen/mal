@@ -172,12 +172,12 @@ static bool playerAction(StressTestApp *app, PlayerAction action, size_t index) 
             return malPlayerSetState(app->players[index], MAL_PLAYER_STATE_STOPPED);
         }
         case PLAYER_ACTION_DELETE: {
-            malPlayerFree(app->players[index]);
+            malPlayerRelease(app->players[index]);
             app->players[index] = NULL;
             return true;
         }
         case PLAYER_ACTION_DELETE_BUFFER: {
-            malBufferFree(app->tempBuffers[index]);
+            malBufferRelease(app->tempBuffers[index]);
             app->tempBuffers[index] = NULL;
             return malPlayerGetBuffer(app->players[index]) == NULL;
         }
@@ -471,15 +471,15 @@ static void stressTestFree(StressTestApp *app) {
         glDeleteVertexArrays(1, &app->vertexArray);
     }
 #endif
-    malBufferFree(app->buffer);
-    malBufferFree(app->shortBuffer);
+    malBufferRelease(app->buffer);
+    malBufferRelease(app->shortBuffer);
     for (int i = 0; i < kNumPlayers; i++) {
-        malBufferFree(app->tempBuffers[i]);
+        malBufferRelease(app->tempBuffers[i]);
     }
     for (int i = 0; i < kNumPlayers; i++) {
-        malPlayerFree(app->players[i]);
+        malPlayerRelease(app->players[i]);
     }
-    malContextFree(app->context);
+    malContextRelease(app->context);
     free(app->bufferData);
     free(app);
 }
