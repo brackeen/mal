@@ -586,18 +586,15 @@ static void _malPlayerFree(MalPlayer *player) {
     malPlayerSetBuffer(player, NULL);
     malPlayerSetFinishedFunc(player, NULL, NULL);
     _malPlayerDispose(player);
-    MAL_LOCK(player);
     if (player->context) {
         ok_vec_remove(&player->context->players, player);
         player->context = NULL;
     }
-    MAL_UNLOCK(player);
 #ifdef MAL_USE_MUTEX
     pthread_mutex_destroy(&player->mutex);
 #endif
     free(player);
 }
-
 
 void malPlayerRetain(MalPlayer *player) {
     if (player) {
