@@ -66,6 +66,7 @@ struct _MalPlayer {
 };
 
 #define MAL_USE_MUTEX
+#define MAL_USE_DEFAULT_BUFFER_IMPL
 #include "mal_audio_abstract.h"
 
 static void _malContextSetSampleRate(MalContext *context);
@@ -380,32 +381,6 @@ static OSStatus renderNotification(void *userData, AudioUnitRenderActionFlags *f
         }
     }
     return noErr;
-}
-
-// MARK: Buffer
-
-static bool _malBufferInit(MalContext *context, MalBuffer *buffer,
-                             const void *copiedData, void *managedData,
-                             const malDeallocatorFunc dataDeallocator) {
-    if (managedData) {
-        buffer->managedData = managedData;
-        buffer->managedDataDeallocator = dataDeallocator;
-    } else {
-        const size_t dataLength = ((buffer->format.bitDepth / 8) *
-                                   buffer->format.numChannels * buffer->numFrames);
-        void *newBuffer = malloc(dataLength);
-        if (!newBuffer) {
-            return false;
-        }
-        memcpy(newBuffer, copiedData, dataLength);
-        buffer->managedData = newBuffer;
-        buffer->managedDataDeallocator = free;
-    }
-    return true;
-}
-
-static void _malBufferDispose(MalBuffer *buffer) {
-    // Do nothing
 }
 
 // MARK: Player

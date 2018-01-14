@@ -72,6 +72,7 @@ struct _MalPlayer {
 };
 
 #define MAL_USE_MUTEX
+#define MAL_USE_DEFAULT_BUFFER_IMPL
 #include "mal_audio_abstract.h"
 #include <math.h>
 
@@ -290,35 +291,6 @@ static void _malContextUpdateMute(MalContext *context) {
 
 static void _malContextUpdateGain(MalContext *context) {
     ok_vec_apply(&context->players, _malPlayerUpdateGain);
-}
-
-// MARK: Buffer
-
-static bool _malBufferInit(MalContext *context, MalBuffer *buffer,
-                           const void *copiedData, void *managedData,
-                           const malDeallocatorFunc dataDeallocator) {
-    (void)context;
-    (void)buffer->data.dummy;
-    const size_t dataLength = ((buffer->format.bitDepth / 8) *
-                                buffer->format.numChannels * buffer->numFrames);
-    if (managedData) {
-        buffer->managedData = managedData;
-        buffer->managedDataDeallocator = dataDeallocator;
-    } else {
-        void *newBuffer = malloc(dataLength);
-        if (!newBuffer) {
-            return false;
-        }
-        memcpy(newBuffer, copiedData, dataLength);
-        buffer->managedData = newBuffer;
-        buffer->managedDataDeallocator = free;
-    }
-    return true;
-}
-
-static void _malBufferDispose(MalBuffer *buffer) {
-    (void)buffer;
-    // Do nothing
 }
 
 // MARK: Player

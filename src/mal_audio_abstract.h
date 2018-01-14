@@ -328,6 +328,36 @@ bool malContextIsFormatEqual(const MalContext *context, MalFormat format1, MalFo
 
 // MARK: Buffer
 
+#ifdef MAL_USE_DEFAULT_BUFFER_IMPL
+
+static bool _malBufferInit(MalContext *context, MalBuffer *buffer,
+                           const void *copiedData, void *managedData,
+                           const malDeallocatorFunc dataDeallocator) {
+    (void)context;
+    if (managedData) {
+        buffer->managedData = managedData;
+        buffer->managedDataDeallocator = dataDeallocator;
+    } else {
+        const size_t dataLength = ((buffer->format.bitDepth / 8) *
+                                   buffer->format.numChannels * buffer->numFrames);
+        void *newBuffer = malloc(dataLength);
+        if (!newBuffer) {
+            return false;
+        }
+        memcpy(newBuffer, copiedData, dataLength);
+        buffer->managedData = newBuffer;
+        buffer->managedDataDeallocator = free;
+    }
+    return true;
+}
+
+static void _malBufferDispose(MalBuffer *buffer) {
+    (void)buffer;
+    // Do nothing
+}
+
+#endif
+
 static MalBuffer *_malBufferCreateInternal(MalContext *context, const MalFormat format,
                                            const uint32_t numFrames, const void *copiedData,
                                            void *managedData,
