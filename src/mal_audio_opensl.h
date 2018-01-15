@@ -68,6 +68,7 @@ struct _MalPlayer {
     SLVolumeItf slVolume;
     SLBufferQueueItf slBufferQueue;
 
+    _Atomic(MalPlayerState) state;
     bool backgroundPaused;
 };
 
@@ -314,8 +315,8 @@ static void _malPlayerRenderCallback(SLBufferQueueItf queue, void *voidPlayer) {
             const uint32_t len = (uint32_t)(buffer->numFrames * (buffer->format.bitDepth / 8) *
                     buffer->format.numChannels);
             (*queue)->Enqueue(queue, buffer->managedData, len);
-        } else if (player->data.slPlay) {
-            (*player->data.slPlay)->SetPlayState(player->data.slPlay, SL_PLAYSTATE_STOPPED);
+        } else {
+            atomic_store(&player->data.state, MAL_PLAYER_STATE_STOPPED);
             if (atomic_load(&player->hasOnFinishedCallback) && player->context &&
                 player->context->data.looper) {
                 malPlayerRetain(player);
@@ -470,21 +471,7 @@ static bool _malPlayerSetLooping(MalPlayer *player, bool looping) {
 }
 
 static MalPlayerState _malPlayerGetState(MalPlayer *player) {
-    if (!player->data.slPlay) {
-        return MAL_PLAYER_STATE_STOPPED;
-    } else {
-        SLuint32 state;
-        SLresult result = (*player->data.slPlay)->GetPlayState(player->data.slPlay, &state);
-        if (result != SL_RESULT_SUCCESS) {
-            return MAL_PLAYER_STATE_STOPPED;
-        } else if (state == SL_PLAYSTATE_PAUSED) {
-            return MAL_PLAYER_STATE_PAUSED;
-        } else if (state == SL_PLAYSTATE_PLAYING) {
-            return MAL_PLAYER_STATE_PLAYING;
-        } else {
-            return MAL_PLAYER_STATE_STOPPED;
-        }
-    }
+    return atomic_load(&player->data.state);
 }
 
 static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPlayerState state) {
@@ -524,6 +511,8 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPl
     if (slState == SL_PLAYSTATE_STOPPED && player->data.slBufferQueue) {
         (*player->data.slBufferQueue)->Clear(player->data.slBufferQueue);
     }
+
+    atomic_store(&player->data.state, state);
 
     return true;
 }
