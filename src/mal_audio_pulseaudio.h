@@ -662,7 +662,7 @@ static void _malPlayerDidSetFinishedCallback(MalPlayer *player) {
     // Do nothing
 }
 
-static MalPlayerState _malPlayerGetState(const MalPlayer *player) {
+static MalPlayerState _malPlayerGetState(MalPlayer *player) {
     return player->data.state;
 }
 

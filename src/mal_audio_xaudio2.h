@@ -366,7 +366,7 @@ static void _malPlayerDidSetFinishedCallback(MalPlayer *player) {
     (void)player;
 }
 
-static MalPlayerState _malPlayerGetState(const MalPlayer *player) {
+static MalPlayerState _malPlayerGetState(MalPlayer *player) {
     if (!player->data.sourceVoice) {
         return MAL_PLAYER_STATE_STOPPED;
     } else {

@@ -469,7 +469,7 @@ static bool _malPlayerSetLooping(MalPlayer *player, bool looping) {
     return true;
 }
 
-static MalPlayerState _malPlayerGetState(const MalPlayer *player) {
+static MalPlayerState _malPlayerGetState(MalPlayer *player) {
     if (!player->data.slPlay) {
         return MAL_PLAYER_STATE_STOPPED;
     } else {

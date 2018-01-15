@@ -292,7 +292,7 @@ static bool _malPlayerSetLooping(MalPlayer *player, bool looping) {
     return true;
 }
 
-static MalPlayerState _malPlayerGetState(const MalPlayer *player) {
+static MalPlayerState _malPlayerGetState(MalPlayer *player) {
     MalContext *context = player->context;
     if (!context || !context->data.contextId || !player->data.playerId) {
         return MAL_PLAYER_STATE_STOPPED;

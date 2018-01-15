@@ -99,7 +99,7 @@ static void _malPlayerUpdateMute(MalPlayer *player);
 static void _malPlayerUpdateGain(MalPlayer *player);
 static bool _malPlayerSetLooping(MalPlayer *player, bool looping);
 static void _malPlayerDidSetFinishedCallback(MalPlayer *player);
-static MalPlayerState _malPlayerGetState(const MalPlayer *player);
+static MalPlayerState _malPlayerGetState(MalPlayer *player);
 static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPlayerState state);
 
 // MARK: Globals
