@@ -23,7 +23,6 @@
 #define MAL_AUDIO_WEBAUDIO_H
 
 #include <emscripten/emscripten.h>
-#include "mal.h"
 
 static int nextContextId = 1;
 static int nextBufferId = 1;
@@ -39,7 +38,6 @@ struct _MalBuffer {
 
 struct _MalPlayer {
     int playerId;
-    _Atomic(MalPlayerState) state;
 };
 
 #define MAL_NO_STDATOMIC
@@ -283,10 +281,6 @@ static bool _malPlayerSetLooping(MalPlayer *player, bool looping) {
     return true;
 }
 
-static MalPlayerState _malPlayerGetState(MalPlayer *player) {
-    return atomic_load(&player->data.state);
-}
-
 static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPlayerState state) {
     (void)oldState;
     MalContext *context = player->context;
@@ -382,7 +376,7 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPl
     }
 
     if (success) {
-        atomic_store(&player->data.state, state);
+        atomic_store(&player->state, state);
         return true;
     } else {
         return false;
@@ -392,7 +386,7 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPl
 EMSCRIPTEN_KEEPALIVE
 static void _malPlayerFinished(uintptr_t playerPtr) {
     MalPlayer *player = (MalPlayer *)playerPtr;
-    atomic_store(&player->data.state, MAL_PLAYER_STATE_STOPPED);
+    atomic_store(&player->state, MAL_PLAYER_STATE_STOPPED);
     _malHandleOnFinishedCallback(player);
 }
 

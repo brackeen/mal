@@ -60,7 +60,6 @@ struct _MalPlayer {
     uint32_t mixerBus;
 
     uint32_t nextFrame;
-    MalPlayerState state;
 
     struct _MalRamp ramp;
 };
@@ -259,8 +258,8 @@ static void _malContextReset(MalContext *context) {
         if (!success) {
             MAL_LOG("Couldn't reset player");
         } else {
-            if (player->data.state == MAL_PLAYER_STATE_PLAYING) {
-                player->data.state = MAL_PLAYER_STATE_STOPPED;
+            if (atomic_load(&player->state) == MAL_PLAYER_STATE_PLAYING) {
+                atomic_store(&player->state, MAL_PLAYER_STATE_STOPPED);
                 malPlayerSetState(player, MAL_PLAYER_STATE_PLAYING);
             }
         }
@@ -397,7 +396,7 @@ static OSStatus _malPlayerRenderCallback(void *userData, AudioUnitRenderActionFl
     MalPlayer *player = userData;
 
     MAL_LOCK(player);
-    MalPlayerState state = player->data.state;
+    MalPlayerState state = atomic_load(&player->state);
     if (player->buffer == NULL || player->buffer->managedData == NULL ||
         state == MAL_PLAYER_STATE_STOPPED ||
         player->data.nextFrame >= player->buffer->numFrames) {
@@ -409,7 +408,7 @@ static OSStatus _malPlayerRenderCallback(void *userData, AudioUnitRenderActionFl
         if (state == MAL_PLAYER_STATE_PLAYING ||
             player->buffer == NULL || player->buffer->managedData == NULL) {
             // Stop
-            player->data.state = MAL_PLAYER_STATE_STOPPED;
+            atomic_store(&player->state, MAL_PLAYER_STATE_STOPPED);
             player->data.nextFrame = 0;
 
             if (player->context && player->context->data.graph) {
@@ -470,7 +469,7 @@ static OSStatus _malPlayerRenderCallback(void *userData, AudioUnitRenderActionFl
             bool done = _malRamp(player->context, kAudioUnitScope_Input,
                                   player->data.mixerBus, inFrames, player->gain,
                                   &player->data.ramp);
-            if (done && player->data.state == MAL_PLAYER_STATE_PAUSED &&
+            if (done && atomic_load(&player->state) == MAL_PLAYER_STATE_PAUSED &&
                 player->context && player->context->data.graph) {
                 AUGraphDisconnectNodeInput(player->context->data.graph,
                                            player->data.converterNode,
@@ -656,10 +655,6 @@ static bool _malPlayerSetLooping(MalPlayer *player, bool looping) {
     return true;
 }
 
-static MalPlayerState _malPlayerGetState(MalPlayer *player) {
-    return player->data.state;
-}
-
 static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPlayerState state) {
     if (!player->context || !player->context->data.graph) {
         return false;
@@ -722,7 +717,7 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPl
             break;
         }
     }
-    player->data.state = state;
+    atomic_store(&player->state, state);
     return true;
 }
 

@@ -98,7 +98,6 @@ static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer);
 static void _malPlayerUpdateMute(MalPlayer *player);
 static void _malPlayerUpdateGain(MalPlayer *player);
 static bool _malPlayerSetLooping(MalPlayer *player, bool looping);
-static MalPlayerState _malPlayerGetState(MalPlayer *player);
 static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPlayerState state);
 
 // MARK: Globals
@@ -142,6 +141,7 @@ struct MalPlayer {
     MalContext *context;
     MalFormat format;
     MalBuffer *buffer;
+    _Atomic(MalPlayerState) state;
     float gain;
     bool mute;
     _Atomic(bool) looping;
@@ -559,7 +559,7 @@ bool malPlayerSetState(MalPlayer *player, MalPlayerState state) {
         return false;
     } else {
         MAL_LOCK(player);
-        MalPlayerState oldState = _malPlayerGetState(player);
+        MalPlayerState oldState = malPlayerGetState(player);
         bool success = true;
         if (state != oldState) {
             success = _malPlayerSetState(player, oldState, state);
@@ -570,14 +570,7 @@ bool malPlayerSetState(MalPlayer *player, MalPlayerState state) {
 }
 
 MalPlayerState malPlayerGetState(MalPlayer *player) {
-    if (!player || !player->buffer) {
-        return MAL_PLAYER_STATE_STOPPED;
-    } else {
-        MAL_LOCK(player);
-        MalPlayerState state = _malPlayerGetState(player);
-        MAL_UNLOCK(player);
-        return state;
-    }
+    return player ? atomic_load(&player->state) : MAL_PLAYER_STATE_STOPPED;
 }
 
 static void _malPlayerFree(MalPlayer *player) {

@@ -228,7 +228,6 @@ struct _MalPlayer {
     pa_stream *stream;
     
     uint32_t nextFrame;
-    MalPlayerState state;
     MalStreamState streamState;
     bool backgroundPaused;
 };
@@ -421,7 +420,7 @@ static void _malPlayerUnderflowCallback(pa_stream *stream, void *userData) {
     MAL_LOCK(player);
     if (player->data.streamState == MAL_STREAM_DRAINING) {
         player->data.streamState = MAL_STREAM_INACTIVE;
-        if (player->data.state == MAL_PLAYER_STATE_PLAYING &&
+        if (atomic_load(&player->state) == MAL_PLAYER_STATE_PLAYING &&
             atomic_load(&player->hasOnFinishedCallback)) {
 
             MalContext *context = player->context;
@@ -430,7 +429,7 @@ static void _malPlayerUnderflowCallback(pa_stream *stream, void *userData) {
                 ok_queue_push(&context->data.finishedPlayersWithCallbacks, player);
             }
         }
-        player->data.state = MAL_PLAYER_STATE_STOPPED;
+        atomic_store(&player->state, MAL_PLAYER_STATE_STOPPED);
         pa_operation_unref(pa_stream_cork(player->data.stream, 1, NULL, NULL));
     }
     MAL_UNLOCK(player);
@@ -440,7 +439,7 @@ static void _malPlayerRenderCallback(pa_stream *stream, size_t length, void *use
     MalPlayer *player = userData;
     MAL_LOCK(player);
     if (player->data.streamState == MAL_STREAM_DRAINING ||
-        player->data.state == MAL_PLAYER_STATE_STOPPED ||
+        atomic_load(&player->state) == MAL_PLAYER_STATE_STOPPED ||
         player->buffer == NULL || player->buffer->managedData == NULL) {
         MAL_UNLOCK(player);
         return;
@@ -657,10 +656,6 @@ static bool _malPlayerSetLooping(MalPlayer *player, bool looping) {
     return true;
 }
 
-static MalPlayerState _malPlayerGetState(MalPlayer *player) {
-    return player->data.state;
-}
-
 static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPlayerState state) {
     if (!player->context || !player->data.stream) {
         return false;
@@ -689,7 +684,7 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPl
         }
     }
 
-    player->data.state = state;
+    atomic_store(&player->state, state);
 
     // The player is locked here. Unlock to prevent deadlocks in the write callback.
     MAL_UNLOCK(player);

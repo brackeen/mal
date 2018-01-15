@@ -74,7 +74,6 @@ struct _MalBuffer {
 struct _MalPlayer {
     IXAudio2SourceVoice *sourceVoice;
     MalVoiceCallback *callback;
-    _Atomic(MalPlayerState) state;
     _Atomic(bool) bufferQueued;
 };
 
@@ -232,7 +231,7 @@ public:
 
     void STDMETHODCALLTYPE OnStreamEnd() override {
         atomic_store(&player->data.bufferQueued, false);
-        atomic_store(&player->data.state, MAL_PLAYER_STATE_STOPPED);
+        atomic_store(&player->state, MAL_PLAYER_STATE_STOPPED);
         if (atomic_load(&player->hasOnFinishedCallback)) {
             MalContext *context = player->context;
             if (context && atomic_load(&context->data.hasPolledEvents)) {
@@ -260,7 +259,7 @@ public:
     void STDMETHODCALLTYPE OnLoopEnd(void *pBufferContext) override {
         (void)pBufferContext;
         if (!atomic_load(&player->looping) && 
-            atomic_load(&player->data.state) == MAL_PLAYER_STATE_PLAYING) {
+            atomic_load(&player->state) == MAL_PLAYER_STATE_PLAYING) {
             // Workaround for XAudio2 bug: Sometimes ExitLoop() does nothing if it is called too
             // soon after Start()
             player->data.sourceVoice->ExitLoop();
@@ -346,7 +345,7 @@ static void _malPlayerUpdateGain(MalPlayer *player) {
 }
 
 static bool _malPlayerSetLooping(MalPlayer *player, bool looping) {
-    if (_malPlayerGetState(player) == MAL_PLAYER_STATE_STOPPED) {
+    if (atomic_load(&player->state) == MAL_PLAYER_STATE_STOPPED) {
         atomic_store(&player->looping, looping);
         _malPlayerSetBuffer(player, player->buffer);
         return true;
@@ -359,14 +358,6 @@ static bool _malPlayerSetLooping(MalPlayer *player, bool looping) {
         }
     } else {
         return false;
-    }
-}
-
-static MalPlayerState _malPlayerGetState(MalPlayer *player) {
-    if (!player->data.sourceVoice) {
-        return MAL_PLAYER_STATE_STOPPED;
-    } else {
-        return atomic_load(&player->data.state);
     }
 }
 
@@ -390,7 +381,7 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPl
         player->data.sourceVoice->Stop();
         break;
     }
-    atomic_store(&player->data.state, state);
+    atomic_store(&player->state, state);
     return true;
 }
 
