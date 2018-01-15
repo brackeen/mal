@@ -151,15 +151,9 @@ static void malExampleFree(ExampleApp *app) {
 
 // MARK: GLFM functions
 
-// Be a good app citizen - set Mal to inactive when pausing.
-static void onAppPause(GLFMDisplay *display) {
+static void onFocusChange(GLFMDisplay *display, bool focused) {
     ExampleApp *app = glfmGetUserData(display);
-    malContextSetActive(app->context, false);
-}
-
-static void onAppResume(GLFMDisplay *display) {
-    ExampleApp *app = glfmGetUserData(display);
-    malContextSetActive(app->context, true);
+    malContextSetActive(app->context, focused);
 }
 
 static bool onTouch(GLFMDisplay *display, int touch, GLFMTouchPhase phase, double x, double y) {
@@ -201,8 +195,7 @@ void glfmMain(GLFMDisplay *display) {
     glfmSetSurfaceResizedFunc(display, onSurfaceCreated);
     glfmSetMainLoopFunc(display, onFrame);
     glfmSetTouchFunc(display, onTouch);
-    glfmSetAppPausingFunc(display, onAppPause);
-    glfmSetAppResumingFunc(display, onAppResume);
+    glfmSetAppFocusFunc(display, onFocusChange);
 }
 
 #elif defined(MAL_EXAMPLE_WITH_GLFW)

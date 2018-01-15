@@ -610,14 +610,9 @@ static void doTestIterationAndDraw(StressTestApp *app) {
 
 // MARK: GLFM functions
 
-static void onAppPause(GLFMDisplay *display) {
+static void onFocusChange(GLFMDisplay *display, bool focused) {
     StressTestApp *app = glfmGetUserData(display);
-    malContextSetActive(app->context, false);
-}
-
-static void onAppResume(GLFMDisplay *display) {
-    StressTestApp *app = glfmGetUserData(display);
-    malContextSetActive(app->context, true);
+    malContextSetActive(app->context, focused);
 }
 
 static void onSurfaceCreated(GLFMDisplay *display, int width, int height) {
@@ -649,8 +644,7 @@ void glfmMain(GLFMDisplay *display) {
     glfmSetSurfaceCreatedFunc(display, onSurfaceCreated);
     glfmSetSurfaceResizedFunc(display, onSurfaceCreated);
     glfmSetSurfaceDestroyedFunc(display, onSurfaceDestroyed);
-    glfmSetAppPausingFunc(display, onAppPause);
-    glfmSetAppResumingFunc(display, onAppResume);
+    glfmSetAppFocusFunc(display, onFocusChange);
     glfmSetMainLoopFunc(display, onFrame);
 }
 
