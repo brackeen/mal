@@ -245,10 +245,10 @@ static void _malContextDispose(MalContext *context) {
 static void _malContextReset(MalContext *context) {
     bool active = context->active;
     ok_vec_foreach(&context->players, MalPlayer *player) {
-        _malPlayerDispose(player);
+        _malPlayerDidDispose(player);
     }
     MAL_LOCK(context);
-    _malContextDispose(context);
+    _malContextDidDispose(context);
     _malContextInit(context, NULL, NULL);
     _malContextUpdateGain(context);
     MAL_UNLOCK(context);
