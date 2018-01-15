@@ -23,6 +23,7 @@
 #define MAL_AUDIO_WEBAUDIO_H
 
 #include <emscripten/emscripten.h>
+#include "mal.h"
 
 static int nextContextId = 1;
 static int nextBufferId = 1;
@@ -38,6 +39,7 @@ struct _MalBuffer {
 
 struct _MalPlayer {
     int playerId;
+    _Atomic(MalPlayerState) state;
 };
 
 #define MAL_NO_STDATOMIC
@@ -293,40 +295,21 @@ static bool _malPlayerSetLooping(MalPlayer *player, bool looping) {
 }
 
 static MalPlayerState _malPlayerGetState(MalPlayer *player) {
-    MalContext *context = player->context;
-    if (!context || !context->data.contextId || !player->data.playerId) {
-        return MAL_PLAYER_STATE_STOPPED;
-    }
-    int state = EM_ASM_INT({
-        var player = malContexts[$0].players[$1];
-        if (!player) {
-            return 0;
-        } else if (player.sourceNode) {
-            return 1;
-        } else if (player.pausedTime) {
-            return 2;
-        } else {
-            return 0;
-        }
-    }, context->data.contextId, player->data.playerId);
-    switch (state) {
-        case 0: default: return MAL_PLAYER_STATE_STOPPED;
-        case 1: return MAL_PLAYER_STATE_PLAYING;
-        case 2: return MAL_PLAYER_STATE_PAUSED;
-    }
+    return atomic_load(&player->data.state);
 }
 
-static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState,
-                               MalPlayerState state) {
+static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPlayerState state) {
     (void)oldState;
     MalContext *context = player->context;
     if (!context || !context->data.contextId || !player->data.playerId) {
         return false;
     }
 
+    int success = 0;
+
     // NOTE: A new AudioBufferSourceNode must be created everytime it is played.
     if (state == MAL_PLAYER_STATE_STOPPED || state == MAL_PLAYER_STATE_PAUSED) {
-        EM_ASM_ARGS({
+        success = EM_ASM_INT({
             var player = malContexts[$0].players[$1];
             var pause = $2;
             if (player) {
@@ -347,9 +330,11 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState,
                     player.gainNode.disconnect();
                     player.gainNode = null;
                 }
+                return 1;
+            } else {
+                return 0;
             }
         }, context->data.contextId, player->data.playerId, (state == MAL_PLAYER_STATE_PAUSED));
-        return true;
     } else if (player->buffer && player->buffer->data.bufferId) {
         EM_ASM_ARGS({
             var contextData = malContexts[$0];
@@ -366,7 +351,7 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState,
         }, context->data.contextId, player->data.playerId, player->buffer->data.bufferId);
         _malPlayerUpdateGain(player);
         _malPlayerSetLooping(player, atomic_load(&player->looping));
-        int success = EM_ASM_INT({
+        success = EM_ASM_INT({
             var contextData = malContexts[$0];
             var player = contextData.players[$1];
             if (player) {
@@ -380,12 +365,9 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState,
                         player.gainNode.disconnect();
                         player.gainNode = null;
                     }
-                    if (player.hasOnFinishedCallback) {
-                        try {
-                            Module.ccall('_malHandleOnFinishedCallback2', 'void', ['number'],
-                                         [player.malPlayer]);
-                        } catch (e) { }
-                    }
+                    try {
+                        Module.ccall('_malPlayerFinished', 'void', ['number'], [player.malPlayer]);
+                    } catch (e) { }
                 };
                 try {
                     if (player.pausedTime && player.sourceNode.buffer) {
@@ -408,15 +390,20 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState,
                 return 0;
             }
         }, context->data.contextId, player->data.playerId);
-        return success != 0;
+    }
+
+    if (success) {
+        atomic_store(&player->data.state, state);
+        return true;
     } else {
         return false;
     }
 }
 
 EMSCRIPTEN_KEEPALIVE
-static void _malHandleOnFinishedCallback2(uintptr_t playerPtr) {
+static void _malPlayerFinished(uintptr_t playerPtr) {
     MalPlayer *player = (MalPlayer *)playerPtr;
+    atomic_store(&player->data.state, MAL_PLAYER_STATE_STOPPED);
     _malHandleOnFinishedCallback(player);
 }
 
