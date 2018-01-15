@@ -464,9 +464,16 @@ static bool _malPlayerSetLooping(MalPlayer *player, bool looping) {
     return true;
 }
 
-static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPlayerState state) {
+static bool _malPlayerSetState(MalPlayer *player, MalPlayerState state) {
     if (!player->data.slPlay) {
         return false;
+    }
+
+    MAL_LOCK(player);
+    MalPlayerState oldState = atomic_load(&player->state);
+    if (state == oldState) {
+        MAL_UNLOCK(player);
+        return true;
     }
 
     SLuint32 slState;
@@ -491,7 +498,7 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPl
             const uint32_t len = (uint32_t)(buffer->numFrames * (buffer->format.bitDepth / 8) *
                     buffer->format.numChannels);
             (*player->data.slBufferQueue)->Enqueue(player->data.slBufferQueue,
-                                                     buffer->managedData, len);
+                                                   buffer->managedData, len);
         }
     }
 
@@ -503,7 +510,8 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPl
     }
 
     atomic_store(&player->state, state);
-
+    MAL_UNLOCK(player);
+    
     return true;
 }
 

@@ -361,11 +361,16 @@ static bool _malPlayerSetLooping(MalPlayer *player, bool looping) {
     }
 }
 
-static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPlayerState state) {
-    (void)oldState;
+static bool _malPlayerSetState(MalPlayer *player, MalPlayerState state) {
     if (!player->data.sourceVoice) {
         return false;
     }
+
+    MalPlayerState oldState = atomic_load(&player->state);
+    if (state == oldState) {
+        return true;
+    }
+
     switch (state) {
     case MAL_PLAYER_STATE_STOPPED: default:
         player->data.sourceVoice->Stop();

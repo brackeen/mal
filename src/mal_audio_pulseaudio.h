@@ -656,9 +656,16 @@ static bool _malPlayerSetLooping(MalPlayer *player, bool looping) {
     return true;
 }
 
-static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPlayerState state) {
+static bool _malPlayerSetState(MalPlayer *player, MalPlayerState state) {
     if (!player->context || !player->data.stream) {
         return false;
+    }
+
+    MAL_LOCK(player);
+    MalPlayerState oldState = atomic_load(&player->state);
+    if (state == oldState) {
+        MAL_UNLOCK(player);
+        return true;
     }
 
     struct _MalContext *pa = &player->context->data;
@@ -685,13 +692,11 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPl
     }
 
     atomic_store(&player->state, state);
-
-    // The player is locked here. Unlock to prevent deadlocks in the write callback.
     MAL_UNLOCK(player);
+
     pa_threaded_mainloop_lock(pa->mainloop);
     pa_operation_unref(pa_stream_cork(player->data.stream, shouldCork, NULL, NULL));
     pa_threaded_mainloop_unlock(pa->mainloop);
-    MAL_LOCK(player);
 
     return true;
 }

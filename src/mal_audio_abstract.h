@@ -98,7 +98,7 @@ static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer);
 static void _malPlayerUpdateMute(MalPlayer *player);
 static void _malPlayerUpdateGain(MalPlayer *player);
 static bool _malPlayerSetLooping(MalPlayer *player, bool looping);
-static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPlayerState state);
+static bool _malPlayerSetState(MalPlayer *player, MalPlayerState state);
 
 // MARK: Globals
 
@@ -558,14 +558,7 @@ bool malPlayerSetState(MalPlayer *player, MalPlayerState state) {
     if (!player || !player->buffer) {
         return false;
     } else {
-        MAL_LOCK(player);
-        MalPlayerState oldState = malPlayerGetState(player);
-        bool success = true;
-        if (state != oldState) {
-            success = _malPlayerSetState(player, oldState, state);
-        }
-        MAL_UNLOCK(player);
-        return success;
+        return _malPlayerSetState(player, state);
     }
 }
 

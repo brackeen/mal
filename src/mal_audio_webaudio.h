@@ -281,13 +281,17 @@ static bool _malPlayerSetLooping(MalPlayer *player, bool looping) {
     return true;
 }
 
-static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPlayerState state) {
-    (void)oldState;
+static bool _malPlayerSetState(MalPlayer *player, MalPlayerState state) {
     MalContext *context = player->context;
     if (!context || !context->data.contextId || !player->data.playerId) {
         return false;
     }
 
+    MalPlayerState oldState = atomic_load(&player->state);
+    if (state == oldState) {
+        return true;
+    }
+    
     int success = 0;
 
     // NOTE: A new AudioBufferSourceNode must be created everytime it is played.

@@ -655,9 +655,16 @@ static bool _malPlayerSetLooping(MalPlayer *player, bool looping) {
     return true;
 }
 
-static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPlayerState state) {
+static bool _malPlayerSetState(MalPlayer *player, MalPlayerState state) {
     if (!player->context || !player->context->data.graph) {
         return false;
+    }
+
+    MAL_LOCK(player);
+    MalPlayerState oldState = atomic_load(&player->state);
+    if (state == oldState) {
+        MAL_UNLOCK(player);
+        return true;
     }
 
     switch (state) {
@@ -718,6 +725,7 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPl
         }
     }
     atomic_store(&player->state, state);
+    MAL_UNLOCK(player);
     return true;
 }
 
