@@ -657,11 +657,6 @@ static bool _malPlayerSetLooping(MalPlayer *player, bool looping) {
     return true;
 }
 
-static void _malPlayerDidSetFinishedCallback(MalPlayer *player) {
-    (void)player;
-    // Do nothing
-}
-
 static MalPlayerState _malPlayerGetState(MalPlayer *player) {
     return player->data.state;
 }

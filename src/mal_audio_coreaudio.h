@@ -612,10 +612,6 @@ static void _malPlayerDispose(MalPlayer *player) {
     _malPlayerDidDispose(player);
 }
 
-static void _malPlayerDidSetFinishedCallback(MalPlayer *player) {
-    // Do nothing
-}
-
 static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer) {
     if (player->context && player->data.converterNode) {
         UInt32 outNumInteractions = 0;

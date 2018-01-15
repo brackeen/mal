@@ -98,7 +98,6 @@ static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer);
 static void _malPlayerUpdateMute(MalPlayer *player);
 static void _malPlayerUpdateGain(MalPlayer *player);
 static bool _malPlayerSetLooping(MalPlayer *player, bool looping);
-static void _malPlayerDidSetFinishedCallback(MalPlayer *player);
 static MalPlayerState _malPlayerGetState(MalPlayer *player);
 static bool _malPlayerSetState(MalPlayer *player, MalPlayerState oldState, MalPlayerState state);
 
@@ -504,7 +503,6 @@ void malPlayerSetFinishedFunc(MalPlayer *player, malPlaybackFinishedFunc onFinis
         player->onFinished = onFinished;
         player->onFinishedUserData = userData;
         atomic_store(&player->hasOnFinishedCallback, onFinished != NULL);
-        _malPlayerDidSetFinishedCallback(player);
     }
 }
 

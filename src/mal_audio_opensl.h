@@ -451,11 +451,6 @@ static void _malPlayerDispose(MalPlayer *player) {
     }
 }
 
-static void _malPlayerDidSetFinishedCallback(MalPlayer *player) {
-    (void)player;
-    // Do nothing
-}
-
 static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer) {
     (void)player;
     (void)buffer;

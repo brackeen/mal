@@ -214,7 +214,6 @@ static bool _malPlayerInit(MalPlayer *player, MalFormat format) {
         EM_ASM_ARGS({
             var player = { };
             player.malPlayer = $2;
-            player.hasOnFinishedCallback = false;
             malContexts[$0].players[$1] = player;
         }, context->data.contextId, player->data.playerId, playerPtr);
         return true;
@@ -239,16 +238,6 @@ static void _malPlayerDispose(MalPlayer *player) {
         }, context->data.contextId, player->data.playerId);
     }
     player->data.playerId = 0;
-}
-
-static void _malPlayerDidSetFinishedCallback(MalPlayer *player) {
-    MalContext *context = player->context;
-    if (context && context->data.contextId && player->data.playerId) {
-        EM_ASM_ARGS({
-            var player = malContexts[$0].players[$1];
-            player.hasOnFinishedCallback = $2;
-        }, context->data.contextId, player->data.playerId, player->hasOnFinishedCallback);
-    }
 }
 
 static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer) {

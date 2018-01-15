@@ -362,10 +362,6 @@ static bool _malPlayerSetLooping(MalPlayer *player, bool looping) {
     }
 }
 
-static void _malPlayerDidSetFinishedCallback(MalPlayer *player) {
-    (void)player;
-}
-
 static MalPlayerState _malPlayerGetState(MalPlayer *player) {
     if (!player->data.sourceVoice) {
         return MAL_PLAYER_STATE_STOPPED;
