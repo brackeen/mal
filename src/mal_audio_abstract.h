@@ -129,10 +129,6 @@ struct MalContext {
 
     _Atomic(size_t) refCount;
 
-#ifdef MAL_USE_MUTEX
-    pthread_mutex_t mutex;
-#endif
-
     struct _MalContext data;
 };
 
@@ -201,9 +197,6 @@ MalContext *malContextCreateWithOptions(double requestedSampleRate, void *androi
 
     MalContext *context = (MalContext *)calloc(1, sizeof(MalContext));
     if (context) {
-#ifdef MAL_USE_MUTEX
-        pthread_mutex_init(&context->mutex, NULL);
-#endif
         atomic_store(&context->refCount, 1);
         context->mute = false;
         context->gain = 1.0f;
@@ -237,13 +230,9 @@ bool malContextSetActive(MalContext *context, bool active) {
     if (!context) {
         return false;
     }
-    MAL_LOCK(context);
     bool success = _malContextSetActive(context, active);
     if (success) {
         context->active = active;
-    }
-    MAL_UNLOCK(context);
-    if (success) {
         _malContextDidSetActive(context, active);
     }
     return success;
@@ -298,13 +287,7 @@ static void _malContextFree(MalContext *context) {
     // Dispose and free
     _malContextWillDispose(context);
     malContextSetActive(context, false);
-    MAL_LOCK(context);
     _malContextDispose(context);
-    MAL_UNLOCK(context);
-    
-#ifdef MAL_USE_MUTEX
-    pthread_mutex_destroy(&context->mutex);
-#endif
     free(context);
 }
 
