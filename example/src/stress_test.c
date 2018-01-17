@@ -82,9 +82,10 @@ typedef enum {
 
 typedef enum {
     PLAYER_ACTION_STOP = 0,
-    PLAYER_ACTION_DELETE,
+    PLAYER_ACTION_DELETE_PLAYER,
     PLAYER_ACTION_DELETE_BUFFER,
     PLAYER_ACTION_STOP_AND_CLEAR_BUFFER,
+    PLAYER_ACTION_STOP_AND_DELETE_PLAYER,
     PLAYER_ACTION_EXIT_LOOP
 } PlayerAction;
 
@@ -171,7 +172,7 @@ static bool playerAction(StressTestApp *app, PlayerAction action, size_t index) 
         case PLAYER_ACTION_STOP: default: {
             return malPlayerSetState(app->players[index], MAL_PLAYER_STATE_STOPPED);
         }
-        case PLAYER_ACTION_DELETE: {
+        case PLAYER_ACTION_DELETE_PLAYER: {
             malPlayerRelease(app->players[index]);
             app->players[index] = NULL;
             return true;
@@ -184,6 +185,12 @@ static bool playerAction(StressTestApp *app, PlayerAction action, size_t index) 
         case PLAYER_ACTION_STOP_AND_CLEAR_BUFFER: {
             return (malPlayerSetState(app->players[index], MAL_PLAYER_STATE_STOPPED) &&
                     malPlayerSetBuffer(app->players[index], NULL));
+        }
+        case PLAYER_ACTION_STOP_AND_DELETE_PLAYER: {
+            bool success = malPlayerSetState(app->players[index], MAL_PLAYER_STATE_STOPPED);
+            malPlayerRelease(app->players[index]);
+            app->players[index] = NULL;
+            return success;
         }
         case PLAYER_ACTION_EXIT_LOOP: {
             return malPlayerSetLooping(app->players[index], false);
@@ -392,7 +399,7 @@ static State testStartStopWhilePlaying(StressTestApp *app) {
 }
 
 static State testDeletePlayerWhilePlaying(StressTestApp *app) {
-    return testDelayedPlayerAction(app, PLAYER_ACTION_DELETE);
+    return testDelayedPlayerAction(app, PLAYER_ACTION_DELETE_PLAYER);
 }
 
 static State testDeleteBufferWhilePlaying(StressTestApp *app) {
@@ -401,6 +408,10 @@ static State testDeleteBufferWhilePlaying(StressTestApp *app) {
 
 static State testStopAndClearBuffer(StressTestApp *app) {
     return testDelayedPlayerAction(app, PLAYER_ACTION_STOP_AND_CLEAR_BUFFER);
+}
+
+static State testStopAndDeletePlayer(StressTestApp *app) {
+    return testDelayedPlayerAction(app, PLAYER_ACTION_STOP_AND_DELETE_PLAYER);
 }
 
 static State testExitLoop(StressTestApp *app) {
@@ -414,6 +425,7 @@ static TestFunction testFunctions[] = {
     testDeletePlayerWhilePlaying,
     testDeleteBufferWhilePlaying,
     testStopAndClearBuffer,
+    testStopAndDeletePlayer,
     testExitLoop,
 };
 
