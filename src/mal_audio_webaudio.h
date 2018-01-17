@@ -287,15 +287,17 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState state) {
         return false;
     }
 
-    MalPlayerState oldState = atomic_load(&player->state);
+    MalPlayerState oldState = malPlayerGetState(player);
     if (state == oldState) {
         return true;
     }
-    
+
+    MalStreamState streamState;
     int success = 0;
 
     // NOTE: A new AudioBufferSourceNode must be created everytime it is played.
     if (state == MAL_PLAYER_STATE_STOPPED || state == MAL_PLAYER_STATE_PAUSED) {
+        streamState = (state == MAL_PLAYER_STATE_STOPPED) ? MAL_STREAM_STOPPED : MAL_STREAM_PAUSED;
         success = EM_ASM_INT({
             var player = malContexts[$0].players[$1];
             var pause = $2;
@@ -323,6 +325,7 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState state) {
             }
         }, context->data.contextId, player->data.playerId, (state == MAL_PLAYER_STATE_PAUSED));
     } else if (player->buffer && player->buffer->data.bufferId) {
+        streamState = MAL_STREAM_PLAYING;
         EM_ASM_ARGS({
             var contextData = malContexts[$0];
             var player = contextData.players[$1];
@@ -377,10 +380,12 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState state) {
                 return 0;
             }
         }, context->data.contextId, player->data.playerId);
+    } else {
+        streamState = MAL_STREAM_STOPPED;
     }
 
     if (success) {
-        atomic_store(&player->state, state);
+        atomic_store(&player->streamState, streamState);
         return true;
     } else {
         return false;
@@ -390,7 +395,7 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState state) {
 EMSCRIPTEN_KEEPALIVE
 static void _malPlayerFinished(uintptr_t playerPtr) {
     MalPlayer *player = (MalPlayer *)playerPtr;
-    atomic_store(&player->state, MAL_PLAYER_STATE_STOPPED);
+    atomic_store(&player->streamState, MAL_STREAM_STOPPED);
     _malHandleOnFinishedCallback(player);
 }
 

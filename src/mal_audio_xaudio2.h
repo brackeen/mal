@@ -231,7 +231,7 @@ public:
 
     void STDMETHODCALLTYPE OnStreamEnd() override {
         atomic_store(&player->data.bufferQueued, false);
-        atomic_store(&player->state, MAL_PLAYER_STATE_STOPPED);
+        atomic_store(&player->streamState, MAL_STREAM_STOPPED);
         if (atomic_load(&player->hasOnFinishedCallback)) {
             MalContext *context = player->context;
             if (context && atomic_load(&context->data.hasPolledEvents)) {
@@ -259,7 +259,7 @@ public:
     void STDMETHODCALLTYPE OnLoopEnd(void *pBufferContext) override {
         (void)pBufferContext;
         if (!atomic_load(&player->looping) && 
-            atomic_load(&player->state) == MAL_PLAYER_STATE_PLAYING) {
+            atomic_load(&player->streamState) == MAL_STREAM_PLAYING) {
             // Workaround for XAudio2 bug: Sometimes ExitLoop() does nothing if it is called too
             // soon after Start()
             player->data.sourceVoice->ExitLoop();
@@ -345,7 +345,7 @@ static void _malPlayerUpdateGain(MalPlayer *player) {
 }
 
 static bool _malPlayerSetLooping(MalPlayer *player, bool looping) {
-    if (atomic_load(&player->state) == MAL_PLAYER_STATE_STOPPED) {
+    if (atomic_load(&player->streamState) == MAL_STREAM_STOPPED) {
         atomic_store(&player->looping, looping);
         _malPlayerSetBuffer(player, player->buffer);
         return true;
@@ -366,27 +366,31 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState state) {
         return false;
     }
 
-    MalPlayerState oldState = atomic_load(&player->state);
+    MalPlayerState oldState = malPlayerGetState(player);
     if (state == oldState) {
         return true;
     }
 
+    MalStreamState streamState;
     switch (state) {
     case MAL_PLAYER_STATE_STOPPED: default:
         player->data.sourceVoice->Stop();
         _malPlayerSetBuffer(player, player->buffer);
+        streamState = MAL_STREAM_STOPPED;
         break;
     case MAL_PLAYER_STATE_PLAYING:
         if (!atomic_load(&player->data.bufferQueued)) {
             _malPlayerSetBuffer(player, player->buffer);
         }
         player->data.sourceVoice->Start();
+        streamState = MAL_STREAM_PLAYING;
         break;
     case MAL_PLAYER_STATE_PAUSED:
         player->data.sourceVoice->Stop();
+        streamState = MAL_STREAM_PAUSED;
         break;
     }
-    atomic_store(&player->state, state);
+    atomic_store(&player->streamState, streamState);
     return true;
 }
 

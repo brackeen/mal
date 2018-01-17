@@ -59,8 +59,8 @@ struct _MalPlayer {
     AUNode converterNode;
     uint32_t mixerBus;
 
+    // Only accessed on the render thread
     uint32_t nextFrame;
-
     struct _MalRamp ramp;
 };
 
@@ -235,6 +235,9 @@ static void _malContextDidDispose(MalContext *context) {
 
 static void _malContextDispose(MalContext *context) {
     if (context->data.graph) {
+        if (context->data.canRampOutputGain) {
+            AudioUnitRemoveRenderNotify(context->data.mixerUnit, renderNotification, context);
+        }
         AUGraphStop(context->data.graph);
         AUGraphUninitialize(context->data.graph);
         DisposeAUGraph(context->data.graph);
@@ -254,14 +257,13 @@ static void _malContextReset(MalContext *context) {
     MAL_UNLOCK(context);
     malContextSetActive(context, active);
     ok_vec_foreach(&context->players, MalPlayer *player) {
+        bool wasPlaying = malPlayerGetState(player) == MAL_PLAYER_STATE_PLAYING;
         bool success = _malPlayerInit(player, player->format);
+        atomic_store(&player->streamState, MAL_STREAM_STOPPED);
         if (!success) {
             MAL_LOG("Couldn't reset player");
-        } else {
-            if (atomic_load(&player->state) == MAL_PLAYER_STATE_PLAYING) {
-                atomic_store(&player->state, MAL_PLAYER_STATE_STOPPED);
-                malPlayerSetState(player, MAL_PLAYER_STATE_PLAYING);
-            }
+        } else if (wasPlaying) {
+            malPlayerSetState(player, MAL_PLAYER_STATE_PLAYING);
         }
     }
 }
@@ -396,19 +398,51 @@ static OSStatus _malPlayerRenderCallback(void *userData, AudioUnitRenderActionFl
     MalPlayer *player = userData;
 
     MAL_LOCK(player);
-    MalPlayerState state = atomic_load(&player->state);
-    if (player->buffer == NULL || player->buffer->managedData == NULL ||
-        state == MAL_PLAYER_STATE_STOPPED ||
-        player->data.nextFrame >= player->buffer->numFrames) {
-        // Silence for end of playback, or because the player is paused.
+    MalBuffer *buffer = player->buffer;
+    MalStreamState streamState = atomic_load(&player->streamState);
+    if ((buffer == NULL || buffer->managedData == NULL) &&
+        streamState != MAL_STREAM_STOPPED) {
+        streamState = MAL_STREAM_STOPPING;
+    }
+    if (streamState == MAL_STREAM_STARTING) {
+        player->data.nextFrame = 0;
+        streamState = MAL_STREAM_PLAYING;
+        atomic_store(&player->streamState, streamState);
+    } else if (streamState == MAL_STREAM_PAUSING) {
+        if (player->context->data.canRampInputGain) {
+            // Fade out
+            double sampleRate = (buffer->format.sampleRate <= MAL_DEFAULT_SAMPLE_RATE ?
+                                 malContextGetSampleRate(player->context) :
+                                 buffer->format.sampleRate);
+            player->data.ramp.value = -1;
+            player->data.ramp.frames = sampleRate * 0.1;
+            player->data.ramp.framesPosition = 0;
+        }
+        streamState = MAL_STREAM_PAUSED;
+        atomic_store(&player->streamState, streamState);
+    } else if (streamState == MAL_STREAM_RESUMING) {
+        if (player->data.nextFrame > 0 && player->context->data.canRampInputGain) {
+            // Fade in
+            double sampleRate = (buffer->format.sampleRate <= MAL_DEFAULT_SAMPLE_RATE ?
+                                 malContextGetSampleRate(player->context) :
+                                 buffer->format.sampleRate);
+            player->data.ramp.value = 1;
+            player->data.ramp.frames = sampleRate * 0.05;
+            player->data.ramp.framesPosition = 0;
+        }
+        streamState = MAL_STREAM_PLAYING;
+        atomic_store(&player->streamState, streamState);
+    }
+    if (streamState == MAL_STREAM_STOPPING || streamState == MAL_STREAM_STOPPED ||
+        player->data.nextFrame >= buffer->numFrames) {
         for (uint32_t i = 0; i < data->mNumberBuffers; i++) {
-            memset(data->mBuffers[i].mData, 0, data->mBuffers[i].mDataByteSize);
+            data->mBuffers[i].mDataByteSize = 0;
         }
 
-        if (state == MAL_PLAYER_STATE_PLAYING ||
-            player->buffer == NULL || player->buffer->managedData == NULL) {
-            // Stop
-            atomic_store(&player->state, MAL_PLAYER_STATE_STOPPED);
+        bool isPlaying = (streamState != MAL_STREAM_STOPPING && streamState != MAL_STREAM_STOPPED);
+        if (streamState != MAL_STREAM_STOPPED) {
+            streamState = MAL_STREAM_STOPPED;
+            atomic_store(&player->streamState, streamState);
             player->data.nextFrame = 0;
 
             if (player->context && player->context->data.graph) {
@@ -419,20 +453,19 @@ static OSStatus _malPlayerRenderCallback(void *userData, AudioUnitRenderActionFl
                 AUGraphUpdate(player->context->data.graph, &updated);
             }
 
-            if (state == MAL_PLAYER_STATE_PLAYING && atomic_load(&player->hasOnFinishedCallback)) {
+            if (isPlaying && atomic_load(&player->hasOnFinishedCallback)) {
                 malPlayerRetain(player);
                 dispatch_async_f(dispatch_get_main_queue(), (void *)player, &_malHandleOnFinished);
             }
         }
     } else {
-        const uint32_t numFrames = player->buffer->numFrames;
-        const uint32_t frameSize = ((player->buffer->format.bitDepth / 8) *
-                                    player->buffer->format.numChannels);
+        const uint32_t numFrames = buffer->numFrames;
+        const uint32_t frameSize = ((buffer->format.bitDepth / 8) * buffer->format.numChannels);
         for (uint32_t i = 0; i < data->mNumberBuffers; i++) {
             uint8_t *dst = data->mBuffers[i].mData;
             uint32_t dstRemaining = data->mBuffers[i].mDataByteSize;
 
-            uint8_t *src = player->buffer->managedData;
+            uint8_t *src = buffer->managedData;
             src += player->data.nextFrame * frameSize;
             while (dstRemaining > 0) {
                 uint32_t playerFrames = numFrames - player->data.nextFrame;
@@ -450,10 +483,10 @@ static OSStatus _malPlayerRenderCallback(void *userData, AudioUnitRenderActionFl
                 src += copyBytes;
                 dstRemaining -= copyBytes;
 
-                if (player->data.nextFrame >= player->buffer->numFrames) {
+                if (player->data.nextFrame >= buffer->numFrames) {
                     if (atomic_load(&player->looping)) {
                         player->data.nextFrame = 0;
-                        src = player->buffer->managedData;
+                        src = buffer->managedData;
                     } else {
                         break;
                     }
@@ -467,9 +500,9 @@ static OSStatus _malPlayerRenderCallback(void *userData, AudioUnitRenderActionFl
         }
         if (player->data.ramp.value != 0) {
             bool done = _malRamp(player->context, kAudioUnitScope_Input,
-                                  player->data.mixerBus, inFrames, player->gain,
-                                  &player->data.ramp);
-            if (done && atomic_load(&player->state) == MAL_PLAYER_STATE_PAUSED &&
+                                 player->data.mixerBus, inFrames, player->gain,
+                                 &player->data.ramp);
+            if (done && streamState == MAL_STREAM_PAUSED &&
                 player->context && player->context->data.graph) {
                 AUGraphDisconnectNodeInput(player->context->data.graph,
                                            player->data.converterNode,
@@ -606,26 +639,28 @@ static void _malPlayerDidDispose(MalPlayer *player) {
 
 static void _malPlayerDispose(MalPlayer *player) {
     if (player->context && player->data.converterNode) {
+        // Try to avoid a synchronous update, which can take 4-12ms.
+        UInt32 numInteractions = 0;
+        OSStatus status = AUGraphCountNodeInteractions(player->context->data.graph,
+                                                       player->data.converterNode,
+                                                       &numInteractions);
+        if (status != noErr || numInteractions != 1) {
+            // The node should have only one connection: connected to the graph but not to a
+            // render callback.
+            // If there is not exactly one connection, then the graph is out of date.
+            // Force a synchronous update to prevent the render callback from being called after
+            // the player is freed.
+            AUGraphUpdate(player->context->data.graph, NULL);
+        }
+
         AUGraphRemoveNode(player->context->data.graph, player->data.converterNode);
     }
     _malPlayerDidDispose(player);
 }
 
 static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer) {
-    if (player->context && player->data.converterNode) {
-        UInt32 outNumInteractions = 0;
-        if (AUGraphCountNodeInteractions(player->context->data.graph, player->data.converterNode,
-                                         &outNumInteractions) == noErr) {
-            // If there are two connections, that means the node 1) has a callback and 2) it is in
-            // the graph. Since _malPlayerSetBuffer() can only be called if stopped, that means the
-            // graph is not updated. So, force a sync.
-            // Without this, this warning message occationally appears in stress_test.c:
-            // "[augraph] 2928: DoMakeDisconnection failed with error -10860" 
-            if (outNumInteractions == 2) {
-                AUGraphUpdate(player->context->data.graph, NULL);
-            }
-        }
-    }
+    (void)player;
+    (void)buffer;
     return true;
 }
 
@@ -661,12 +696,13 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState state) {
     }
 
     MAL_LOCK(player);
-    MalPlayerState oldState = atomic_load(&player->state);
+    MalPlayerState oldState = malPlayerGetState(player);
     if (state == oldState) {
         MAL_UNLOCK(player);
         return true;
     }
 
+    MalStreamState streamState;
     switch (state) {
         case MAL_PLAYER_STATE_STOPPED:
         default: {
@@ -675,19 +711,14 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState state) {
                                        0);
             Boolean updated;
             AUGraphUpdate(player->context->data.graph, &updated);
-            player->data.nextFrame = 0;
+            streamState = MAL_STREAM_STOPPED;
             break;
         }
         case MAL_PLAYER_STATE_PAUSED:
             if (player->context->data.canRampInputGain) {
-                // Fade out
-                double sampleRate = (player->buffer->format.sampleRate <= MAL_DEFAULT_SAMPLE_RATE ?
-                                     malContextGetSampleRate(player->context) :
-                                     player->buffer->format.sampleRate);
-                player->data.ramp.value = -1;
-                player->data.ramp.frames = sampleRate * 0.1;
-                player->data.ramp.framesPosition = 0;
+                streamState = MAL_STREAM_PAUSING;
             } else {
+                streamState = MAL_STREAM_PAUSED;
                 AUGraphDisconnectNodeInput(player->context->data.graph,
                                            player->data.converterNode,
                                            0);
@@ -699,6 +730,9 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState state) {
             if (oldState == MAL_PLAYER_STATE_STOPPED) {
                 AudioUnitReset(player->context->data.mixerUnit, kAudioUnitScope_Input,
                                player->data.mixerBus);
+                streamState = MAL_STREAM_STARTING;
+            } else {
+                streamState = MAL_STREAM_RESUMING;
             }
 
             AURenderCallbackStruct renderCallback;
@@ -711,20 +745,10 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState state) {
                                         &renderCallback);
             Boolean updated;
             AUGraphUpdate(player->context->data.graph, &updated);
-            if (oldState == MAL_PLAYER_STATE_PAUSED &&
-                player->context->data.canRampInputGain) {
-                // Fade in
-                double sampleRate = (player->buffer->format.sampleRate <= MAL_DEFAULT_SAMPLE_RATE ?
-                                     malContextGetSampleRate(player->context) :
-                                     player->buffer->format.sampleRate);
-                player->data.ramp.value = 1;
-                player->data.ramp.frames = sampleRate * 0.05;
-                player->data.ramp.framesPosition = 0;
-            }
             break;
         }
     }
-    atomic_store(&player->state, state);
+    atomic_store(&player->streamState, streamState);
     MAL_UNLOCK(player);
     return true;
 }

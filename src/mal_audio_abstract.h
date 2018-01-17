@@ -107,6 +107,17 @@ typedef struct ok_vec_of(MalBuffer *) MalBufferVec;
 
 // MARK: Structs
 
+typedef enum {
+    MAL_STREAM_STOPPED = 0,
+    MAL_STREAM_STARTING,
+    MAL_STREAM_PLAYING,
+    MAL_STREAM_PAUSING,
+    MAL_STREAM_PAUSED,
+    MAL_STREAM_RESUMING,
+    MAL_STREAM_STOPPING,
+    MAL_STREAM_DRAINING,
+} MalStreamState;
+
 struct MalContext {
     MalPlayerVec players;
     MalBufferVec buffers;
@@ -141,7 +152,7 @@ struct MalPlayer {
     MalContext *context;
     MalFormat format;
     MalBuffer *buffer;
-    _Atomic(MalPlayerState) state;
+    _Atomic(MalStreamState) streamState;
     float gain;
     bool mute;
     _Atomic(bool) looping;
@@ -271,6 +282,7 @@ static void _malContextFree(MalContext *context) {
     // Delete players
     ok_vec_foreach(&context->players, MalPlayer *player) {
         malPlayerSetBuffer(player, NULL);
+        malPlayerSetFinishedFunc(player, NULL, NULL);
         _malPlayerDispose(player);
         player->context = NULL;
     }
@@ -563,7 +575,19 @@ bool malPlayerSetState(MalPlayer *player, MalPlayerState state) {
 }
 
 MalPlayerState malPlayerGetState(MalPlayer *player) {
-    return player ? atomic_load(&player->state) : MAL_PLAYER_STATE_STOPPED;
+    if (!player) {
+        return MAL_PLAYER_STATE_STOPPED;
+    }
+    MalStreamState streamState = atomic_load(&player->streamState);
+    switch (streamState) {
+        case MAL_STREAM_STOPPED: case MAL_STREAM_STOPPING: default:
+            return MAL_PLAYER_STATE_STOPPED;
+        case MAL_STREAM_STARTING: case MAL_STREAM_PLAYING:
+        case MAL_STREAM_RESUMING: case MAL_STREAM_DRAINING:
+            return MAL_PLAYER_STATE_PLAYING;
+        case MAL_STREAM_PAUSING: case MAL_STREAM_PAUSED:
+            return MAL_PLAYER_STATE_PAUSED;
+    }
 }
 
 static void _malPlayerFree(MalPlayer *player) {

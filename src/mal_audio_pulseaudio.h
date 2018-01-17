@@ -205,13 +205,6 @@ fail:
 #include "ok_lib.h"
 #include "mal.h"
 
-typedef enum {
-    MAL_STREAM_INACTIVE = 0,
-    MAL_STREAM_STARTING,
-    MAL_STREAM_PLAYING,
-    MAL_STREAM_DRAINING,
-} MalStreamState;
-
 struct _MalContext {
     pa_threaded_mainloop *mainloop;
     pa_context *context;
@@ -227,9 +220,10 @@ struct _MalBuffer {
 struct _MalPlayer {
     pa_stream *stream;
     
-    uint32_t nextFrame;
-    MalStreamState streamState;
     bool backgroundPaused;
+
+    // Only accessed on the render thread
+    uint32_t nextFrame;
 };
 
 #define MAL_USE_MUTEX
@@ -418,19 +412,16 @@ static void _malPlayerUnderflowCallback(pa_stream *stream, void *userData) {
     (void)stream;
     MalPlayer *player = userData;
     MAL_LOCK(player);
-    if (player->data.streamState == MAL_STREAM_DRAINING) {
-        player->data.streamState = MAL_STREAM_INACTIVE;
-        if (atomic_load(&player->state) == MAL_PLAYER_STATE_PLAYING &&
-            atomic_load(&player->hasOnFinishedCallback)) {
-
+    if (atomic_load(&player->streamState) == MAL_STREAM_DRAINING) {
+        atomic_store(&player->streamState, MAL_STREAM_STOPPED);
+        pa_operation_unref(pa_stream_cork(player->data.stream, 1, NULL, NULL));
+        if (atomic_load(&player->hasOnFinishedCallback)) {
             MalContext *context = player->context;
             if (context && atomic_load(&context->data.hasPolledEvents)) {
                 malPlayerRetain(player);
                 ok_queue_push(&context->data.finishedPlayersWithCallbacks, player);
             }
         }
-        atomic_store(&player->state, MAL_PLAYER_STATE_STOPPED);
-        pa_operation_unref(pa_stream_cork(player->data.stream, 1, NULL, NULL));
     }
     MAL_UNLOCK(player);
 }
@@ -438,28 +429,31 @@ static void _malPlayerUnderflowCallback(pa_stream *stream, void *userData) {
 static void _malPlayerRenderCallback(pa_stream *stream, size_t length, void *userData) {
     MalPlayer *player = userData;
     MAL_LOCK(player);
-    if (player->data.streamState == MAL_STREAM_DRAINING ||
-        atomic_load(&player->state) == MAL_PLAYER_STATE_STOPPED ||
-        player->buffer == NULL || player->buffer->managedData == NULL) {
+    MalBuffer *buffer = player->buffer;
+    MalStreamState streamState = atomic_load(&player->streamState);
+    if (streamState == MAL_STREAM_PAUSING || streamState == MAL_STREAM_PAUSED ||
+        streamState == MAL_STREAM_DRAINING || streamState == MAL_STREAM_STOPPING ||
+        streamState == MAL_STREAM_STOPPED ||
+        buffer == NULL || buffer->managedData == NULL) {
         MAL_UNLOCK(player);
         return;
     }
 
-    pa_seek_mode_t seekMode = ((player->data.streamState == MAL_STREAM_STARTING) ?
-                               PA_SEEK_RELATIVE_ON_READ : PA_SEEK_RELATIVE);
-    player->data.streamState = MAL_STREAM_PLAYING;
-    void *buffer;
-    if (pa_stream_begin_write(stream, &buffer, &length) != PA_OK) {
+    void *dataBuffer;
+    if (pa_stream_begin_write(stream, &dataBuffer, &length) != PA_OK) {
         MAL_UNLOCK(player);
+        atomic_store(&player->streamState, MAL_STREAM_STOPPED);
         return;
     }
-    const uint32_t numFrames = player->buffer->numFrames;
-    const uint32_t frameSize = ((player->buffer->format.bitDepth / 8) *
-                                player->buffer->format.numChannels);
+    pa_seek_mode_t seekMode = ((streamState == MAL_STREAM_STARTING) ?
+                               PA_SEEK_RELATIVE_ON_READ : PA_SEEK_RELATIVE);
+    atomic_store(&player->streamState, MAL_STREAM_PLAYING);
+    const uint32_t numFrames = buffer->numFrames;
+    const uint32_t frameSize = ((buffer->format.bitDepth / 8) * buffer->format.numChannels);
     size_t bytesWritten = 0;
-    uint8_t *dst = buffer;
+    uint8_t *dst = dataBuffer;
     uint32_t dstRemaining = (uint32_t)length;
-    uint8_t *src = player->buffer->managedData;
+    uint8_t *src = buffer->managedData;
     src += player->data.nextFrame * frameSize;
     while (dstRemaining > 0) {
         uint32_t playerFrames = numFrames - player->data.nextFrame;
@@ -478,12 +472,12 @@ static void _malPlayerRenderCallback(pa_stream *stream, size_t length, void *use
         dstRemaining -= copyBytes;
         bytesWritten += copyBytes;
 
-        if (player->data.nextFrame >= player->buffer->numFrames) {
+        if (player->data.nextFrame >= buffer->numFrames) {
             player->data.nextFrame = 0;
             if (atomic_load(&player->looping)) {
-                src = player->buffer->managedData;
+                src = buffer->managedData;
             } else {
-                player->data.streamState = MAL_STREAM_DRAINING;
+                atomic_store(&player->streamState, MAL_STREAM_DRAINING);
                 break;
             }
         }
@@ -491,7 +485,7 @@ static void _malPlayerRenderCallback(pa_stream *stream, size_t length, void *use
 
     MAL_UNLOCK(player);
 
-    pa_stream_write(stream, buffer, bytesWritten, NULL, 0, seekMode);
+    pa_stream_write(stream, dataBuffer, bytesWritten, NULL, 0, seekMode);
 }
 
 static bool _malPlayerInit(MalPlayer *player, MalFormat format) {
@@ -662,36 +656,39 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState state) {
     }
 
     MAL_LOCK(player);
-    MalPlayerState oldState = atomic_load(&player->state);
+    MalPlayerState oldState = malPlayerGetState(player);
     if (state == oldState) {
         MAL_UNLOCK(player);
         return true;
     }
 
     struct _MalContext *pa = &player->context->data;
-
+    MalStreamState streamState;
     int shouldCork;
     switch (state) {
         case MAL_PLAYER_STATE_STOPPED:
         default: {
             shouldCork = 1;
-            player->data.nextFrame = 0;
-            player->data.streamState = MAL_STREAM_INACTIVE;
+            streamState = MAL_STREAM_STOPPED;
             break;
         }
         case MAL_PLAYER_STATE_PAUSED: {
             shouldCork = 1;
+            streamState = MAL_STREAM_PAUSED;
             break;
         }
         case MAL_PLAYER_STATE_PLAYING: {
             shouldCork = 0;
-            player->data.streamState = ((oldState == MAL_PLAYER_STATE_PAUSED) ? MAL_STREAM_PLAYING :
-                                        MAL_STREAM_STARTING);
+            if (oldState == MAL_PLAYER_STATE_PAUSED) {
+                streamState = MAL_STREAM_RESUMING;
+            } else {
+                streamState = MAL_STREAM_STARTING;
+            }
             break;
         }
     }
 
-    atomic_store(&player->state, state);
+    atomic_store(&player->streamState, streamState);
     MAL_UNLOCK(player);
 
     pa_threaded_mainloop_lock(pa->mainloop);

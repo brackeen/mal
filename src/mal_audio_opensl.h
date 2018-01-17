@@ -315,7 +315,7 @@ static void _malPlayerRenderCallback(SLBufferQueueItf queue, void *voidPlayer) {
                     buffer->format.numChannels);
             (*queue)->Enqueue(queue, buffer->managedData, len);
         } else {
-            atomic_store(&player->state, MAL_PLAYER_STATE_STOPPED);
+            atomic_store(&player->streamState, MAL_STREAM_STOPPED);
             if (atomic_load(&player->hasOnFinishedCallback) && player->context &&
                 player->context->data.looper) {
                 malPlayerRetain(player);
@@ -470,23 +470,27 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState state) {
     }
 
     MAL_LOCK(player);
-    MalPlayerState oldState = atomic_load(&player->state);
+    MalPlayerState oldState = malPlayerGetState(player);
     if (state == oldState) {
         MAL_UNLOCK(player);
         return true;
     }
 
+    MalStreamState streamState;
     SLuint32 slState;
     switch (state) {
         case MAL_PLAYER_STATE_STOPPED:
         default:
             slState = SL_PLAYSTATE_STOPPED;
+            streamState = MAL_STREAM_STOPPED;
             break;
         case MAL_PLAYER_STATE_PAUSED:
             slState = SL_PLAYSTATE_PAUSED;
+            streamState = MAL_STREAM_PAUSED;
             break;
         case MAL_PLAYER_STATE_PLAYING:
             slState = SL_PLAYSTATE_PLAYING;
+            streamState = MAL_STREAM_PLAYING;
             break;
     }
 
@@ -509,7 +513,7 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState state) {
         (*player->data.slBufferQueue)->Clear(player->data.slBufferQueue);
     }
 
-    atomic_store(&player->state, state);
+    atomic_store(&player->streamState, streamState);
     MAL_UNLOCK(player);
     
     return true;
