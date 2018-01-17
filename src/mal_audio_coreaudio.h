@@ -39,8 +39,14 @@ typedef enum {
     MAL_CONTEXT_STATE_TRANSITION_TO_INACTIVE
 } MalContextState;
 
-struct _MalRamp {
-    int value; // -1 for fade out, 1 for fade in, 0 for no fade
+typedef enum {
+    MAL_RAMP_NONE = 0,
+    MAL_RAMP_FADE_IN,
+    MAL_RAMP_FADE_OUT,
+} MalRampType;
+
+struct MalRamp {
+    MalRampType type;
     uint32_t frames;
     uint32_t framesPosition;
 };
@@ -54,7 +60,7 @@ struct _MalContext {
     bool canRampInputGain;
     bool canRampOutputGain;
     _Atomic(MalContextState) state;
-    struct _MalRamp ramp;
+    struct MalRamp ramp;
 };
 
 struct _MalBuffer {
@@ -68,7 +74,7 @@ struct _MalPlayer {
 
     // Only accessed on the render thread
     uint32_t nextFrame;
-    struct _MalRamp ramp;
+    struct MalRamp ramp;
 };
 
 #define MAL_USE_MUTEX
@@ -79,7 +85,7 @@ static void _malContextSetSampleRate(MalContext *context);
 static void _malPlayerDidDispose(MalPlayer *player);
 
 static bool _malRamp(MalContext *context, AudioUnitScope scope, AudioUnitElement bus,
-                     uint32_t inFrames, float gain, struct _MalRamp *ramp) {
+                     uint32_t inFrames, float gain, struct MalRamp *ramp) {
     uint32_t t = ramp->frames;
     uint32_t p1 = ramp->framesPosition;
     uint32_t p2 = p1 + inFrames;
@@ -89,7 +95,7 @@ static bool _malRamp(MalContext *context, AudioUnitScope scope, AudioUnitElement
         done = true;
     }
     ramp->framesPosition = p2;
-    if (ramp->value < 0) {
+    if (ramp->type == MAL_RAMP_FADE_OUT) {
         p1 = t - p1;
         p2 = t - p2;
     }
@@ -107,7 +113,7 @@ static bool _malRamp(MalContext *context, AudioUnitScope scope, AudioUnitElement
     AudioUnitScheduleParameters(context->data.mixerUnit, &rampEvent, 1);
 
     if (done) {
-        ramp->value = 0;
+        ramp->type = MAL_RAMP_NONE;
     }
     return done;
 }
@@ -384,16 +390,16 @@ static OSStatus _malRenderNotification(void *userData, AudioUnitRenderActionFlag
         }
         if (state == MAL_CONTEXT_STATE_TRANSITION_TO_ACTIVE) {
             // Fade in
-            context->data.ramp.value = 1;
+            context->data.ramp.type = MAL_RAMP_FADE_IN;
             context->data.ramp.frames = 2048;
             context->data.ramp.framesPosition = 0;
         } else if (state == MAL_CONTEXT_STATE_TRANSITION_TO_INACTIVE) {
             // Fade out
-            context->data.ramp.value = -1;
+            context->data.ramp.type = MAL_RAMP_FADE_OUT;
             context->data.ramp.frames = 2048;
             context->data.ramp.framesPosition = 0;
         }
-        if (context->data.ramp.value != 0) {
+        if (context->data.ramp.type != MAL_RAMP_NONE) {
             bool inactive = (state == MAL_CONTEXT_STATE_TRANSITION_TO_INACTIVE ||
                              state == MAL_CONTEXT_STATE_INACTIVE);
             bool done = _malRamp(context, kAudioUnitScope_Output, bus,
@@ -440,7 +446,7 @@ static OSStatus _malPlayerRenderCallback(void *userData, AudioUnitRenderActionFl
             double sampleRate = (buffer->format.sampleRate <= MAL_DEFAULT_SAMPLE_RATE ?
                                  malContextGetSampleRate(player->context) :
                                  buffer->format.sampleRate);
-            player->data.ramp.value = -1;
+            player->data.ramp.type = MAL_RAMP_FADE_OUT;
             player->data.ramp.frames = sampleRate * 0.1;
             player->data.ramp.framesPosition = 0;
         }
@@ -452,7 +458,7 @@ static OSStatus _malPlayerRenderCallback(void *userData, AudioUnitRenderActionFl
             double sampleRate = (buffer->format.sampleRate <= MAL_DEFAULT_SAMPLE_RATE ?
                                  malContextGetSampleRate(player->context) :
                                  buffer->format.sampleRate);
-            player->data.ramp.value = 1;
+            player->data.ramp.type = MAL_RAMP_FADE_IN;
             player->data.ramp.frames = sampleRate * 0.05;
             player->data.ramp.framesPosition = 0;
         }
@@ -524,7 +530,7 @@ static OSStatus _malPlayerRenderCallback(void *userData, AudioUnitRenderActionFl
                 memset(dst, 0, dstRemaining);
             }
         }
-        if (player->data.ramp.value != 0) {
+        if (player->data.ramp.type != MAL_RAMP_NONE) {
             bool done = _malRamp(player->context, kAudioUnitScope_Input,
                                  player->data.mixerBus, inFrames, player->gain,
                                  &player->data.ramp);
