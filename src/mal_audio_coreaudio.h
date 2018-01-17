@@ -31,8 +31,16 @@
 #  define MAL_LOG(...) do { printf("Mal: " __VA_ARGS__); printf("\n"); } while(0)
 #endif
 
+typedef enum {
+    MAL_CONTEXT_STATE_INIT = 0,
+    MAL_CONTEXT_STATE_ACTIVE,
+    MAL_CONTEXT_STATE_INACTIVE,
+    MAL_CONTEXT_STATE_TRANSITION_TO_ACTIVE,
+    MAL_CONTEXT_STATE_TRANSITION_TO_INACTIVE
+} MalContextState;
+
 struct _MalRamp {
-    _Atomic(int) value; // -1 for fade out, 1 for fade in, 0 for no fade
+    int value; // -1 for fade out, 1 for fade in, 0 for no fade
     uint32_t frames;
     uint32_t framesPosition;
 };
@@ -42,11 +50,10 @@ struct _MalContext {
     AudioUnit mixerUnit;
     AUNode mixerNode;
 
-    bool firstTime;
-
     uint32_t numBuses;
     bool canRampInputGain;
     bool canRampOutputGain;
+    _Atomic(MalContextState) state;
     struct _MalRamp ramp;
 };
 
@@ -71,18 +78,52 @@ struct _MalPlayer {
 static void _malContextSetSampleRate(MalContext *context);
 static void _malPlayerDidDispose(MalPlayer *player);
 
+static bool _malRamp(MalContext *context, AudioUnitScope scope, AudioUnitElement bus,
+                     uint32_t inFrames, float gain, struct _MalRamp *ramp) {
+    uint32_t t = ramp->frames;
+    uint32_t p1 = ramp->framesPosition;
+    uint32_t p2 = p1 + inFrames;
+    bool done = false;
+    if (p2 >= t) {
+        p2 = t;
+        done = true;
+    }
+    ramp->framesPosition = p2;
+    if (ramp->value < 0) {
+        p1 = t - p1;
+        p2 = t - p2;
+    }
+
+    AudioUnitParameterEvent rampEvent;
+    memset(&rampEvent, 0, sizeof(rampEvent));
+    rampEvent.scope = scope;
+    rampEvent.element = bus;
+    rampEvent.parameter = kMultiChannelMixerParam_Volume;
+    rampEvent.eventType = kParameterEvent_Ramped;
+    rampEvent.eventValues.ramp.startValue = gain * p1 / t;
+    rampEvent.eventValues.ramp.endValue = gain * p2 / t;
+    rampEvent.eventValues.ramp.durationInFrames = inFrames;
+    rampEvent.eventValues.ramp.startBufferOffset = 0;
+    AudioUnitScheduleParameters(context->data.mixerUnit, &rampEvent, 1);
+
+    if (done) {
+        ramp->value = 0;
+    }
+    return done;
+}
+
 // MARK: Context
 
-static OSStatus renderNotification(void *userData, AudioUnitRenderActionFlags *flags,
-                                   const AudioTimeStamp *timestamp, UInt32 bus,
-                                   UInt32 inFrames, AudioBufferList *data);
+static OSStatus _malRenderNotification(void *userData, AudioUnitRenderActionFlags *flags,
+                                       const AudioTimeStamp *timestamp, UInt32 bus,
+                                       UInt32 inFrames, AudioBufferList *data);
 
 static bool _malContextInit(MalContext *context, void *androidActivity,
                             const char **errorMissingAudioSystem) {
     (void)androidActivity;
     (void)errorMissingAudioSystem;
 
-    context->data.firstTime = true;
+    atomic_store(&context->data.state, MAL_CONTEXT_STATE_INIT);
     context->active = false;
 
     // Call first because actual value may be different from requested, and the mixer rate
@@ -194,7 +235,7 @@ static bool _malContextInit(MalContext *context, void *androidActivity,
         context->data.canRampOutputGain = false;
     }
     if (context->data.canRampOutputGain) {
-        status = AudioUnitAddRenderNotify(context->data.mixerUnit, renderNotification, context);
+        status = AudioUnitAddRenderNotify(context->data.mixerUnit, _malRenderNotification, context);
         if (status != noErr) {
             context->data.canRampOutputGain = false;
         }
@@ -228,6 +269,7 @@ static bool _malContextInit(MalContext *context, void *androidActivity,
 
 static void _malContextDidDispose(MalContext *context) {
     context->active = false;
+    context->data.canRampOutputGain = false;
     context->data.graph = NULL;
     context->data.mixerUnit = NULL;
     context->data.mixerNode = 0;
@@ -236,8 +278,9 @@ static void _malContextDidDispose(MalContext *context) {
 static void _malContextDispose(MalContext *context) {
     if (context->data.graph) {
         if (context->data.canRampOutputGain) {
-            AudioUnitRemoveRenderNotify(context->data.mixerUnit, renderNotification, context);
+            AudioUnitRemoveRenderNotify(context->data.mixerUnit, _malRenderNotification, context);
         }
+        AUGraphUpdate(context->data.graph, NULL);
         AUGraphStop(context->data.graph);
         AUGraphUninitialize(context->data.graph);
         DisposeAUGraph(context->data.graph);
@@ -250,11 +293,9 @@ static void _malContextReset(MalContext *context) {
     ok_vec_foreach(&context->players, MalPlayer *player) {
         _malPlayerDidDispose(player);
     }
-    MAL_LOCK(context);
     _malContextDidDispose(context);
     _malContextInit(context, NULL, NULL);
     _malContextUpdateGain(context);
-    MAL_UNLOCK(context);
     malContextSetActive(context, active);
     ok_vec_foreach(&context->players, MalPlayer *player) {
         bool wasPlaying = malPlayerGetState(player) == MAL_PLAYER_STATE_PLAYING;
@@ -277,27 +318,23 @@ static bool _malContextSetActive(MalContext *context, bool active) {
         Boolean running = false;
         AUGraphIsRunning(context->data.graph, &running);
         if (running) {
-            // Hasn't called AUGraphStop yet - do nothing
-            atomic_store(&context->data.ramp.value, 0);
+            atomic_store(&context->data.state, MAL_CONTEXT_STATE_ACTIVE);
             status = noErr;
         } else {
-            if (!context->data.firstTime && context->data.canRampOutputGain) {
-                // Fade in
-                atomic_store(&context->data.ramp.value, 1);
-                context->data.ramp.frames = 4096;
-                context->data.ramp.framesPosition = 0;
+            if (atomic_load(&context->data.state) != MAL_CONTEXT_STATE_INIT &&
+                context->data.canRampOutputGain) {
+                atomic_store(&context->data.state, MAL_CONTEXT_STATE_TRANSITION_TO_ACTIVE);
+            } else {
+                atomic_store(&context->data.state, MAL_CONTEXT_STATE_ACTIVE);
             }
             status = AUGraphStart(context->data.graph);
-            context->data.firstTime = false;
         }
     } else {
         if (context->data.canRampOutputGain) {
-            // Fade out
-            atomic_store(&context->data.ramp.value, -1);
-            context->data.ramp.frames = 4096;
-            context->data.ramp.framesPosition = 0;
+            atomic_store(&context->data.state, MAL_CONTEXT_STATE_TRANSITION_TO_INACTIVE);
             status = noErr;
         } else {
+            atomic_store(&context->data.state, MAL_CONTEXT_STATE_INACTIVE);
             status = AUGraphStop(context->data.graph);
         }
     }
@@ -325,60 +362,49 @@ static void _malContextUpdateGain(MalContext *context) {
     }
 }
 
-static bool _malRamp(MalContext *context, AudioUnitScope scope, AudioUnitElement bus,
-                     uint32_t inFrames, float gain, struct _MalRamp *ramp) {
-    uint32_t t = ramp->frames;
-    uint32_t p1 = ramp->framesPosition;
-    uint32_t p2 = p1 + inFrames;
-    bool done = false;
-    if (p2 >= t) {
-        p2 = t;
-        done = true;
-    }
-    ramp->framesPosition = p2;
-    if (ramp->value < 0) {
-        p1 = t - p1;
-        p2 = t - p2;
-    }
-
-    AudioUnitParameterEvent rampEvent;
-    memset(&rampEvent, 0, sizeof(rampEvent));
-    rampEvent.scope = scope;
-    rampEvent.element = bus;
-    rampEvent.parameter = kMultiChannelMixerParam_Volume;
-    rampEvent.eventType = kParameterEvent_Ramped;
-    rampEvent.eventValues.ramp.startValue = gain * p1 / t;
-    rampEvent.eventValues.ramp.endValue = gain * p2 / t;
-    rampEvent.eventValues.ramp.durationInFrames = inFrames;
-    rampEvent.eventValues.ramp.startBufferOffset = 0;
-    AudioUnitScheduleParameters(context->data.mixerUnit, &rampEvent, 1);
-
-    if (done) {
-        ramp->value = 0;
-    }
-    return done;
-}
-
-static OSStatus renderNotification(void *userData, AudioUnitRenderActionFlags *flags,
-                                    const AudioTimeStamp *timestamp, UInt32 bus,
-                                    UInt32 inFrames, AudioBufferList *data) {
+static OSStatus _malRenderNotification(void *userData, AudioUnitRenderActionFlags *flags,
+                                       const AudioTimeStamp *timestamp, UInt32 bus,
+                                       UInt32 inFrames, AudioBufferList *data) {
     if (*flags & kAudioUnitRenderAction_PreRender) {
         MalContext *context = userData;
-        if (atomic_load(&context->data.ramp.value) != 0) {
-            MAL_LOCK(context);
-            // Double-checked locking
-            if (atomic_load(&context->data.ramp.value) != 0) {
-                bool done = _malRamp(context, kAudioUnitScope_Output, bus,
-                                      inFrames, context->gain, &context->data.ramp);
-                if (done && context->active == false && context->data.graph) {
-                    Boolean running = false;
-                    AUGraphIsRunning(context->data.graph, &running);
-                    if (running) {
-                        AUGraphStop(context->data.graph);
-                    }
+        MalContextState state;
+        while (1) {
+            MalContextState newState;
+            state = atomic_load(&context->data.state);
+            if (state == MAL_CONTEXT_STATE_TRANSITION_TO_ACTIVE) {
+                newState = MAL_CONTEXT_STATE_ACTIVE;
+            } else if (state == MAL_CONTEXT_STATE_TRANSITION_TO_INACTIVE) {
+                newState = MAL_CONTEXT_STATE_INACTIVE;
+            } else {
+                break;
+            }
+            if (atomic_compare_exchange_weak(&context->data.state, &state, newState)) {
+                break;
+            }
+        }
+        if (state == MAL_CONTEXT_STATE_TRANSITION_TO_ACTIVE) {
+            // Fade in
+            context->data.ramp.value = 1;
+            context->data.ramp.frames = 2048;
+            context->data.ramp.framesPosition = 0;
+        } else if (state == MAL_CONTEXT_STATE_TRANSITION_TO_INACTIVE) {
+            // Fade out
+            context->data.ramp.value = -1;
+            context->data.ramp.frames = 2048;
+            context->data.ramp.framesPosition = 0;
+        }
+        if (context->data.ramp.value != 0) {
+            bool inactive = (state == MAL_CONTEXT_STATE_TRANSITION_TO_INACTIVE ||
+                             state == MAL_CONTEXT_STATE_INACTIVE);
+            bool done = _malRamp(context, kAudioUnitScope_Output, bus,
+                                 inFrames, context->gain, &context->data.ramp);
+            if (done && inactive && context->data.graph) {
+                Boolean running = false;
+                AUGraphIsRunning(context->data.graph, &running);
+                if (running) {
+                    AUGraphStop(context->data.graph);
                 }
             }
-            MAL_UNLOCK(context);
         }
     }
     return noErr;
