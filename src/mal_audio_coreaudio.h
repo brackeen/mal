@@ -59,6 +59,7 @@ struct _MalContext {
     uint32_t numBuses;
     bool canRampInputGain;
     bool canRampOutputGain;
+    _Atomic(float) totalGain;
     _Atomic(MalContextState) state;
     struct MalRamp ramp;
 };
@@ -71,6 +72,8 @@ struct _MalPlayer {
     AudioUnit converterUnit;
     AUNode converterNode;
     uint32_t mixerBus;
+
+    _Atomic(float) totalGain;
 
     // Only accessed on the render thread
     uint32_t nextFrame;
@@ -356,13 +359,13 @@ static void _malContextUpdateMute(MalContext *context) {
 
 static void _malContextUpdateGain(MalContext *context) {
     float totalGain = context->mute ? 0.0f : context->gain;
+    atomic_store(&context->data.totalGain, totalGain);
     OSStatus status = AudioUnitSetParameter(context->data.mixerUnit,
                                             kMultiChannelMixerParam_Volume,
                                             kAudioUnitScope_Output,
                                             0,
                                             totalGain,
                                             0);
-
     if (status != noErr) {
         MAL_LOG("Couldn't set volume (err %i)", (int)status);
     }
@@ -402,8 +405,8 @@ static OSStatus _malRenderNotification(void *userData, AudioUnitRenderActionFlag
         if (context->data.ramp.type != MAL_RAMP_NONE) {
             bool inactive = (state == MAL_CONTEXT_STATE_TRANSITION_TO_INACTIVE ||
                              state == MAL_CONTEXT_STATE_INACTIVE);
-            bool done = _malRamp(context, kAudioUnitScope_Output, bus,
-                                 inFrames, context->gain, &context->data.ramp);
+            bool done = _malRamp(context, kAudioUnitScope_Output, bus, inFrames,
+                                 atomic_load(&context->data.totalGain), &context->data.ramp);
             if (done && inactive && context->data.graph) {
                 Boolean running = false;
                 AUGraphIsRunning(context->data.graph, &running);
@@ -531,8 +534,8 @@ static OSStatus _malPlayerRenderCallback(void *userData, AudioUnitRenderActionFl
             }
         }
         if (player->data.ramp.type != MAL_RAMP_NONE) {
-            bool done = _malRamp(player->context, kAudioUnitScope_Input,
-                                 player->data.mixerBus, inFrames, player->gain,
+            bool done = _malRamp(player->context, kAudioUnitScope_Input, player->data.mixerBus,
+                                 inFrames, atomic_load(&player->data.totalGain),
                                  &player->data.ramp);
             if (done && streamState == MAL_STREAM_PAUSED &&
                 player->context && player->context->data.graph) {
@@ -703,6 +706,7 @@ static void _malPlayerUpdateMute(MalPlayer *player) {
 static void _malPlayerUpdateGain(MalPlayer *player) {
     if (player && player->context && player->context->data.mixerUnit) {
         float totalGain = player->mute ? 0.0f : player->gain;
+        atomic_store(&player->data.totalGain, totalGain);
         OSStatus status = AudioUnitSetParameter(player->context->data.mixerUnit,
                                                 kMultiChannelMixerParam_Volume,
                                                 kAudioUnitScope_Input,
