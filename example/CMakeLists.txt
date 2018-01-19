@@ -4,6 +4,23 @@ else()
     cmake_minimum_required(VERSION 3.2.0)
 endif()
 
+# Use Address Sanitizer in the stress test (Android only)
+# To use:
+# 1. Make sure LLDB is installed in SDK Manager
+# 2. Define MAL_USE_ASAN in your gradle file
+#    externalNativeBuild {
+#        cmake {
+#            arguments "-DMAL_BUILD_EXAMPLE=ON", "-DMAL_USE_ASAN=ON"
+#        }
+#    }
+# 3. Start an Android emulator (Virtual Devices -> Actions -> Cold Boot Now)
+# 4. Run asan_device_setup (included with NDK)
+# 5. Debug
+# If there are problems, wipe the device (Virtual Devices -> Actions -> Wipe Data) and go to step 3.
+if (CMAKE_SYSTEM_NAME MATCHES "Android")
+    option(MAL_USE_ASAN "Use Address Sanitizer" OFF)
+endif()
+
 function(set_glfw_app_properties TARGET_NAME)
     if (CMAKE_SYSTEM_NAME MATCHES "Darwin")
         set_target_properties(${TARGET_NAME} PROPERTIES
@@ -55,6 +72,14 @@ if ((CMAKE_SYSTEM_NAME MATCHES "Emscripten") OR
     file(GLOB GLFM_APP_SRC src/stress_test.c)
     source_group("src" FILES ${GLFM_APP_SRC})
     include(GLFMAppTarget)
+
+    # Address Sanitizer (Android only)
+    if ((CMAKE_SYSTEM_NAME MATCHES "Android") AND MAL_USE_ASAN)
+        message(STATUS "Using Address Sanitizer")
+        set_target_properties(mal_stress_test PROPERTIES
+            COMPILE_FLAGS "-fno-omit-frame-pointer -fsanitize=address"
+            LINK_FLAGS "-fno-omit-frame-pointer -fsanitize=address")
+    endif()
 elseif ((CMAKE_SYSTEM_NAME MATCHES "Darwin") OR (CMAKE_SYSTEM_NAME MATCHES "Windows") OR (CMAKE_SYSTEM_NAME MATCHES "Linux"))
     add_definitions(-DMAL_EXAMPLE_WITH_GLFW)
     set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "Build the GLFW example programs")
