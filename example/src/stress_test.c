@@ -216,7 +216,7 @@ static State testDelayedPlayerAction(StressTestApp *app, PlayerAction action) {
                                                           app->bufferDataFrames, app->bufferData);
                     if (!app->tempBuffers[i]) {
                         printf("Error: Couldn't create temp audio buffer\n");
-                        return false;
+                        return STATE_FAIL;
                     }
                 }
             }
