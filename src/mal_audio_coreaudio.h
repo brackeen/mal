@@ -31,6 +31,10 @@
 #  define MAL_LOG(...) do { printf("Mal: " __VA_ARGS__); printf("\n"); } while(0)
 #endif
 
+#define MAL_HAS_FLAG(flags, flag) (((flags) & (flag)) == (flag))
+
+static const uint32_t MAL_INVALID_BUS = UINT32_MAX;
+
 typedef enum {
     MAL_CONTEXT_STATE_INIT = 0,
     MAL_CONTEXT_STATE_ACTIVE,
@@ -69,7 +73,6 @@ struct _MalBuffer {
 };
 
 struct _MalPlayer {
-    AudioUnit converterUnit;
     AUNode converterNode;
     uint32_t mixerBus;
 
@@ -119,6 +122,26 @@ static bool _malRamp(MalContext *context, AudioUnitScope scope, AudioUnitElement
         ramp->type = MAL_RAMP_NONE;
     }
     return done;
+}
+
+static OSStatus _malAudioUnitSetFormat(const MalContext *context, AudioUnit audioUnit,
+                                       AudioUnitScope scope, uint32_t bus, MalFormat format) {
+    double sampleRate = (format.sampleRate <= MAL_DEFAULT_SAMPLE_RATE ?
+                         malContextGetSampleRate(context) : format.sampleRate);
+
+    AudioStreamBasicDescription streamDesc;
+    memset(&streamDesc, 0, sizeof(streamDesc));
+    streamDesc.mFormatID = kAudioFormatLinearPCM;
+    streamDesc.mFramesPerPacket = 1;
+    streamDesc.mSampleRate = sampleRate;
+    streamDesc.mBitsPerChannel = format.bitDepth;
+    streamDesc.mChannelsPerFrame = format.numChannels;
+    streamDesc.mBytesPerFrame = (format.bitDepth / 8) * format.numChannels;
+    streamDesc.mBytesPerPacket = streamDesc.mBytesPerFrame;
+    streamDesc.mFormatFlags = (kLinearPCMFormatFlagIsSignedInteger |
+                               kAudioFormatFlagsNativeEndian | kLinearPCMFormatFlagIsPacked);
+    return AudioUnitSetProperty(audioUnit, kAudioUnitProperty_StreamFormat, scope, bus,
+                                &streamDesc, sizeof(streamDesc));
 }
 
 // MARK: Context
@@ -227,8 +250,8 @@ static bool _malContextInit(MalContext *context, void *androidActivity,
                                   kAudioUnitScope_Input, kMultiChannelMixerParam_Volume,
                                   &parameterInfo, &parameterInfoSize);
     if (status == noErr) {
-        context->data.canRampInputGain =
-            (parameterInfo.flags & kAudioUnitParameterFlag_CanRamp) != 0;
+        context->data.canRampInputGain = MAL_HAS_FLAG(parameterInfo.flags,
+                                                      kAudioUnitParameterFlag_CanRamp);
     } else {
         context->data.canRampInputGain = false;
     }
@@ -238,8 +261,8 @@ static bool _malContextInit(MalContext *context, void *androidActivity,
                                   kAudioUnitScope_Output, kMultiChannelMixerParam_Volume,
                                   &parameterInfo, &parameterInfoSize);
     if (status == noErr) {
-        context->data.canRampOutputGain =
-            (parameterInfo.flags & kAudioUnitParameterFlag_CanRamp) != 0;
+        context->data.canRampOutputGain = MAL_HAS_FLAG(parameterInfo.flags,
+                                                       kAudioUnitParameterFlag_CanRamp);
     } else {
         context->data.canRampOutputGain = false;
     }
@@ -421,10 +444,52 @@ static OSStatus _malRenderNotification(void *userData, AudioUnitRenderActionFlag
 
 // MARK: Player
 
+static OSStatus _malPlayerRenderCallback(void *userData, AudioUnitRenderActionFlags *flags,
+                                         const AudioTimeStamp *timestamp, UInt32 bus,
+                                         UInt32 inFrames, AudioBufferList *data);
+
 static void _malHandleOnFinished(void *userData) {
     MalPlayer *player = (MalPlayer *)userData;
     _malHandleOnFinishedCallback(player);
     malPlayerRelease(player);
+}
+
+static inline void _malPlayerConnect(MalPlayer *player) {
+    if (player->context && player->context->data.graph) {
+        AURenderCallbackStruct renderCallback;
+        memset(&renderCallback, 0, sizeof(renderCallback));
+        renderCallback.inputProc = _malPlayerRenderCallback;
+        renderCallback.inputProcRefCon = player;
+        if (player->data.converterNode) {
+            AUGraphSetNodeInputCallback(player->context->data.graph,
+                                        player->data.converterNode,
+                                        0,
+                                        &renderCallback);
+        } else if (player->data.mixerBus != MAL_INVALID_BUS) {
+            AUGraphSetNodeInputCallback(player->context->data.graph,
+                                        player->context->data.mixerNode,
+                                        player->data.mixerBus,
+                                        &renderCallback);
+        }
+        Boolean updated;
+        AUGraphUpdate(player->context->data.graph, &updated);
+    }
+}
+
+static inline void _malPlayerDisconnect(MalPlayer *player) {
+    if (player->context && player->context->data.graph) {
+        if (player->data.converterNode) {
+            AUGraphDisconnectNodeInput(player->context->data.graph,
+                                       player->data.converterNode,
+                                       0);
+        } else if (player->data.mixerBus != MAL_INVALID_BUS) {
+            AUGraphDisconnectNodeInput(player->context->data.graph,
+                                       player->context->data.mixerNode,
+                                       player->data.mixerBus);
+        }
+        Boolean updated;
+        AUGraphUpdate(player->context->data.graph, &updated);
+    }
 }
 
 static OSStatus _malPlayerRenderCallback(void *userData, AudioUnitRenderActionFlags *flags,
@@ -470,8 +535,11 @@ static OSStatus _malPlayerRenderCallback(void *userData, AudioUnitRenderActionFl
     }
     if (streamState == MAL_STREAM_STOPPING || streamState == MAL_STREAM_STOPPED ||
         player->data.nextFrame >= buffer->numFrames) {
+
+        // Silence
+        *flags |= kAudioUnitRenderAction_OutputIsSilence;
         for (uint32_t i = 0; i < data->mNumberBuffers; i++) {
-            data->mBuffers[i].mDataByteSize = 0;
+            memset(data->mBuffers[i].mData, 0, data->mBuffers[i].mDataByteSize);
         }
 
         bool isPlaying = (streamState != MAL_STREAM_STOPPING && streamState != MAL_STREAM_STOPPED);
@@ -480,13 +548,7 @@ static OSStatus _malPlayerRenderCallback(void *userData, AudioUnitRenderActionFl
             atomic_store(&player->streamState, streamState);
             player->data.nextFrame = 0;
 
-            if (player->context && player->context->data.graph) {
-                AUGraphDisconnectNodeInput(player->context->data.graph,
-                                           player->data.converterNode,
-                                           0);
-                Boolean updated;
-                AUGraphUpdate(player->context->data.graph, &updated);
-            }
+            _malPlayerDisconnect(player);
 
             if (isPlaying && atomic_load(&player->hasOnFinishedCallback)) {
                 malPlayerRetain(player);
@@ -537,13 +599,8 @@ static OSStatus _malPlayerRenderCallback(void *userData, AudioUnitRenderActionFl
             bool done = _malRamp(player->context, kAudioUnitScope_Input, player->data.mixerBus,
                                  inFrames, atomic_load(&player->data.totalGain),
                                  &player->data.ramp);
-            if (done && streamState == MAL_STREAM_PAUSED &&
-                player->context && player->context->data.graph) {
-                AUGraphDisconnectNodeInput(player->context->data.graph,
-                                           player->data.converterNode,
-                                           0);
-                Boolean updated;
-                AUGraphUpdate(player->context->data.graph, &updated);
+            if (done && streamState == MAL_STREAM_PAUSED) {
+                _malPlayerDisconnect(player);
             }
         }
     }
@@ -553,7 +610,7 @@ static OSStatus _malPlayerRenderCallback(void *userData, AudioUnitRenderActionFl
 }
 
 static bool _malPlayerInitBus(MalPlayer *player) {
-    player->data.mixerBus = UINT32_MAX;
+    player->data.mixerBus = MAL_INVALID_BUS;
 
     MalContext *context = player->context;
     if (!context || context->data.numBuses == 0) {
@@ -578,7 +635,7 @@ static bool _malPlayerInitBus(MalPlayer *player) {
         }
     }
     free(takenBuses);
-    if (player->data.mixerBus != UINT32_MAX) {
+    if (player->data.mixerBus != MAL_INVALID_BUS) {
         return true;
     }
 
@@ -605,62 +662,60 @@ static bool _malPlayerInit(MalPlayer *player, MalFormat format) {
         return false;
     }
 
-    // Create converter node
-    AudioComponentDescription converterDesc;
-    converterDesc.componentType = kAudioUnitType_FormatConverter;
-    converterDesc.componentSubType = kAudioUnitSubType_AUConverter;
-    converterDesc.componentManufacturer = kAudioUnitManufacturer_Apple;
-    OSStatus status = AUGraphAddNode(player->context->data.graph,
-                                     &converterDesc,
-                                     &player->data.converterNode);
-    if (status != noErr) {
-        MAL_LOG("Couldn't add converter node(err %i)", (int)status);
-        return false;
+    if (format.sampleRate <= MAL_DEFAULT_SAMPLE_RATE) {
+        format.sampleRate = malContextGetSampleRate(player->context);
     }
 
-    // Get converter audio unit
-    status = AUGraphNodeInfo(player->context->data.graph, player->data.converterNode, NULL,
-                             &player->data.converterUnit);
-    if (status != noErr) {
-        MAL_LOG("Couldn't get converter unit (err %i)", (int)status);
-        return false;
-    }
+    OSStatus status;
+    AudioUnit mixerUnit = player->context->data.mixerUnit;
 
-    // Connect converter to mixer
-    status = AUGraphConnectNodeInput(player->context->data.graph,
-                                     player->data.converterNode,
-                                     0,
-                                     player->context->data.mixerNode,
-                                     player->data.mixerBus);
-    if (status != noErr) {
-        MAL_LOG("Couldn't connect converter to mixer (err %i)", (int)status);
-        return false;
-    }
+    // First, try to set the bus format
+    status = _malAudioUnitSetFormat(player->context, mixerUnit, kAudioUnitScope_Input,
+                                    player->data.mixerBus, format);
 
-    // Set stream format
-    double sampleRate = (format.sampleRate <= MAL_DEFAULT_SAMPLE_RATE ?
-                         malContextGetSampleRate(player->context) : format.sampleRate);
-
-    AudioStreamBasicDescription streamDesc;
-    memset(&streamDesc, 0, sizeof(streamDesc));
-    streamDesc.mFormatID = kAudioFormatLinearPCM;
-    streamDesc.mFramesPerPacket = 1;
-    streamDesc.mSampleRate = sampleRate;
-    streamDesc.mBitsPerChannel = format.bitDepth;
-    streamDesc.mChannelsPerFrame = format.numChannels;
-    streamDesc.mBytesPerFrame = (format.bitDepth / 8) * format.numChannels;
-    streamDesc.mBytesPerPacket = streamDesc.mBytesPerFrame;
-    streamDesc.mFormatFlags = (kLinearPCMFormatFlagIsSignedInteger |
-                               kAudioFormatFlagsNativeEndian | kLinearPCMFormatFlagIsPacked);
-    status = AudioUnitSetProperty(player->data.converterUnit,
-                                  kAudioUnitProperty_StreamFormat,
-                                  kAudioUnitScope_Input,
-                                  0,
-                                  &streamDesc,
-                                  sizeof(streamDesc));
+    // If failure, create a converter node
     if (status != noErr) {
-        MAL_LOG("Couldn't set stream format (err %i)", (int)status);
-        return false;
+        AudioUnit converterUnit;
+
+        // Create converter node
+        AudioComponentDescription converterDesc;
+        converterDesc.componentType = kAudioUnitType_FormatConverter;
+        converterDesc.componentSubType = kAudioUnitSubType_AUConverter;
+        converterDesc.componentManufacturer = kAudioUnitManufacturer_Apple;
+        status = AUGraphAddNode(player->context->data.graph,
+                                &converterDesc,
+                                &player->data.converterNode);
+        if (status != noErr) {
+            MAL_LOG("Couldn't add converter node(err %i)", (int)status);
+            return false;
+        }
+
+        // Get converter audio unit
+        status = AUGraphNodeInfo(player->context->data.graph, player->data.converterNode, NULL,
+                                 &converterUnit);
+        if (status != noErr) {
+            MAL_LOG("Couldn't get converter unit (err %i)", (int)status);
+            return false;
+        }
+
+        // Connect converter to mixer
+        status = AUGraphConnectNodeInput(player->context->data.graph,
+                                         player->data.converterNode,
+                                         0,
+                                         player->context->data.mixerNode,
+                                         player->data.mixerBus);
+        if (status != noErr) {
+            MAL_LOG("Couldn't connect converter to mixer (err %i)", (int)status);
+            return false;
+        }
+
+        // Set stream format
+        status = _malAudioUnitSetFormat(player->context, converterUnit, kAudioUnitScope_Input, 0,
+                                        format);
+        if (status != noErr) {
+            MAL_LOG("Couldn't set stream format (err %i)", (int)status);
+            return false;
+        }
     }
 
     _malPlayerUpdateGain(player);
@@ -668,27 +723,66 @@ static bool _malPlayerInit(MalPlayer *player, MalFormat format) {
 }
 
 static void _malPlayerDidDispose(MalPlayer *player) {
-    player->data.converterUnit = NULL;
+    player->data.mixerBus = MAL_INVALID_BUS;
     player->data.converterNode = 0;
 }
 
 static void _malPlayerDispose(MalPlayer *player) {
-    if (player->context && player->data.converterNode) {
+    if (player->context) {
+        AUGraph graph = player->context->data.graph;
+        bool needsSync = false;
+
         // Try to avoid a synchronous update, which can take 4-12ms.
-        UInt32 numInteractions = 0;
-        OSStatus status = AUGraphCountNodeInteractions(player->context->data.graph,
-                                                       player->data.converterNode,
-                                                       &numInteractions);
-        if (status != noErr || numInteractions != 1) {
-            // The node should have only one connection: connected to the graph but not to a
-            // render callback.
-            // If there is not exactly one connection, then the graph is out of date.
-            // Force a synchronous update to prevent the render callback from being called after
-            // the player is freed.
-            AUGraphUpdate(player->context->data.graph, NULL);
+        // A synchronous update may be needed to prevent the render callback from being called after
+        // the player is freed.
+        // NOTE: Use "Address Sanitizer" to test in Xcode
+        if (player->data.converterNode) {
+            UInt32 numInteractions = 0;
+            OSStatus status = AUGraphCountNodeInteractions(graph, player->data.converterNode,
+                                                           &numInteractions);
+            if (status != noErr || numInteractions != 1) {
+                // The node should have only one connection: connected to the graph but not to a
+                // render callback.
+                needsSync = true;
+            }
+        } else if (player->data.mixerBus != MAL_INVALID_BUS) {
+            UInt32 numInteractions = 0;
+            OSStatus status = AUGraphCountNodeInteractions(graph, player->context->data.mixerNode,
+                                                           &numInteractions);
+            if (status != noErr) {
+                needsSync = true;
+            } else if (numInteractions > 0) {
+                AUNodeInteraction *interactions;
+                interactions = calloc(numInteractions, sizeof(AUNodeInteraction));
+                if (!interactions) {
+                    needsSync = true;
+                } else {
+                    // Check if the mixer bus has an input callback (should have none)
+                    status = AUGraphGetNodeInteractions(graph, player->context->data.mixerNode,
+                                                        &numInteractions, interactions);
+                    if (status != noErr) {
+                        needsSync = true;
+                    } else {
+                        for (size_t i = 0; i < numInteractions; i++) {
+                            UInt32 type = interactions[i].nodeInteractionType;
+                            if (type == kAUNodeInteraction_InputCallback && (interactions[i].nodeInteraction.inputCallback.destInputNumber ==
+                                player->data.mixerBus)) {
+                                needsSync = true;
+                                break;
+                            }
+                        }
+                    }
+                    free(interactions);
+                }
+            }
+        }
+        if (needsSync) {
+            AUGraphUpdate(graph, NULL);
         }
 
-        AUGraphRemoveNode(player->context->data.graph, player->data.converterNode);
+        if (player->data.converterNode) {
+            AUGraphRemoveNode(graph, player->data.converterNode);
+        }
     }
     _malPlayerDidDispose(player);
 }
@@ -742,11 +836,7 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState state) {
     switch (state) {
         case MAL_PLAYER_STATE_STOPPED:
         default: {
-            AUGraphDisconnectNodeInput(player->context->data.graph,
-                                       player->data.converterNode,
-                                       0);
-            Boolean updated;
-            AUGraphUpdate(player->context->data.graph, &updated);
+            _malPlayerDisconnect(player);
             streamState = MAL_STREAM_STOPPED;
             break;
         }
@@ -755,11 +845,7 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState state) {
                 streamState = MAL_STREAM_PAUSING;
             } else {
                 streamState = MAL_STREAM_PAUSED;
-                AUGraphDisconnectNodeInput(player->context->data.graph,
-                                           player->data.converterNode,
-                                           0);
-                Boolean updated;
-                AUGraphUpdate(player->context->data.graph, &updated);
+                _malPlayerDisconnect(player);
             }
             break;
         case MAL_PLAYER_STATE_PLAYING: {
@@ -770,17 +856,7 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState state) {
             } else {
                 streamState = MAL_STREAM_RESUMING;
             }
-
-            AURenderCallbackStruct renderCallback;
-            memset(&renderCallback, 0, sizeof(renderCallback));
-            renderCallback.inputProc = _malPlayerRenderCallback;
-            renderCallback.inputProcRefCon = player;
-            AUGraphSetNodeInputCallback(player->context->data.graph,
-                                        player->data.converterNode,
-                                        0,
-                                        &renderCallback);
-            Boolean updated;
-            AUGraphUpdate(player->context->data.graph, &updated);
+            _malPlayerConnect(player);
             break;
         }
     }

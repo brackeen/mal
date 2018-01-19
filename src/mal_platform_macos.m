@@ -98,7 +98,7 @@ static void _malHandleNotifications(void *userData) {
     while (ok_queue_pop(&_malPendingNotifications, &notification)) {
         bool handled = true;
         if (notification.type == MAL_NOTIFICATION_TYPE_DEVICE_CHANGED) {
-            _malContextSetSampleRate(notification.context);
+            // Do nothing, for now
         } else if (notification.type == MAL_NOTIFICATION_TYPE_RESTART) {
             handled = _malAttemptRestart(notification.context);
             if (!handled) {

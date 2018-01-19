@@ -94,8 +94,6 @@ static void _malContextDidSetActive(MalContext *context, bool active) {
     NSError *error = nil;
 
     if (active) {
-        _malContextSetSampleRate(context);
-
         // Set Category
         // TODO: Make allowBackgroundMusic an option
         bool allowBackgroundMusic = true;
