@@ -180,7 +180,7 @@ static bool playerAction(StressTestApp *app, PlayerAction action, size_t index) 
         case PLAYER_ACTION_DELETE_BUFFER: {
             malBufferRelease(app->tempBuffers[index]);
             app->tempBuffers[index] = NULL;
-            return malPlayerSetBuffer(app->players[index], NULL);;
+            return malPlayerSetBuffer(app->players[index], NULL);
         }
         case PLAYER_ACTION_STOP_AND_CLEAR_BUFFER: {
             return (malPlayerSetState(app->players[index], MAL_PLAYER_STATE_STOPPED) &&
@@ -361,15 +361,19 @@ static State testOnFinishedCallback(StressTestApp *app) {
 
 static State testPlayRepeatedly(StressTestApp *app) {
     bool success = true;
-    if (app->testIteration < 50) {
+    if (app->testIteration == 0) {
+        for (int i = 0; i < kNumPlayers; i++) {
+            success = malPlayerSetBuffer(app->players[i], app->shortBuffer);
+            if (!success) {
+                return STATE_FAIL;
+            }
+        }
+    }
+    if (app->testIteration < 80) {
         // Play all sounds not playing. Try for 8ms.
         for (int j = 0; j < 8; j++) {
             for (int i = 0; i < kNumPlayers; i++) {
                 if (malPlayerGetState(app->players[i]) != MAL_PLAYER_STATE_PLAYING) {
-                    success = malPlayerSetBuffer(app->players[i], app->shortBuffer);
-                    if (!success) {
-                        return STATE_FAIL;
-                    }
                     success = malPlayerSetState(app->players[i], MAL_PLAYER_STATE_PLAYING);
                     if (!success) {
                         return STATE_FAIL;
@@ -378,7 +382,7 @@ static State testPlayRepeatedly(StressTestApp *app) {
             }
             usleep(1000);
         }
-    } else if (app->testIteration < 100) {
+    } else if (app->testIteration < 150) {
         // Wait until finished
         if (allPlayersStopped(app)) {
             return STATE_SUCCESS;
@@ -518,7 +522,8 @@ static void doTestIterationAndDraw(StressTestApp *app) {
                     app->successCount++;
                     app->currentTest = 0;
                     double duration = (time_us() - app->startTime) / 1000000.0;
-                    printf("Successful runs: %zu Duration: %fs\n", app->successCount, duration);
+                    printf("Successful runs: %zu Duration: %.3fs (%.3fs/run)\n", app->successCount,
+                           duration, (duration /app->successCount));
                 } else {
                     app->currentTest++;
                 }
