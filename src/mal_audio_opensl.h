@@ -71,7 +71,7 @@ struct _MalPlayer {
     bool backgroundPaused;
 };
 
-#define MAL_USE_MUTEX
+#define MAL_USE_BUFFER_LOCK
 #define MAL_USE_DEFAULT_BUFFER_IMPL
 #include "mal_audio_abstract.h"
 #include <math.h>
@@ -299,14 +299,10 @@ static void _malContextUpdateGain(MalContext *context) {
 //
 // According to the Android team, "it is unspecified whether buffer queue callbacks are called upon
 // transition to SL_PLAYSTATE_STOPPED or by BufferQueue::Clear."
-//
-// The Android team recommends "non-blocking synchronization", but the lock will be uncontended in
-// most cases.
-// Also, Chromium has locks in their OpenSLES-based audio implementation.
 static void _malPlayerRenderCallback(SLBufferQueueItf queue, void *voidPlayer) {
     MalPlayer *player = (MalPlayer *)voidPlayer;
     if (player && queue) {
-        MAL_LOCK(player);
+        MAL_LOCK(&player->bufferLock);
         if (atomic_load(&player->looping) && player->buffer &&
             player->buffer->managedData &&
             malPlayerGetState(player) == MAL_PLAYER_STATE_PLAYING) {
@@ -323,7 +319,7 @@ static void _malPlayerRenderCallback(SLBufferQueueItf queue, void *voidPlayer) {
                 _malLooperPost(player->context->data.looperMessagePipe[1]);
             }
         }
-        MAL_UNLOCK(player);
+        MAL_UNLOCK(&player->bufferLock);
     }
 }
 

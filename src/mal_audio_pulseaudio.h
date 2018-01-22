@@ -226,7 +226,7 @@ struct _MalPlayer {
     uint32_t nextFrame;
 };
 
-#define MAL_USE_MUTEX
+#define MAL_USE_BUFFER_LOCK
 #define MAL_USE_DEFAULT_BUFFER_IMPL
 #include "mal_audio_abstract.h"
 
@@ -426,20 +426,20 @@ static void _malPlayerUnderflowCallback(pa_stream *stream, void *userData) {
 
 static void _malPlayerRenderCallback(pa_stream *stream, size_t length, void *userData) {
     MalPlayer *player = userData;
-    MAL_LOCK(player);
+    MAL_LOCK(&player->bufferLock);
     MalBuffer *buffer = player->buffer;
     MalStreamState streamState = atomic_load(&player->streamState);
     if (streamState == MAL_STREAM_PAUSING || streamState == MAL_STREAM_PAUSED ||
         streamState == MAL_STREAM_DRAINING || streamState == MAL_STREAM_STOPPING ||
         streamState == MAL_STREAM_STOPPED ||
         buffer == NULL || buffer->managedData == NULL) {
-        MAL_UNLOCK(player);
+        MAL_UNLOCK(&player->bufferLock);
         return;
     }
 
     void *dataBuffer;
     if (pa_stream_begin_write(stream, &dataBuffer, &length) != PA_OK) {
-        MAL_UNLOCK(player);
+        MAL_UNLOCK(&player->bufferLock);
         atomic_store(&player->streamState, MAL_STREAM_STOPPED);
         return;
     }
@@ -481,7 +481,7 @@ static void _malPlayerRenderCallback(pa_stream *stream, size_t length, void *use
         }
     }
 
-    MAL_UNLOCK(player);
+    MAL_UNLOCK(&player->bufferLock);
 
     pa_stream_write(stream, dataBuffer, bytesWritten, NULL, 0, seekMode);
 }

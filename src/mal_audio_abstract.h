@@ -26,16 +26,15 @@
 #include "ok_lib.h"
 #include <math.h>
 
-// If MAL_USE_MUTEX is defined, modifications to MalPlayer objects are locked.
-// Define MAL_USE_MUTEX if a player's buffer data is read on a different thread than the main
+// If MAL_USE_BUFFER_LOCK is defined, setting the MalPlayer's buffer is locked.
+// Define MAL_USE_BUFFER_LOCK if a player's buffer data is read on a different thread than the main
 // thread.
-#ifdef MAL_USE_MUTEX
-#  include <pthread.h>
-#  define MAL_LOCK(player) pthread_mutex_lock(&player->mutex)
-#  define MAL_UNLOCK(player) pthread_mutex_unlock(&player->mutex)
+#ifdef MAL_USE_BUFFER_LOCK
+#  define MAL_LOCK(lock) OK_LOCK(lock)
+#  define MAL_UNLOCK(lock) OK_UNLOCK(lock)
 #else
-#  define MAL_LOCK(player) do { } while(0)
-#  define MAL_UNLOCK(player) do { } while(0)
+#  define MAL_LOCK(lock) do { } while(0)
+#  define MAL_UNLOCK(lock) do { } while(0)
 #endif
 
 // MARK: Atomics
@@ -159,8 +158,8 @@ struct MalPlayer {
     void *onFinishedUserData;
     _Atomic(bool) hasOnFinishedCallback;
 
-#ifdef MAL_USE_MUTEX
-    pthread_mutex_t mutex;
+#ifdef MAL_USE_BUFFER_LOCK
+    OK_LOCK_TYPE bufferLock;
 #endif
 
     struct _MalPlayer data;
@@ -443,9 +442,6 @@ MalPlayer *malPlayerCreate(MalContext *context, MalFormat format) {
     MalPlayer *player = (MalPlayer *)calloc(1, sizeof(MalPlayer));
     if (player) {
         atomic_store(&player->refCount, 1);
-#ifdef MAL_USE_MUTEX
-        pthread_mutex_init(&player->mutex, NULL);
-#endif
         ok_vec_push(&context->players, player);
         player->context = context;
         player->format = format;
@@ -472,18 +468,21 @@ MalFormat malPlayerGetFormat(const MalPlayer *player) {
 bool malPlayerSetBuffer(MalPlayer *player, MalBuffer *buffer) {
     if (!player) {
         return false;
+    } else if (player->buffer == buffer) {
+        return true;
     } else {
         malPlayerSetState(player, MAL_PLAYER_STATE_STOPPED);
+        MalBuffer *oldBuffer = player->buffer;
+        MalBuffer *newBuffer = NULL;
         bool success = _malPlayerSetBuffer(player, buffer);
-        MAL_LOCK(player);
-        malBufferRelease(player->buffer);
         if (success) {
             malBufferRetain(buffer);
-            player->buffer = buffer;
-        } else {
-            player->buffer = NULL;
+            newBuffer = buffer;
         }
-        MAL_UNLOCK(player);
+        MAL_LOCK(&player->bufferLock);
+        player->buffer = newBuffer;
+        MAL_UNLOCK(&player->bufferLock);
+        malBufferRelease(oldBuffer);
         return success;
     }
 }
@@ -557,11 +556,7 @@ bool malPlayerSetState(MalPlayer *player, MalPlayerState state) {
     }
 }
 
-MalPlayerState malPlayerGetState(MalPlayer *player) {
-    if (!player) {
-        return MAL_PLAYER_STATE_STOPPED;
-    }
-    MalStreamState streamState = atomic_load(&player->streamState);
+static MalPlayerState _malStreamStateToPlayerState(MalStreamState streamState) {
     switch (streamState) {
         case MAL_STREAM_STOPPED: case MAL_STREAM_STOPPING: default:
             return MAL_PLAYER_STATE_STOPPED;
@@ -573,6 +568,14 @@ MalPlayerState malPlayerGetState(MalPlayer *player) {
     }
 }
 
+MalPlayerState malPlayerGetState(MalPlayer *player) {
+    if (player) {
+        return _malStreamStateToPlayerState(atomic_load(&player->streamState));
+    } else {
+        return MAL_PLAYER_STATE_STOPPED;
+    }
+}
+
 static void _malPlayerFree(MalPlayer *player) {
     malPlayerSetBuffer(player, NULL);
     malPlayerSetFinishedFunc(player, NULL, NULL);
@@ -581,9 +584,6 @@ static void _malPlayerFree(MalPlayer *player) {
         ok_vec_remove(&player->context->players, player);
         player->context = NULL;
     }
-#ifdef MAL_USE_MUTEX
-    pthread_mutex_destroy(&player->mutex);
-#endif
     free(player);
 }
 

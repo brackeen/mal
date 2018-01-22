@@ -83,7 +83,7 @@ struct _MalPlayer {
     struct MalRamp ramp;
 };
 
-#define MAL_USE_MUTEX
+#define MAL_USE_BUFFER_LOCK
 #define MAL_USE_DEFAULT_BUFFER_IMPL
 #include "mal_audio_abstract.h"
 
@@ -497,7 +497,7 @@ static OSStatus _malPlayerRenderCallback(void *userData, AudioUnitRenderActionFl
                                          UInt32 inFrames, AudioBufferList *data) {
     MalPlayer *player = userData;
 
-    MAL_LOCK(player);
+    MAL_LOCK(&player->bufferLock);
     MalBuffer *buffer = player->buffer;
     MalStreamState streamState = atomic_load(&player->streamState);
     if ((buffer == NULL || buffer->managedData == NULL) &&
@@ -604,7 +604,7 @@ static OSStatus _malPlayerRenderCallback(void *userData, AudioUnitRenderActionFl
             }
         }
     }
-    MAL_UNLOCK(player);
+    MAL_UNLOCK(&player->bufferLock);
 
     return noErr;
 }
