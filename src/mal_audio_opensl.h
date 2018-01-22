@@ -469,54 +469,54 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState state) {
         return false;
     }
 
-    MAL_LOCK(player);
-    MalPlayerState oldState = malPlayerGetState(player);
-    if (state == oldState) {
-        MAL_UNLOCK(player);
-        return true;
-    }
+    while (1) {
+        MalStreamState streamState = atomic_load(&player->streamState);
+        MalPlayerState oldState = _malStreamStateToPlayerState(streamState);
+        if (oldState == state) {
+            return true;
+        }
 
-    MalStreamState streamState;
-    SLuint32 slState;
-    switch (state) {
-        case MAL_PLAYER_STATE_STOPPED:
-        default:
-            slState = SL_PLAYSTATE_STOPPED;
-            streamState = MAL_STREAM_STOPPED;
-            break;
-        case MAL_PLAYER_STATE_PAUSED:
-            slState = SL_PLAYSTATE_PAUSED;
-            streamState = MAL_STREAM_PAUSED;
-            break;
-        case MAL_PLAYER_STATE_PLAYING:
-            slState = SL_PLAYSTATE_PLAYING;
-            streamState = MAL_STREAM_PLAYING;
-            break;
-    }
+        MalStreamState newStreamState;
+        SLuint32 slState;
+        switch (state) {
+            case MAL_PLAYER_STATE_STOPPED:
+            default:
+                slState = SL_PLAYSTATE_STOPPED;
+                newStreamState = MAL_STREAM_STOPPED;
+                break;
+            case MAL_PLAYER_STATE_PAUSED:
+                slState = SL_PLAYSTATE_PAUSED;
+                newStreamState = MAL_STREAM_PAUSED;
+                break;
+            case MAL_PLAYER_STATE_PLAYING:
+                slState = SL_PLAYSTATE_PLAYING;
+                newStreamState = MAL_STREAM_PLAYING;
+                break;
+        }
 
-    // Queue if needed
-    if (oldState != MAL_PLAYER_STATE_PAUSED && slState == SL_PLAYSTATE_PLAYING &&
-        player->data.slBufferQueue) {
-        const MalBuffer *buffer = player->buffer;
-        if (buffer->managedData) {
-            const uint32_t len = (uint32_t)(buffer->numFrames * (buffer->format.bitDepth / 8) *
-                    buffer->format.numChannels);
-            (*player->data.slBufferQueue)->Enqueue(player->data.slBufferQueue,
-                                                   buffer->managedData, len);
+        if (atomic_compare_exchange_strong(&player->streamState, &streamState, newStreamState)) {
+            // Queue if needed
+            if (oldState != MAL_PLAYER_STATE_PAUSED && slState == SL_PLAYSTATE_PLAYING &&
+                player->data.slBufferQueue) {
+                const MalBuffer *buffer = player->buffer;
+                if (buffer->managedData) {
+                    uint32_t len = (uint32_t)(buffer->numFrames * (buffer->format.bitDepth / 8) *
+                                              buffer->format.numChannels);
+                    (*player->data.slBufferQueue)->Enqueue(player->data.slBufferQueue,
+                                                           buffer->managedData, len);
+                }
+            }
+
+            (*player->data.slPlay)->SetPlayState(player->data.slPlay, slState);
+
+            // Clear buffer queue
+            if (slState == SL_PLAYSTATE_STOPPED && player->data.slBufferQueue) {
+                (*player->data.slBufferQueue)->Clear(player->data.slBufferQueue);
+            }
+
+            return true;
         }
     }
-
-    (*player->data.slPlay)->SetPlayState(player->data.slPlay, slState);
-
-    // Clear buffer queue
-    if (slState == SL_PLAYSTATE_STOPPED && player->data.slBufferQueue) {
-        (*player->data.slBufferQueue)->Clear(player->data.slBufferQueue);
-    }
-
-    atomic_store(&player->streamState, streamState);
-    MAL_UNLOCK(player);
-    
-    return true;
 }
 
 #endif

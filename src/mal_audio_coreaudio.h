@@ -544,11 +544,11 @@ static OSStatus _malPlayerRenderCallback(void *userData, AudioUnitRenderActionFl
 
         bool isPlaying = (streamState != MAL_STREAM_STOPPING && streamState != MAL_STREAM_STOPPED);
         if (streamState != MAL_STREAM_STOPPED) {
+            _malPlayerDisconnect(player);
+
             streamState = MAL_STREAM_STOPPED;
             atomic_store(&player->streamState, streamState);
             player->data.nextFrame = 0;
-
-            _malPlayerDisconnect(player);
 
             if (isPlaying && atomic_load(&player->hasOnFinishedCallback)) {
                 malPlayerRetain(player);
@@ -825,44 +825,43 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState state) {
         return false;
     }
 
-    MAL_LOCK(player);
-    MalPlayerState oldState = malPlayerGetState(player);
-    if (state == oldState) {
-        MAL_UNLOCK(player);
-        return true;
-    }
-
-    MalStreamState streamState;
-    switch (state) {
-        case MAL_PLAYER_STATE_STOPPED:
-        default: {
-            _malPlayerDisconnect(player);
-            streamState = MAL_STREAM_STOPPED;
-            break;
+    while (1) {
+        MalStreamState streamState = atomic_load(&player->streamState);
+        MalPlayerState oldState = _malStreamStateToPlayerState(streamState);
+        if (oldState == state) {
+            return true;
         }
-        case MAL_PLAYER_STATE_PAUSED:
-            if (player->context->data.canRampInputGain) {
-                streamState = MAL_STREAM_PAUSING;
-            } else {
-                streamState = MAL_STREAM_PAUSED;
-                _malPlayerDisconnect(player);
-            }
-            break;
-        case MAL_PLAYER_STATE_PLAYING: {
+
+        MalStreamState newStreamState;
+        if (state == MAL_PLAYER_STATE_PLAYING) {
             if (oldState == MAL_PLAYER_STATE_STOPPED) {
+                newStreamState = MAL_STREAM_STARTING;
+            } else {
+                newStreamState = MAL_STREAM_RESUMING;
+            }
+        } else if (state == MAL_PLAYER_STATE_PAUSED) {
+            if (player->context->data.canRampInputGain) {
+                newStreamState = MAL_STREAM_PAUSING;
+            } else {
+                newStreamState = MAL_STREAM_PAUSED;
+            }
+        } else {
+            newStreamState = MAL_STREAM_STOPPED;
+        }
+
+        if (atomic_compare_exchange_strong(&player->streamState, &streamState, newStreamState)) {
+            if (newStreamState == MAL_STREAM_STOPPED || newStreamState == MAL_STREAM_PAUSED) {
+                _malPlayerDisconnect(player);
+            } else if (newStreamState == MAL_STREAM_STARTING) {
                 AudioUnitReset(player->context->data.mixerUnit, kAudioUnitScope_Input,
                                player->data.mixerBus);
-                streamState = MAL_STREAM_STARTING;
-            } else {
-                streamState = MAL_STREAM_RESUMING;
+                _malPlayerConnect(player);
+            } else if (newStreamState == MAL_STREAM_RESUMING) {
+                _malPlayerConnect(player);
             }
-            _malPlayerConnect(player);
-            break;
+            return true;
         }
     }
-    atomic_store(&player->streamState, streamState);
-    MAL_UNLOCK(player);
-    return true;
 }
 
 #endif

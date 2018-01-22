@@ -411,9 +411,8 @@ static void _malStreamStateCallback(pa_stream *stream, void *userData) {
 static void _malPlayerUnderflowCallback(pa_stream *stream, void *userData) {
     (void)stream;
     MalPlayer *player = userData;
-    MAL_LOCK(player);
-    if (atomic_load(&player->streamState) == MAL_STREAM_DRAINING) {
-        atomic_store(&player->streamState, MAL_STREAM_STOPPED);
+    MalStreamState expectedState = MAL_STREAM_DRAINING;
+    if (atomic_compare_exchange_strong(&player->streamState, &expectedState, MAL_STREAM_STOPPED)) {
         pa_operation_unref(pa_stream_cork(player->data.stream, 1, NULL, NULL));
         if (atomic_load(&player->hasOnFinishedCallback)) {
             MalContext *context = player->context;
@@ -423,7 +422,6 @@ static void _malPlayerUnderflowCallback(pa_stream *stream, void *userData) {
             }
         }
     }
-    MAL_UNLOCK(player);
 }
 
 static void _malPlayerRenderCallback(pa_stream *stream, size_t length, void *userData) {
@@ -655,47 +653,38 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState state) {
         return false;
     }
 
-    MAL_LOCK(player);
-    MalPlayerState oldState = malPlayerGetState(player);
-    if (state == oldState) {
-        MAL_UNLOCK(player);
-        return true;
-    }
+    while (1) {
+        MalStreamState streamState = atomic_load(&player->streamState);
+        MalPlayerState oldState = _malStreamStateToPlayerState(streamState);
+        if (oldState == state) {
+            return true;
+        }
 
-    struct _MalContext *pa = &player->context->data;
-    MalStreamState streamState;
-    int shouldCork;
-    switch (state) {
-        case MAL_PLAYER_STATE_STOPPED:
-        default: {
-            shouldCork = 1;
-            streamState = MAL_STREAM_STOPPED;
-            break;
-        }
-        case MAL_PLAYER_STATE_PAUSED: {
-            shouldCork = 1;
-            streamState = MAL_STREAM_PAUSED;
-            break;
-        }
-        case MAL_PLAYER_STATE_PLAYING: {
+        MalStreamState newStreamState;
+        int shouldCork;
+        if (state == MAL_PLAYER_STATE_PLAYING) {
             shouldCork = 0;
             if (oldState == MAL_PLAYER_STATE_PAUSED) {
-                streamState = MAL_STREAM_RESUMING;
+                newStreamState = MAL_STREAM_RESUMING;
             } else {
-                streamState = MAL_STREAM_STARTING;
+                newStreamState = MAL_STREAM_STARTING;
             }
-            break;
+        } else if (state == MAL_PLAYER_STATE_PAUSED) {
+            shouldCork = 1;
+            newStreamState = MAL_STREAM_PAUSED;
+        } else {
+            shouldCork = 1;
+            newStreamState = MAL_STREAM_STOPPED;
+        }
+
+        if (atomic_compare_exchange_strong(&player->streamState, &streamState, newStreamState)) {
+            struct _MalContext *pa = &player->context->data;
+            pa_threaded_mainloop_lock(pa->mainloop);
+            pa_operation_unref(pa_stream_cork(player->data.stream, shouldCork, NULL, NULL));
+            pa_threaded_mainloop_unlock(pa->mainloop);
+            return true;
         }
     }
-
-    atomic_store(&player->streamState, streamState);
-    MAL_UNLOCK(player);
-
-    pa_threaded_mainloop_lock(pa->mainloop);
-    pa_operation_unref(pa_stream_cork(player->data.stream, shouldCork, NULL, NULL));
-    pa_threaded_mainloop_unlock(pa->mainloop);
-
-    return true;
 }
 
 #endif
