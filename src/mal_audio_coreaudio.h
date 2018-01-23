@@ -492,6 +492,43 @@ static inline void _malPlayerDisconnect(MalPlayer *player) {
     }
 }
 
+static bool _malPlayerIsConnected(MalPlayer *player) {
+    if (!player->context) {
+        return false;
+    }
+    bool isConnected = false;
+    AUGraph graph = player->context->data.graph;
+
+    if (player->data.converterNode) {
+        UInt32 numInteractions = 0;
+        OSStatus status = AUGraphCountNodeInteractions(graph, player->data.converterNode,
+                                                       &numInteractions);
+        // The node should have only one connection: connected to the graph but not to a
+        // render callback.
+        isConnected = (status != noErr || numInteractions != 1);
+    } else if (player->data.mixerBus != MAL_INVALID_BUS) {
+        AUNodeInteraction interactions[4];
+        UInt32 numInteractions = sizeof(interactions) / sizeof(interactions[0]);
+        // Check if the mixer bus has an input callback (should have none)
+        OSStatus status = AUGraphGetNodeInteractions(graph, player->context->data.mixerNode,
+                                                     &numInteractions, interactions);
+        if (status != noErr) {
+            isConnected = true;
+        } else {
+            for (UInt32 i = 0; i < numInteractions; i++) {
+                if (interactions[i].nodeInteractionType == kAUNodeInteraction_InputCallback &&
+                    (interactions[i].nodeInteraction.inputCallback.destInputNumber ==
+                     player->data.mixerBus)) {
+                        isConnected = true;
+                        break;
+                    }
+            }
+        }
+    }
+
+    return isConnected;
+}
+
 static OSStatus _malPlayerRenderCallback(void *userData, AudioUnitRenderActionFlags *flags,
                                          const AudioTimeStamp *timestamp, UInt32 bus,
                                          UInt32 inFrames, AudioBufferList *data) {
@@ -730,53 +767,12 @@ static void _malPlayerDidDispose(MalPlayer *player) {
 static void _malPlayerDispose(MalPlayer *player) {
     if (player->context) {
         AUGraph graph = player->context->data.graph;
-        bool needsSync = false;
 
         // Try to avoid a synchronous update, which can take 4-12ms.
         // A synchronous update may be needed to prevent the render callback from being called after
         // the player is freed.
         // NOTE: Use "Address Sanitizer" to test in Xcode
-        if (player->data.converterNode) {
-            UInt32 numInteractions = 0;
-            OSStatus status = AUGraphCountNodeInteractions(graph, player->data.converterNode,
-                                                           &numInteractions);
-            if (status != noErr || numInteractions != 1) {
-                // The node should have only one connection: connected to the graph but not to a
-                // render callback.
-                needsSync = true;
-            }
-        } else if (player->data.mixerBus != MAL_INVALID_BUS) {
-            UInt32 numInteractions = 0;
-            OSStatus status = AUGraphCountNodeInteractions(graph, player->context->data.mixerNode,
-                                                           &numInteractions);
-            if (status != noErr) {
-                needsSync = true;
-            } else if (numInteractions > 0) {
-                AUNodeInteraction *interactions;
-                interactions = calloc(numInteractions, sizeof(AUNodeInteraction));
-                if (!interactions) {
-                    needsSync = true;
-                } else {
-                    // Check if the mixer bus has an input callback (should have none)
-                    status = AUGraphGetNodeInteractions(graph, player->context->data.mixerNode,
-                                                        &numInteractions, interactions);
-                    if (status != noErr) {
-                        needsSync = true;
-                    } else {
-                        for (size_t i = 0; i < numInteractions; i++) {
-                            UInt32 type = interactions[i].nodeInteractionType;
-                            if (type == kAUNodeInteraction_InputCallback && (interactions[i].nodeInteraction.inputCallback.destInputNumber ==
-                                player->data.mixerBus)) {
-                                needsSync = true;
-                                break;
-                            }
-                        }
-                    }
-                    free(interactions);
-                }
-            }
-        }
-        if (needsSync) {
+        if (_malPlayerIsConnected(player)) {
             AUGraphUpdate(graph, NULL);
         }
 
