@@ -39,15 +39,7 @@
 
 // MARK: Atomics
 
-#if defined(MAL_NO_STDATOMIC)
-#  if !defined(__STDC_VERSION__) || (__STDC_VERSION__ < 201112L)
-#    define _Atomic(T) T
-#  endif
-#  define atomic_load(object) *(object)
-#  define atomic_store(object, value) *(object) = value
-#  define OK_ATOMIC_INC(value) (++(*(value)))
-#  define OK_ATOMIC_DEC(value) (--(*(value)))
-#elif defined(OK_LIB_USE_STDATOMIC)
+#if defined(OK_LIB_USE_STDATOMIC)
 #  define OK_ATOMIC_INC(value) (atomic_fetch_add_explicit((value), 1, memory_order_relaxed) + 1)
 #  define OK_ATOMIC_DEC(value) (atomic_fetch_sub_explicit((value), 1, memory_order_relaxed) - 1)
 #elif defined(_MSC_VER)
@@ -58,6 +50,9 @@
 #    define OK_ATOMIC_INC(value) InterlockedIncrement(value)
 #    define OK_ATOMIC_DEC(value) InterlockedDecrement(value)
 #  endif
+#elif defined(__EMSCRIPTEN__)
+#  define OK_ATOMIC_INC(value) (++(*(value)))
+#  define OK_ATOMIC_DEC(value) (--(*(value)))
 #elif defined(__GCC_HAVE_SYNC_COMPARE_AND_SWAP_4)
 #  define OK_ATOMIC_INC(value) (__atomic_fetch_add((value), 1, __ATOMIC_RELAXED) + 1)
 #  define OK_ATOMIC_DEC(value) (__atomic_fetch_sub((value), 1, __ATOMIC_RELAXED) - 1)

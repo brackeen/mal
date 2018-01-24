@@ -40,7 +40,6 @@ struct _MalPlayer {
     int playerId;
 };
 
-#define MAL_NO_STDATOMIC
 #include "mal_audio_abstract.h"
 
 // MARK: Context
