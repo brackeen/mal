@@ -152,8 +152,8 @@ static bool createPlayersIfNeeded(StressTestApp *app) {
                 printf("Error: Couldn't create audio player (%i of %i)\n", (i + 1), kNumPlayers);
                 return false;
             }
-            malPlayerSetFinishedFunc(app->players[i], onFinished, app);
         }
+        malPlayerSetFinishedFunc(app->players[i], onFinished, app);
     }
     return true;
 }
@@ -363,6 +363,7 @@ static State testPlayRepeatedly(StressTestApp *app) {
     bool success = true;
     if (app->testIteration == 0) {
         for (int i = 0; i < kNumPlayers; i++) {
+            malPlayerSetFinishedFunc(app->players[i], NULL, NULL);
             success = malPlayerSetBuffer(app->players[i], app->shortBuffer);
             if (!success) {
                 return STATE_FAIL;
