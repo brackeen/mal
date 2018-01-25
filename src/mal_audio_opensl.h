@@ -302,7 +302,10 @@ static void _malContextUpdateGain(MalContext *context) {
 static void _malPlayerRenderCallback(SLBufferQueueItf queue, void *voidPlayer) {
     MalPlayer *player = (MalPlayer *)voidPlayer;
     if (player && queue) {
-        MAL_LOCK(&player->bufferLock);
+        if (!MAL_TRYLOCK(&player->bufferLock)) {
+            // Edge case: buffer is being set
+            return;
+        }
         if (atomic_load(&player->looping) && player->buffer &&
             player->buffer->managedData &&
             malPlayerGetState(player) == MAL_PLAYER_STATE_PLAYING) {
@@ -311,8 +314,10 @@ static void _malPlayerRenderCallback(SLBufferQueueItf queue, void *voidPlayer) {
                     buffer->format.numChannels);
             (*queue)->Enqueue(queue, buffer->managedData, len);
         } else {
-            atomic_store(&player->streamState, MAL_STREAM_STOPPED);
-            if (atomic_load(&player->hasOnFinishedCallback) && player->context &&
+            MalStreamState expectedState = MAL_STREAM_PLAYING;
+            if (atomic_compare_exchange_strong(&player->streamState, &expectedState,
+                                               MAL_STREAM_STOPPED) &&
+                atomic_load(&player->hasOnFinishedCallback) && player->context &&
                 player->context->data.looper) {
                 malPlayerRetain(player);
                 ok_queue_push(&player->context->data.finishedPlayersWithCallbacks, player);

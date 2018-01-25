@@ -30,6 +30,7 @@
 // Define MAL_USE_BUFFER_LOCK if a player's buffer data is read on a different thread than the main
 // thread.
 #ifdef MAL_USE_BUFFER_LOCK
+#  define MAL_TRYLOCK(lock) OK_TRYLOCK(lock)
 #  define MAL_LOCK(lock) OK_LOCK(lock)
 #  define MAL_UNLOCK(lock) OK_UNLOCK(lock)
 #else
@@ -101,7 +102,11 @@ typedef struct ok_vec_of(MalBuffer *) MalBufferVec;
 
 // MARK: Structs
 
+#if defined(_MSC_VER)
+typedef enum : long {
+#else
 typedef enum {
+#endif
     MAL_STREAM_STOPPED = 0,
     MAL_STREAM_STARTING,
     MAL_STREAM_PLAYING,

@@ -529,22 +529,40 @@ static bool _malPlayerIsConnected(MalPlayer *player) {
     return isConnected;
 }
 
+static OSStatus _malPlayerClearBuffer( AudioUnitRenderActionFlags *flags, AudioBufferList *data) {
+    *flags |= kAudioUnitRenderAction_OutputIsSilence;
+    for (uint32_t i = 0; i < data->mNumberBuffers; i++) {
+        memset(data->mBuffers[i].mData, 0, data->mBuffers[i].mDataByteSize);
+    }
+    return noErr;
+}
+
 static OSStatus _malPlayerRenderCallback(void *userData, AudioUnitRenderActionFlags *flags,
                                          const AudioTimeStamp *timestamp, UInt32 bus,
                                          UInt32 inFrames, AudioBufferList *data) {
     MalPlayer *player = userData;
 
-    MAL_LOCK(&player->bufferLock);
+    if (!MAL_TRYLOCK(&player->bufferLock)) {
+        // Edge case: buffer is being set
+        return _malPlayerClearBuffer(flags, data);
+    }
     MalBuffer *buffer = player->buffer;
     MalStreamState streamState = atomic_load(&player->streamState);
-    if ((buffer == NULL || buffer->managedData == NULL) &&
-        streamState != MAL_STREAM_STOPPED) {
-        streamState = MAL_STREAM_STOPPING;
-    }
-    if (streamState == MAL_STREAM_STARTING) {
+    if ((buffer == NULL || buffer->managedData == NULL) && streamState != MAL_STREAM_STOPPED) {
+        if (streamState != MAL_STREAM_STOPPING) {
+            if (!atomic_compare_exchange_strong(&player->streamState, &streamState,
+                                                MAL_STREAM_STOPPING)) {
+                MAL_UNLOCK(&player->bufferLock);
+                return _malPlayerClearBuffer(flags, data);
+            }
+            streamState = MAL_STREAM_STOPPING;
+        }
+    } else if (streamState == MAL_STREAM_STARTING) {
         player->data.nextFrame = 0;
-        streamState = MAL_STREAM_PLAYING;
-        atomic_store(&player->streamState, streamState);
+        if (atomic_compare_exchange_strong(&player->streamState, &streamState,
+                                           MAL_STREAM_PLAYING)) {
+            streamState = MAL_STREAM_PLAYING;
+        }
     } else if (streamState == MAL_STREAM_PAUSING) {
         if (player->context->data.canRampInputGain) {
             // Fade out
@@ -555,8 +573,10 @@ static OSStatus _malPlayerRenderCallback(void *userData, AudioUnitRenderActionFl
             player->data.ramp.frames = sampleRate * 0.1;
             player->data.ramp.framesPosition = 0;
         }
-        streamState = MAL_STREAM_PAUSED;
-        atomic_store(&player->streamState, streamState);
+        if (atomic_compare_exchange_strong(&player->streamState, &streamState,
+                                           MAL_STREAM_PAUSED)) {
+            streamState = MAL_STREAM_PAUSED;
+        }
     } else if (streamState == MAL_STREAM_RESUMING) {
         if (player->data.nextFrame > 0 && player->context->data.canRampInputGain) {
             // Fade in
@@ -567,27 +587,23 @@ static OSStatus _malPlayerRenderCallback(void *userData, AudioUnitRenderActionFl
             player->data.ramp.frames = sampleRate * 0.05;
             player->data.ramp.framesPosition = 0;
         }
-        streamState = MAL_STREAM_PLAYING;
-        atomic_store(&player->streamState, streamState);
+        if (atomic_compare_exchange_strong(&player->streamState, &streamState,
+                                           MAL_STREAM_PLAYING)) {
+            streamState = MAL_STREAM_PLAYING;
+        }
     }
     if (streamState == MAL_STREAM_STOPPING || streamState == MAL_STREAM_STOPPED ||
         player->data.nextFrame >= buffer->numFrames) {
 
-        // Silence
-        *flags |= kAudioUnitRenderAction_OutputIsSilence;
-        for (uint32_t i = 0; i < data->mNumberBuffers; i++) {
-            memset(data->mBuffers[i].mData, 0, data->mBuffers[i].mDataByteSize);
-        }
+        _malPlayerClearBuffer(flags, data);
 
         bool isPlaying = (streamState != MAL_STREAM_STOPPING && streamState != MAL_STREAM_STOPPED);
         if (streamState != MAL_STREAM_STOPPED) {
             _malPlayerDisconnect(player);
 
-            streamState = MAL_STREAM_STOPPED;
-            atomic_store(&player->streamState, streamState);
-            player->data.nextFrame = 0;
-
-            if (isPlaying && atomic_load(&player->hasOnFinishedCallback)) {
+            if (atomic_compare_exchange_strong(&player->streamState, &streamState,
+                                               MAL_STREAM_STOPPED) &&
+                atomic_load(&player->hasOnFinishedCallback) && isPlaying) {
                 malPlayerRetain(player);
                 dispatch_async_f(dispatch_get_main_queue(), (void *)player, &_malHandleOnFinished);
             }

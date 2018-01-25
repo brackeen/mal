@@ -426,7 +426,11 @@ static void _malPlayerUnderflowCallback(pa_stream *stream, void *userData) {
 
 static void _malPlayerRenderCallback(pa_stream *stream, size_t length, void *userData) {
     MalPlayer *player = userData;
-    MAL_LOCK(&player->bufferLock);
+    if (!MAL_TRYLOCK(&player->bufferLock)) {
+        // Edge case: buffer is being set
+        // ???: This may never happen, because corking a stream is locked and immediate?
+        return;
+    }
     MalBuffer *buffer = player->buffer;
     MalStreamState streamState = atomic_load(&player->streamState);
     if (streamState == MAL_STREAM_PAUSING || streamState == MAL_STREAM_PAUSED ||
@@ -440,12 +444,14 @@ static void _malPlayerRenderCallback(pa_stream *stream, size_t length, void *use
     void *dataBuffer;
     if (pa_stream_begin_write(stream, &dataBuffer, &length) != PA_OK) {
         MAL_UNLOCK(&player->bufferLock);
-        atomic_store(&player->streamState, MAL_STREAM_STOPPED);
         return;
     }
     pa_seek_mode_t seekMode = ((streamState == MAL_STREAM_STARTING) ?
                                PA_SEEK_RELATIVE_ON_READ : PA_SEEK_RELATIVE);
-    atomic_store(&player->streamState, MAL_STREAM_PLAYING);
+    if (streamState != MAL_STREAM_PLAYING &&
+        atomic_compare_exchange_strong(&player->streamState, &streamState, MAL_STREAM_PLAYING)) {
+        streamState = MAL_STREAM_PLAYING;
+    }
     const uint32_t numFrames = buffer->numFrames;
     const uint32_t frameSize = ((buffer->format.bitDepth / 8) * buffer->format.numChannels);
     size_t bytesWritten = 0;
@@ -475,7 +481,10 @@ static void _malPlayerRenderCallback(pa_stream *stream, size_t length, void *use
             if (atomic_load(&player->looping)) {
                 src = buffer->managedData;
             } else {
-                atomic_store(&player->streamState, MAL_STREAM_DRAINING);
+                if (streamState == MAL_STREAM_PLAYING) {
+                    atomic_compare_exchange_strong(&player->streamState, &streamState,
+                                                   MAL_STREAM_DRAINING);
+                }
                 break;
             }
         }

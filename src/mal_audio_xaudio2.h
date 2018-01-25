@@ -52,6 +52,10 @@
 #include "ok_lib.h"
 #include "mal.h"
 
+#define MAL_COMPARE_EXCHANGE(object, expected, desired) \
+     (InterlockedCompareExchange((long volatile *)(object), (long)(desired), (long)*(expected)) \
+       == (long)*(expected))
+
 class MalVoiceCallback; 
 
 struct _MalContext {
@@ -87,6 +91,7 @@ static bool _malContextInit(MalContext *context, void *androidActivity,
                             const char **errorMissingAudioSystem) {
     (void)androidActivity;
 
+    ok_static_assert(sizeof(MalStreamState) == sizeof(long));
     ok_queue_init(&context->data.finishedPlayersWithCallbacks);
 
     // Initialize COM
@@ -230,9 +235,10 @@ public:
     MalVoiceCallback& operator=(MalVoiceCallback&&) = delete;
 
     void STDMETHODCALLTYPE OnStreamEnd() override {
+        MalStreamState expectedStreamState = MAL_STREAM_PLAYING;
         atomic_store(&player->data.bufferQueued, false);
-        atomic_store(&player->streamState, MAL_STREAM_STOPPED);
-        if (atomic_load(&player->hasOnFinishedCallback)) {
+        if (MAL_COMPARE_EXCHANGE(&player->streamState, &expectedStreamState, MAL_STREAM_STOPPED) &&
+            atomic_load(&player->hasOnFinishedCallback)) {
             MalContext *context = player->context;
             if (context && atomic_load(&context->data.hasPolledEvents)) {
                 malPlayerRetain(player);
@@ -366,31 +372,45 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState state) {
         return false;
     }
 
-    MalPlayerState oldState = malPlayerGetState(player);
-    if (state == oldState) {
-        return true;
-    }
-
-    MalStreamState streamState;
-    switch (state) {
-    case MAL_PLAYER_STATE_STOPPED: default:
-        player->data.sourceVoice->Stop();
-        _malPlayerSetBuffer(player, player->buffer);
-        streamState = MAL_STREAM_STOPPED;
-        break;
-    case MAL_PLAYER_STATE_PLAYING:
-        if (!atomic_load(&player->data.bufferQueued)) {
-            _malPlayerSetBuffer(player, player->buffer);
+    while (1) {
+        MalStreamState streamState = atomic_load(&player->streamState);
+        MalPlayerState oldState = _malStreamStateToPlayerState(streamState);
+        if (oldState == state) {
+            return true;
         }
-        player->data.sourceVoice->Start();
-        streamState = MAL_STREAM_PLAYING;
-        break;
-    case MAL_PLAYER_STATE_PAUSED:
-        player->data.sourceVoice->Stop();
-        streamState = MAL_STREAM_PAUSED;
-        break;
+
+        MalStreamState newStreamState;
+        switch (state) {
+            case MAL_PLAYER_STATE_STOPPED: default:
+                newStreamState = MAL_STREAM_STOPPED;
+                break;
+            case MAL_PLAYER_STATE_PLAYING:
+                newStreamState = MAL_STREAM_PLAYING;
+                break;
+            case MAL_PLAYER_STATE_PAUSED:
+                newStreamState = MAL_STREAM_PAUSED;
+                break;
+        }
+
+        if (MAL_COMPARE_EXCHANGE(&player->streamState, &streamState, newStreamState)) {
+            switch (state) {
+                case MAL_PLAYER_STATE_STOPPED: default:
+                    player->data.sourceVoice->Stop();
+                    _malPlayerSetBuffer(player, player->buffer);
+                    break;
+                case MAL_PLAYER_STATE_PLAYING:
+                    if (!atomic_load(&player->data.bufferQueued)) {
+                        _malPlayerSetBuffer(player, player->buffer);
+                    }
+                    player->data.sourceVoice->Start();
+                    break;
+                case MAL_PLAYER_STATE_PAUSED:
+                    player->data.sourceVoice->Stop();
+                    break;
+            }
+            return true;
+        }
     }
-    atomic_store(&player->streamState, streamState);
     return true;
 }
 
