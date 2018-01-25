@@ -22,6 +22,7 @@
 #ifndef MAL_AUDIO_COREAUDIO_H
 #define MAL_AUDIO_COREAUDIO_H
 
+#include "ok_lib.h"
 #include "mal.h"
 #include <AudioToolbox/AudioToolbox.h>
 
@@ -77,13 +78,13 @@ struct _MalPlayer {
     uint32_t mixerBus;
 
     _Atomic(float) totalGain;
+    OK_LOCK_TYPE lock;
 
     // Only accessed on the render thread
     uint32_t nextFrame;
     struct MalRamp ramp;
 };
 
-#define MAL_USE_BUFFER_LOCK
 #define MAL_USE_DEFAULT_BUFFER_IMPL
 #include "mal_audio_abstract.h"
 
@@ -542,7 +543,7 @@ static OSStatus _malPlayerRenderCallback(void *userData, AudioUnitRenderActionFl
                                          UInt32 inFrames, AudioBufferList *data) {
     MalPlayer *player = userData;
 
-    if (!MAL_TRYLOCK(&player->bufferLock)) {
+    if (!OK_TRYLOCK(&player->data.lock)) {
         // Edge case: buffer is being set
         return _malPlayerClearBuffer(flags, data);
     }
@@ -552,7 +553,7 @@ static OSStatus _malPlayerRenderCallback(void *userData, AudioUnitRenderActionFl
         if (streamState != MAL_STREAM_STOPPING) {
             if (!atomic_compare_exchange_strong(&player->streamState, &streamState,
                                                 MAL_STREAM_STOPPING)) {
-                MAL_UNLOCK(&player->bufferLock);
+                OK_UNLOCK(&player->data.lock);
                 return _malPlayerClearBuffer(flags, data);
             }
             streamState = MAL_STREAM_STOPPING;
@@ -657,7 +658,7 @@ static OSStatus _malPlayerRenderCallback(void *userData, AudioUnitRenderActionFl
             }
         }
     }
-    MAL_UNLOCK(&player->bufferLock);
+    OK_UNLOCK(&player->data.lock);
 
     return noErr;
 }
@@ -799,9 +800,10 @@ static void _malPlayerDispose(MalPlayer *player) {
     _malPlayerDidDispose(player);
 }
 
-static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer) {
-    (void)player;
-    (void)buffer;
+static bool _malPlayerSetBuffer(MalPlayer *player, MalBuffer *buffer) {
+    OK_LOCK(&player->data.lock);
+    player->buffer = buffer;
+    OK_UNLOCK(&player->data.lock);
     return true;
 }
 

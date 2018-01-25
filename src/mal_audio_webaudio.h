@@ -237,17 +237,9 @@ static void _malPlayerDispose(MalPlayer *player) {
     player->data.playerId = 0;
 }
 
-static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer) {
-    MalContext *context = player->context;
-    if (!context || !player->data.playerId) {
-        return false;
-    } else if (!buffer) {
-        return true;
-    } else if (!malContextIsFormatValid(context, buffer->format) || !buffer->data.bufferId) {
-        return false;
-    } else {
-        return true;
-    }
+static bool _malPlayerSetBuffer(MalPlayer *player, MalBuffer *buffer) {
+    player->buffer = buffer;
+    return true;
 }
 
 static void _malPlayerUpdateMute(MalPlayer *player) {

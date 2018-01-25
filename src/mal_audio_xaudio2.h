@@ -318,7 +318,8 @@ static void _malPlayerDispose(MalPlayer *player) {
     }
 }
 
-static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer) {
+static bool _malPlayerSetBuffer(MalPlayer *player, MalBuffer *buffer) {
+    player->buffer = NULL;
     if (!player->data.sourceVoice) {
         return false;
     }
@@ -335,6 +336,9 @@ static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer) {
         bufferInfo.LoopCount = (UINT32)(atomic_load(&player->looping) ? XAUDIO2_LOOP_INFINITE : 0);
         bool success = SUCCEEDED(player->data.sourceVoice->SubmitSourceBuffer(&bufferInfo));
         atomic_store(&player->data.bufferQueued, success);
+        if (success) {
+            player->buffer = buffer;
+        }
         return success;
     }
 }

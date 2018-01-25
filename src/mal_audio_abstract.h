@@ -26,18 +26,6 @@
 #include "ok_lib.h"
 #include <math.h>
 
-// If MAL_USE_BUFFER_LOCK is defined, setting the MalPlayer's buffer is locked.
-// Define MAL_USE_BUFFER_LOCK if a player's buffer data is read on a different thread than the main
-// thread.
-#ifdef MAL_USE_BUFFER_LOCK
-#  define MAL_TRYLOCK(lock) OK_TRYLOCK(lock)
-#  define MAL_LOCK(lock) OK_LOCK(lock)
-#  define MAL_UNLOCK(lock) OK_UNLOCK(lock)
-#else
-#  define MAL_LOCK(lock) do { } while(0)
-#  define MAL_UNLOCK(lock) do { } while(0)
-#endif
-
 // MARK: Atomics
 
 #if defined(OK_LIB_USE_STDATOMIC)
@@ -89,7 +77,7 @@ static void _malBufferDispose(MalBuffer *buffer);
 
 static bool _malPlayerInit(MalPlayer *player, MalFormat format);
 static void _malPlayerDispose(MalPlayer *player);
-static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer);
+static bool _malPlayerSetBuffer(MalPlayer *player, MalBuffer *buffer);
 static void _malPlayerUpdateMute(MalPlayer *player);
 static void _malPlayerUpdateGain(MalPlayer *player);
 static bool _malPlayerSetLooping(MalPlayer *player, bool looping);
@@ -157,10 +145,6 @@ struct MalPlayer {
     malPlaybackFinishedFunc onFinished;
     void *onFinishedUserData;
     _Atomic(bool) hasOnFinishedCallback;
-
-#ifdef MAL_USE_BUFFER_LOCK
-    OK_LOCK_TYPE bufferLock;
-#endif
 
     struct _MalPlayer data;
 };
@@ -473,15 +457,10 @@ bool malPlayerSetBuffer(MalPlayer *player, MalBuffer *buffer) {
     } else {
         malPlayerSetState(player, MAL_PLAYER_STATE_STOPPED);
         MalBuffer *oldBuffer = player->buffer;
-        MalBuffer *newBuffer = NULL;
         bool success = _malPlayerSetBuffer(player, buffer);
         if (success) {
             malBufferRetain(buffer);
-            newBuffer = buffer;
         }
-        MAL_LOCK(&player->bufferLock);
-        player->buffer = newBuffer;
-        MAL_UNLOCK(&player->bufferLock);
         malBufferRelease(oldBuffer);
         return success;
     }

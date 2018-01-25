@@ -68,10 +68,10 @@ struct _MalPlayer {
     SLVolumeItf slVolume;
     SLBufferQueueItf slBufferQueue;
 
+    OK_LOCK_TYPE lock;
     bool backgroundPaused;
 };
 
-#define MAL_USE_BUFFER_LOCK
 #define MAL_USE_DEFAULT_BUFFER_IMPL
 #include "mal_audio_abstract.h"
 #include <math.h>
@@ -302,7 +302,7 @@ static void _malContextUpdateGain(MalContext *context) {
 static void _malPlayerRenderCallback(SLBufferQueueItf queue, void *voidPlayer) {
     MalPlayer *player = (MalPlayer *)voidPlayer;
     if (player && queue) {
-        if (!MAL_TRYLOCK(&player->bufferLock)) {
+        if (!OK_TRYLOCK(&player->data.lock)) {
             // Edge case: buffer is being set
             return;
         }
@@ -324,7 +324,7 @@ static void _malPlayerRenderCallback(SLBufferQueueItf queue, void *voidPlayer) {
                 _malLooperPost(player->context->data.looperMessagePipe[1]);
             }
         }
-        MAL_UNLOCK(&player->bufferLock);
+        OK_UNLOCK(&player->data.lock);
     }
 }
 
@@ -451,10 +451,10 @@ static void _malPlayerDispose(MalPlayer *player) {
     }
 }
 
-static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer) {
-    (void)player;
-    (void)buffer;
-    // Do nothing
+static bool _malPlayerSetBuffer(MalPlayer *player, MalBuffer *buffer) {
+    OK_LOCK(&player->data.lock);
+    player->buffer = buffer;
+    OK_UNLOCK(&player->data.lock);
     return true;
 }
 

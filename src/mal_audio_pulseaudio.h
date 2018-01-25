@@ -219,14 +219,14 @@ struct _MalBuffer {
 
 struct _MalPlayer {
     pa_stream *stream;
-    
+
+    OK_LOCK_TYPE lock;
     bool backgroundPaused;
 
     // Only accessed on the render thread
     uint32_t nextFrame;
 };
 
-#define MAL_USE_BUFFER_LOCK
 #define MAL_USE_DEFAULT_BUFFER_IMPL
 #include "mal_audio_abstract.h"
 
@@ -426,7 +426,7 @@ static void _malPlayerUnderflowCallback(pa_stream *stream, void *userData) {
 
 static void _malPlayerRenderCallback(pa_stream *stream, size_t length, void *userData) {
     MalPlayer *player = userData;
-    if (!MAL_TRYLOCK(&player->bufferLock)) {
+    if (!OK_TRYLOCK(&player->data.lock)) {
         // Edge case: buffer is being set
         // ???: This may never happen, because corking a stream is locked and immediate?
         return;
@@ -437,13 +437,13 @@ static void _malPlayerRenderCallback(pa_stream *stream, size_t length, void *use
         streamState == MAL_STREAM_DRAINING || streamState == MAL_STREAM_STOPPING ||
         streamState == MAL_STREAM_STOPPED ||
         buffer == NULL || buffer->managedData == NULL) {
-        MAL_UNLOCK(&player->bufferLock);
+        OK_UNLOCK(&player->data.lock);
         return;
     }
 
     void *dataBuffer;
     if (pa_stream_begin_write(stream, &dataBuffer, &length) != PA_OK) {
-        MAL_UNLOCK(&player->bufferLock);
+        OK_UNLOCK(&player->data.lock);
         return;
     }
     pa_seek_mode_t seekMode = ((streamState == MAL_STREAM_STARTING) ?
@@ -490,7 +490,7 @@ static void _malPlayerRenderCallback(pa_stream *stream, size_t length, void *use
         }
     }
 
-    MAL_UNLOCK(&player->bufferLock);
+    OK_UNLOCK(&player->data.lock);
 
     pa_stream_write(stream, dataBuffer, bytesWritten, NULL, 0, seekMode);
 }
@@ -611,9 +611,10 @@ static void _malPlayerDispose(MalPlayer *player) {
     }
 }
 
-static bool _malPlayerSetBuffer(MalPlayer *player, const MalBuffer *buffer) {
-    (void)player;
-    (void)buffer;
+static bool _malPlayerSetBuffer(MalPlayer *player, MalBuffer *buffer) {
+    OK_LOCK(&player->data.lock);
+    player->buffer = buffer;
+    OK_UNLOCK(&player->data.lock);
     return true;
 }
 
