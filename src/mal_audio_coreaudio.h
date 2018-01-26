@@ -56,6 +56,11 @@ struct MalRamp {
     uint32_t framesPosition;
 };
 
+struct MalPlayerCallbackContext {
+    MalPlayer *player;
+    OK_LOCK_TYPE lock;
+};
+
 struct _MalContext {
     AUGraph graph;
     AudioUnit mixerUnit;
@@ -67,6 +72,7 @@ struct _MalContext {
     _Atomic(float) totalGain;
     _Atomic(MalContextState) state;
     struct MalRamp ramp;
+    struct ok_queue_of(struct MalPlayerCallbackContext *) callbackContextsToFree;
 };
 
 struct _MalBuffer {
@@ -78,7 +84,7 @@ struct _MalPlayer {
     uint32_t mixerBus;
 
     _Atomic(float) totalGain;
-    OK_LOCK_TYPE lock;
+    struct MalPlayerCallbackContext *callbackContext;
 
     // Only accessed on the render thread
     uint32_t nextFrame;
@@ -157,6 +163,7 @@ static bool _malContextInit(MalContext *context, void *androidActivity,
     (void)errorMissingAudioSystem;
 
     atomic_store(&context->data.state, MAL_CONTEXT_STATE_INIT);
+    ok_queue_init(&context->data.callbackContextsToFree);
     context->active = false;
 
     // Call first because actual value may be different from requested, and the mixer rate
@@ -301,6 +308,11 @@ static bool _malContextInit(MalContext *context, void *androidActivity,
 }
 
 static void _malContextDidDispose(MalContext *context) {
+    struct MalPlayerCallbackContext *callbackContext = NULL;
+    while (ok_queue_pop(&context->data.callbackContextsToFree, &callbackContext)) {
+        free(callbackContext);
+    }
+    ok_queue_deinit(&context->data.callbackContextsToFree);
     context->active = false;
     context->data.canRampOutputGain = false;
     context->data.graph = NULL;
@@ -313,8 +325,8 @@ static void _malContextDispose(MalContext *context) {
         if (context->data.canRampOutputGain) {
             AudioUnitRemoveRenderNotify(context->data.mixerUnit, _malRenderNotification, context);
         }
-        AUGraphUpdate(context->data.graph, NULL);
         AUGraphStop(context->data.graph);
+        AUGraphUpdate(context->data.graph, NULL);
         AUGraphUninitialize(context->data.graph);
         DisposeAUGraph(context->data.graph);
     }
@@ -398,8 +410,8 @@ static void _malContextUpdateGain(MalContext *context) {
 static OSStatus _malRenderNotification(void *userData, AudioUnitRenderActionFlags *flags,
                                        const AudioTimeStamp *timestamp, UInt32 bus,
                                        UInt32 inFrames, AudioBufferList *data) {
+    MalContext *context = userData;
     if (*flags & kAudioUnitRenderAction_PreRender) {
-        MalContext *context = userData;
         MalContextState state;
         while (1) {
             MalContextState newState;
@@ -440,6 +452,12 @@ static OSStatus _malRenderNotification(void *userData, AudioUnitRenderActionFlag
             }
         }
     }
+    if (*flags & kAudioUnitRenderAction_PostRender) {
+        struct MalPlayerCallbackContext *callbackContext = NULL;
+        while (ok_queue_pop(&context->data.callbackContextsToFree, &callbackContext)) {
+            free(callbackContext);
+        }
+    }
     return noErr;
 }
 
@@ -460,7 +478,7 @@ static inline void _malPlayerConnect(MalPlayer *player) {
         AURenderCallbackStruct renderCallback;
         memset(&renderCallback, 0, sizeof(renderCallback));
         renderCallback.inputProc = _malPlayerRenderCallback;
-        renderCallback.inputProcRefCon = player;
+        renderCallback.inputProcRefCon = player->data.callbackContext;
         if (player->data.converterNode) {
             AUGraphSetNodeInputCallback(player->context->data.graph,
                                         player->data.converterNode,
@@ -493,43 +511,6 @@ static inline void _malPlayerDisconnect(MalPlayer *player) {
     }
 }
 
-static bool _malPlayerIsConnected(MalPlayer *player) {
-    if (!player->context) {
-        return false;
-    }
-    bool isConnected = false;
-    AUGraph graph = player->context->data.graph;
-
-    if (player->data.converterNode) {
-        UInt32 numInteractions = 0;
-        OSStatus status = AUGraphCountNodeInteractions(graph, player->data.converterNode,
-                                                       &numInteractions);
-        // The node should have only one connection: connected to the graph but not to a
-        // render callback.
-        isConnected = (status != noErr || numInteractions != 1);
-    } else if (player->data.mixerBus != MAL_INVALID_BUS) {
-        AUNodeInteraction interactions[4];
-        UInt32 numInteractions = sizeof(interactions) / sizeof(interactions[0]);
-        // Check if the mixer bus has an input callback (should have none)
-        OSStatus status = AUGraphGetNodeInteractions(graph, player->context->data.mixerNode,
-                                                     &numInteractions, interactions);
-        if (status != noErr) {
-            isConnected = true;
-        } else {
-            for (UInt32 i = 0; i < numInteractions; i++) {
-                if (interactions[i].nodeInteractionType == kAUNodeInteraction_InputCallback &&
-                    (interactions[i].nodeInteraction.inputCallback.destInputNumber ==
-                     player->data.mixerBus)) {
-                        isConnected = true;
-                        break;
-                    }
-            }
-        }
-    }
-
-    return isConnected;
-}
-
 static OSStatus _malPlayerClearBuffer( AudioUnitRenderActionFlags *flags, AudioBufferList *data) {
     *flags |= kAudioUnitRenderAction_OutputIsSilence;
     for (uint32_t i = 0; i < data->mNumberBuffers; i++) {
@@ -541,10 +522,16 @@ static OSStatus _malPlayerClearBuffer( AudioUnitRenderActionFlags *flags, AudioB
 static OSStatus _malPlayerRenderCallback(void *userData, AudioUnitRenderActionFlags *flags,
                                          const AudioTimeStamp *timestamp, UInt32 bus,
                                          UInt32 inFrames, AudioBufferList *data) {
-    MalPlayer *player = userData;
+    struct MalPlayerCallbackContext *callbackContext = userData;
 
-    if (!OK_TRYLOCK(&player->data.lock)) {
-        // Edge case: buffer is being set
+    if (!OK_TRYLOCK(&callbackContext->lock)) {
+        // Edge case: buffer is being set, or player is being destroyed
+        return _malPlayerClearBuffer(flags, data);
+    }
+    MalPlayer *player = callbackContext->player;
+    if (!player) {
+        // Edge case: player destroyed
+        OK_UNLOCK(&callbackContext->lock);
         return _malPlayerClearBuffer(flags, data);
     }
     MalBuffer *buffer = player->buffer;
@@ -553,7 +540,7 @@ static OSStatus _malPlayerRenderCallback(void *userData, AudioUnitRenderActionFl
         if (streamState != MAL_STREAM_STOPPING) {
             if (!atomic_compare_exchange_strong(&player->streamState, &streamState,
                                                 MAL_STREAM_STOPPING)) {
-                OK_UNLOCK(&player->data.lock);
+                OK_UNLOCK(&callbackContext->lock);
                 return _malPlayerClearBuffer(flags, data);
             }
             streamState = MAL_STREAM_STOPPING;
@@ -658,7 +645,7 @@ static OSStatus _malPlayerRenderCallback(void *userData, AudioUnitRenderActionFl
             }
         }
     }
-    OK_UNLOCK(&player->data.lock);
+    OK_UNLOCK(&callbackContext->lock);
 
     return noErr;
 }
@@ -715,6 +702,14 @@ static bool _malPlayerInit(MalPlayer *player, MalFormat format) {
     if (!_malPlayerInitBus(player)) {
         return false;
     }
+
+    if (!player->data.callbackContext) {
+        player->data.callbackContext = calloc(1, sizeof(struct MalPlayerCallbackContext));
+        if (!player->data.callbackContext) {
+            return false;
+        }
+    }
+    player->data.callbackContext->player = player;
 
     if (format.sampleRate <= MAL_DEFAULT_SAMPLE_RATE) {
         format.sampleRate = malContextGetSampleRate(player->context);
@@ -782,29 +777,35 @@ static void _malPlayerDidDispose(MalPlayer *player) {
 }
 
 static void _malPlayerDispose(MalPlayer *player) {
-    if (player->context) {
+    struct MalPlayerCallbackContext *callbackContext = player->data.callbackContext;
+    if (callbackContext) {
+        player->data.callbackContext = NULL;
+
+        OK_LOCK(&callbackContext->lock);
+        callbackContext->player = NULL;
+        OK_UNLOCK(&callbackContext->lock);
+        if (player->context) {
+            ok_queue_push(&player->context->data.callbackContextsToFree, callbackContext);
+        } else {
+            free(callbackContext);
+        }
+    }
+    if (player->context && player->data.converterNode) {
         AUGraph graph = player->context->data.graph;
-
-        // Try to avoid a synchronous update, which can take 4-12ms.
-        // A synchronous update may be needed to prevent the render callback from being called after
-        // the player is freed.
-        // NOTE: Use "Address Sanitizer" to test in Xcode
-        if (_malPlayerIsConnected(player)) {
-            AUGraphUpdate(graph, NULL);
-        }
-
-        if (player->data.converterNode) {
-            AUGraphRemoveNode(graph, player->data.converterNode);
-        }
+        AUGraphRemoveNode(graph, player->data.converterNode);
     }
     _malPlayerDidDispose(player);
 }
 
 static bool _malPlayerSetBuffer(MalPlayer *player, MalBuffer *buffer) {
-    OK_LOCK(&player->data.lock);
-    player->buffer = buffer;
-    OK_UNLOCK(&player->data.lock);
-    return true;
+    if (player->data.callbackContext) {
+        OK_LOCK(&player->data.callbackContext->lock);
+        player->buffer = buffer;
+        OK_UNLOCK(&player->data.callbackContext->lock);
+        return true;
+    } else {
+        return false;
+    }
 }
 
 static void _malPlayerUpdateMute(MalPlayer *player) {
