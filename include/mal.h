@@ -130,10 +130,8 @@ double malContextGetSampleRate(const MalContext *context);
 bool malContextSetActive(MalContext *context, bool active);
 
 /**
- * Sends any pending events requested via #malPlayerSetFinishedFunc().
- *
- * This function is required only on Windows and Linux. On other platforms, this functions does
- * nothing.
+ * Sends any pending events requested via #malPlayerSetFinishedFunc(). Typically,
+ * #malContextPollEvents() should be called regularly in the game loop.
  *
  * @param context The audio context. If `NULL`, this function does nothing.
  */
@@ -349,12 +347,8 @@ MalBuffer *malPlayerGetBuffer(const MalPlayer *player);
  * the player is forced to stop, for example when calling #malPlayerSetState() with the 
  * #MAL_PLAYER_STATE_STOPPED state.
  *
- * The player may still be in the #MAL_PLAYER_STATE_PLAYING state when this function is called.
- *
- * On Windows and Linux, the function is invoked only when #malContextPollEvents() is invoked.
- *
- * On other platforms, this function is invoked on the main thread. (On Android, the main thread
- * is the thread that invoked #malContextSetActive().
+ * When the player is finished, the `onFinished` function is invoked when #malContextPollEvents()
+ * is invoked. Typically, #malContextPollEvents() should be called regularly in the game loop.
  *
  * @param player The player. If `NULL`, this function does nothing.
  * @param onFinished The callback function, or `NULL`.
