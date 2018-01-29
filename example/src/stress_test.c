@@ -8,7 +8,7 @@
 
  The tests run repeatedly to help expose issues that may take some time to appear (thread races).
 
- See "testFunctions" to see the list of tests.
+ See "testFunctions[]" to see the list of tests.
 
  On macOS, while the test is running, test audio service restart with:
  
@@ -80,12 +80,38 @@ typedef enum {
     STATE_SUCCESS
 } State;
 
+typedef struct {
+    const char *name;
+    State state;
+    size_t failureLine;
+    char failureReason[80];
+} TestFunctionState;
+
+#define fail(functionState) do { \
+    functionState.state = STATE_FAIL; \
+    functionState.failureLine = __LINE__; \
+} while (0)
+
+#define failWithReason(functionState, reason, ...) do { \
+    functionState.state = STATE_FAIL; \
+    functionState.failureLine = __LINE__; \
+    snprintf((&functionState)->failureReason, sizeof((&functionState)->failureReason), \
+             reason, __VA_ARGS__); \
+} while (0)
+
+#define TestFunctionStateNew(testName) \
+    (TestFunctionState) { \
+        .name = testName, .state = STATE_TESTING, .failureLine = 0, .failureReason = { 0 } \
+    }
+
 typedef enum {
     PLAYER_ACTION_STOP = 0,
     PLAYER_ACTION_DELETE_PLAYER,
     PLAYER_ACTION_DELETE_BUFFER,
     PLAYER_ACTION_STOP_AND_CLEAR_BUFFER,
     PLAYER_ACTION_STOP_AND_DELETE_PLAYER,
+    PLAYER_ACTION_STOP_AND_PLAY,
+    PLAYER_ACTION_PAUSE_AND_RESUME,
     PLAYER_ACTION_EXIT_LOOP
 } PlayerAction;
 
@@ -95,15 +121,16 @@ typedef struct {
     uint32_t bufferDataFrames;
     MalBuffer *buffer;
     MalBuffer *shortBuffer;
+    MalBuffer *mediumBuffer;
     MalBuffer *tempBuffers[kNumPlayers];
     MalPlayer *players[kNumPlayers];
+    size_t finishedPlayers[kNumPlayers];
     MalFormat format;
     State state;
     int64_t startTime;
     size_t successCount;
     size_t currentTest;
     size_t testIteration;
-    size_t onFinishedCallbackCount;
 
     GLuint program;
     GLuint vertexBuffer;
@@ -111,7 +138,7 @@ typedef struct {
     size_t drawIteration;
 } StressTestApp;
 
-typedef State (*TestFunction)(StressTestApp *);
+typedef TestFunctionState (*TestFunction)(StressTestApp *);
 
 static GLuint compileShader(GLenum type, const char *shaderSource) {
     GLuint shader = glCreateShader(type);
@@ -139,9 +166,40 @@ static GLuint compileShader(GLenum type, const char *shaderSource) {
 
 static void onFinished(MalPlayer *player, void *userData) {
     StressTestApp *app = userData;
-    app->onFinishedCallbackCount++;
+    for (size_t i = 0; i < kNumPlayers; i++) {
+        if (app->players[i] == player) {
+            app->finishedPlayers[i]++;
+        }
+    }
     // Call a function to make sure the player object is not a dangling pointer
     malPlayerGetState(player);
+    if (app->state == STATE_FAIL) {
+        printf("onFinished callback occured when state is STATE_FAIL\n");
+    }
+}
+
+static void clearFinished(StressTestApp *app) {
+    for (size_t i = 0; i < kNumPlayers; i++) {
+        app->finishedPlayers[i] = 0;
+    }
+}
+
+static bool allFinished(const StressTestApp *app) {
+    for (size_t i = 0; i < kNumPlayers; i++) {
+        if (app->finishedPlayers[i] != 1) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool noneFinished(const StressTestApp *app) {
+    for (size_t i = 0; i < kNumPlayers; i++) {
+        if (app->finishedPlayers[i] != 0) {
+            return false;
+        }
+    }
+    return true;
 }
 
 static bool createPlayersIfNeeded(StressTestApp *app) {
@@ -153,7 +211,6 @@ static bool createPlayersIfNeeded(StressTestApp *app) {
                 return false;
             }
         }
-        malPlayerSetFinishedFunc(app->players[i], onFinished, app);
     }
     return true;
 }
@@ -165,6 +222,24 @@ static bool allPlayersStopped(StressTestApp *app) {
         }
     }
     return true;
+}
+
+static const char *malPlayerStateString(MalPlayer *player) {
+    if (!player) {
+        return "(null)";
+    }
+    switch (malPlayerGetState(player)) {
+        case MAL_PLAYER_STATE_STOPPED: default: return "stopped";
+        case MAL_PLAYER_STATE_PAUSED: return "paused";
+        case MAL_PLAYER_STATE_PLAYING: return "playing";
+    }
+}
+
+static void printPlayerStates(StressTestApp *app) {
+    for (int i = 0; i < kNumPlayers; i++) {
+        printf("Player %i: %s finished=%i\n", i, malPlayerStateString(app->players[i]),
+               (int)app->finishedPlayers[i]);
+    }
 }
 
 static bool playerAction(StressTestApp *app, PlayerAction action, size_t index) {
@@ -192,21 +267,37 @@ static bool playerAction(StressTestApp *app, PlayerAction action, size_t index) 
             app->players[index] = NULL;
             return success;
         }
+        case PLAYER_ACTION_STOP_AND_PLAY: {
+            bool success = malPlayerSetState(app->players[index], MAL_PLAYER_STATE_STOPPED);
+            if (success) {
+                success = malPlayerSetState(app->players[index], MAL_PLAYER_STATE_PLAYING);
+            }
+            return success;
+        }
+        case PLAYER_ACTION_PAUSE_AND_RESUME: {
+            return malPlayerSetState(app->players[index], MAL_PLAYER_STATE_PLAYING);
+        }
         case PLAYER_ACTION_EXIT_LOOP: {
             return malPlayerSetLooping(app->players[index], false);
         }
     }
 }
 
-static State testDelayedPlayerAction(StressTestApp *app, PlayerAction action) {
+static TestFunctionState testDelayedPlayerAction(StressTestApp *app, const char *testName,
+                                                 PlayerAction action) {
     static const size_t numPlayers = 8;
     assert(kNumPlayers >= numPlayers);
 
-    size_t lastIteration = action == PLAYER_ACTION_EXIT_LOOP ? 100 : 20;
+    TestFunctionState functionState = TestFunctionStateNew(testName);
+
+    size_t lastActionIteration = 16;
+    size_t lastIteration = (action == PLAYER_ACTION_EXIT_LOOP ||
+                            action == PLAYER_ACTION_STOP_AND_PLAY ||
+                            action == PLAYER_ACTION_PAUSE_AND_RESUME) ? 300 : 20;
 
     bool success;
     if (app->testIteration == 0) {
-        app->onFinishedCallbackCount = 0;
+        clearFinished(app);
 
         // Create temp buffers
         if (action == PLAYER_ACTION_DELETE_BUFFER) {
@@ -215,11 +306,22 @@ static State testDelayedPlayerAction(StressTestApp *app, PlayerAction action) {
                     app->tempBuffers[i] = malBufferCreate(app->context, app->format,
                                                           app->bufferDataFrames, app->bufferData);
                     if (!app->tempBuffers[i]) {
-                        printf("Error: Couldn't create temp audio buffer\n");
-                        return STATE_FAIL;
+                        failWithReason(functionState,
+                                       "Couldn't create temp audio buffer (index %zu)", i);
+                        return functionState;
                     }
                 }
             }
+        }
+
+        // Set callbacks
+        for (size_t i = 0; i < numPlayers; i++) {
+            if (malPlayerGetState(app->players[i]) != MAL_PLAYER_STATE_STOPPED) {
+                failWithReason(functionState, "All players should be stopped (index %zu)", i);
+                return functionState;
+            }
+
+            malPlayerSetFinishedFunc(app->players[i], onFinished, app);
         }
 
         // Set buffers
@@ -229,16 +331,21 @@ static State testDelayedPlayerAction(StressTestApp *app, PlayerAction action) {
                 buffer = app->tempBuffers[i];
             } else if (action == PLAYER_ACTION_EXIT_LOOP) {
                 buffer = app->shortBuffer;
+            } else if (action == PLAYER_ACTION_STOP_AND_PLAY ||
+                       action == PLAYER_ACTION_PAUSE_AND_RESUME) {
+                buffer = app->mediumBuffer;
             } else {
                 buffer = app->buffer;
             }
             success = malPlayerSetBuffer(app->players[i], buffer);
             if (!success) {
-                return STATE_FAIL;
+                fail(functionState);
+                return functionState;
             }
             success = malPlayerSetLooping(app->players[i], action == PLAYER_ACTION_EXIT_LOOP);
             if (!success) {
-                return STATE_FAIL;
+                fail(functionState);
+                return functionState;
             }
         }
 
@@ -246,14 +353,23 @@ static State testDelayedPlayerAction(StressTestApp *app, PlayerAction action) {
         for (size_t i = 0; i < numPlayers/2; i++) {
             success = malPlayerSetState(app->players[i], MAL_PLAYER_STATE_PLAYING);
             if (!success) {
-                return STATE_FAIL;
+                fail(functionState);
+                return functionState;
+            }
+            if (action == PLAYER_ACTION_PAUSE_AND_RESUME) {
+                success = malPlayerSetState(app->players[i], MAL_PLAYER_STATE_PAUSED);
+                if (!success) {
+                    fail(functionState);
+                    return functionState;
+                }
             }
             if (i > 0) {
                 usleep((1 << (i - 1)) * 1000);
             }
             success = playerAction(app, action, i);
             if (!success) {
-                return STATE_FAIL;
+                fail(functionState);
+                return functionState;
             }
         }
 
@@ -261,7 +377,15 @@ static State testDelayedPlayerAction(StressTestApp *app, PlayerAction action) {
         for (size_t i = numPlayers/2; i < numPlayers; i++) {
             success = malPlayerSetState(app->players[i], MAL_PLAYER_STATE_PLAYING);
             if (!success) {
-                return STATE_FAIL;
+                failWithReason(functionState, "Couldn't play player %zu", i);
+                return functionState;
+            }
+            if (action == PLAYER_ACTION_PAUSE_AND_RESUME) {
+                success = malPlayerSetState(app->players[i], MAL_PLAYER_STATE_PAUSED);
+                if (!success) {
+                    failWithReason(functionState, "Couldn't pause player %zu", i);
+                    return functionState;
+                }
             }
         }
     } else {
@@ -272,7 +396,7 @@ static State testDelayedPlayerAction(StressTestApp *app, PlayerAction action) {
             success = playerAction(app, action, 5);
         } else if (app->testIteration == 8) {
             success = playerAction(app, action, 6);
-        } else if (app->testIteration == 16) {
+        } else if (app->testIteration == lastActionIteration) {
             success = playerAction(app, action, 7);
         } else if (app->testIteration == 20) {
             success = true;
@@ -292,81 +416,75 @@ static State testDelayedPlayerAction(StressTestApp *app, PlayerAction action) {
                     malPlayerSetGain(app->players[i], gain);
                 }
             }
-            if (action == PLAYER_ACTION_EXIT_LOOP) {
-                if (app->onFinishedCallbackCount == numPlayers) {
-                    success = true;
-                    // All callbacks occured, wait until players are actually in the stopped state
-                    // (The may not be required?)
-                    if (allPlayersStopped(app)) {
-                        return STATE_SUCCESS;
-                    }
-                } else {
-                    success = (app->testIteration < lastIteration);
-                    if (!success) {
-                        printf("Failure: %zu of %zu looping players finished\n",
-                               app->onFinishedCallbackCount, numPlayers);
-                    }
+            if (action == PLAYER_ACTION_EXIT_LOOP ||
+                action == PLAYER_ACTION_STOP_AND_PLAY ||
+                action == PLAYER_ACTION_PAUSE_AND_RESUME) {
+
+                success = (app->testIteration < lastIteration);
+
+                if (app->testIteration > lastActionIteration && allFinished(app) &&
+                    allPlayersStopped(app)) {
+                    functionState.state = STATE_SUCCESS;
+                    return functionState;
                 }
             } else {
-                success = (app->testIteration < lastIteration && app->onFinishedCallbackCount == 0);
+                success = (app->testIteration < lastIteration && noneFinished(app));
             }
         }
     }
     if (!success) {
-        return STATE_FAIL;
+        functionState.state = STATE_FAIL;
     } else if (app->testIteration == lastIteration) {
-        return STATE_SUCCESS;
+        functionState.state = STATE_SUCCESS;
     } else {
-        return STATE_TESTING;
+        functionState.state = STATE_TESTING;
     }
+    return functionState;
 }
 
-static State testOnFinishedCallback(StressTestApp *app) {
-    bool success;
+static TestFunctionState testOnFinishedCallback(StressTestApp *app) {
+    TestFunctionState functionState = TestFunctionStateNew(__FUNCTION__);
     if (app->testIteration == 0) {
-        app->onFinishedCallbackCount = 0;
+        clearFinished(app);
         for (int i = 0; i < kNumPlayers; i++) {
-            success = malPlayerSetBuffer(app->players[i], app->shortBuffer);
+            malPlayerSetFinishedFunc(app->players[i], onFinished, app);
+            bool success = malPlayerSetBuffer(app->players[i], app->shortBuffer);
             if (!success) {
-                return STATE_FAIL;
+                fail(functionState);
+                break;
             }
             success = malPlayerSetState(app->players[i], MAL_PLAYER_STATE_PLAYING);
             if (!success) {
-                return STATE_FAIL;
+                fail(functionState);
+                break;
             }
         }
     } else {
-        if (app->onFinishedCallbackCount == kNumPlayers) {
-            success = true;
+        if (allFinished(app)) {
             // All callbacks occured, wait until players are actually in the stopped state
             // (The may not be required?)
             if (allPlayersStopped(app)) {
-                return STATE_SUCCESS;
+                functionState.state = STATE_SUCCESS;
             }
         } else {
-            success = (app->testIteration < 100);
+            bool success = (app->testIteration < 100);
             if (!success) {
-                printf("Failure: %zu of %i players finished\n", app->onFinishedCallbackCount,
-                       kNumPlayers);
+                fail(functionState);
             }
         }
     }
-
-    if (!success) {
-        return STATE_FAIL;
-    } else {
-        return STATE_TESTING;
-    }
+    return functionState;
 }
 
-static State testPlayRepeatedly(StressTestApp *app) {
-    bool success = true;
+static TestFunctionState testPlayRepeatedly(StressTestApp *app) {
+    TestFunctionState functionState = TestFunctionStateNew(__FUNCTION__);
     if (app->testIteration == 0) {
         for (int i = 0; i < kNumPlayers; i++) {
             malPlayerSetFinishedFunc(app->players[i], NULL, NULL);
-            success = malPlayerSetBuffer(app->players[i], app->shortBuffer);
+            bool success = malPlayerSetBuffer(app->players[i], app->shortBuffer);
             if (!success) {
-                return STATE_FAIL;
+                fail(functionState);
+                return functionState;
             }
         }
     }
@@ -375,9 +493,10 @@ static State testPlayRepeatedly(StressTestApp *app) {
         for (int j = 0; j < 8; j++) {
             for (int i = 0; i < kNumPlayers; i++) {
                 if (malPlayerGetState(app->players[i]) != MAL_PLAYER_STATE_PLAYING) {
-                    success = malPlayerSetState(app->players[i], MAL_PLAYER_STATE_PLAYING);
+                    bool success = malPlayerSetState(app->players[i], MAL_PLAYER_STATE_PLAYING);
                     if (!success) {
-                        return STATE_FAIL;
+                        fail(functionState);
+                        return functionState;
                     }
                 }
             }
@@ -386,41 +505,45 @@ static State testPlayRepeatedly(StressTestApp *app) {
     } else if (app->testIteration < 150) {
         // Wait until finished
         if (allPlayersStopped(app)) {
-            return STATE_SUCCESS;
+            functionState.state = STATE_SUCCESS;
         }
     } else {
-        success = false;
+        fail(functionState);
     }
 
-    if (!success) {
-        return STATE_FAIL;
-    } else {
-        return STATE_TESTING;
-    }
+    return functionState;
 }
 
-static State testStartStopWhilePlaying(StressTestApp *app) {
-    return testDelayedPlayerAction(app, PLAYER_ACTION_STOP);
+static TestFunctionState testStartStopWhilePlaying(StressTestApp *app) {
+    return testDelayedPlayerAction(app, __FUNCTION__, PLAYER_ACTION_STOP);
 }
 
-static State testDeletePlayerWhilePlaying(StressTestApp *app) {
-    return testDelayedPlayerAction(app, PLAYER_ACTION_DELETE_PLAYER);
+static TestFunctionState testDeletePlayerWhilePlaying(StressTestApp *app) {
+    return testDelayedPlayerAction(app, __FUNCTION__, PLAYER_ACTION_DELETE_PLAYER);
 }
 
-static State testDeleteBufferWhilePlaying(StressTestApp *app) {
-    return testDelayedPlayerAction(app, PLAYER_ACTION_DELETE_BUFFER);
+static TestFunctionState testDeleteBufferWhilePlaying(StressTestApp *app) {
+    return testDelayedPlayerAction(app, __FUNCTION__, PLAYER_ACTION_DELETE_BUFFER);
 }
 
-static State testStopAndClearBuffer(StressTestApp *app) {
-    return testDelayedPlayerAction(app, PLAYER_ACTION_STOP_AND_CLEAR_BUFFER);
+static TestFunctionState testStopAndClearBuffer(StressTestApp *app) {
+    return testDelayedPlayerAction(app, __FUNCTION__, PLAYER_ACTION_STOP_AND_CLEAR_BUFFER);
 }
 
-static State testStopAndDeletePlayer(StressTestApp *app) {
-    return testDelayedPlayerAction(app, PLAYER_ACTION_STOP_AND_DELETE_PLAYER);
+static TestFunctionState testStopAndDeletePlayer(StressTestApp *app) {
+    return testDelayedPlayerAction(app, __FUNCTION__, PLAYER_ACTION_STOP_AND_DELETE_PLAYER);
 }
 
-static State testExitLoop(StressTestApp *app) {
-    return testDelayedPlayerAction(app, PLAYER_ACTION_EXIT_LOOP);
+static TestFunctionState testStopAndPlayAgain(StressTestApp *app) {
+    return testDelayedPlayerAction(app, __FUNCTION__, PLAYER_ACTION_STOP_AND_PLAY);
+}
+
+static TestFunctionState testImmediatePause(StressTestApp *app) {
+    return testDelayedPlayerAction(app, __FUNCTION__, PLAYER_ACTION_PAUSE_AND_RESUME);
+}
+
+static TestFunctionState testExitLoop(StressTestApp *app) {
+    return testDelayedPlayerAction(app, __FUNCTION__, PLAYER_ACTION_EXIT_LOOP);
 }
 
 static TestFunction testFunctions[] = {
@@ -431,6 +554,8 @@ static TestFunction testFunctions[] = {
     testDeleteBufferWhilePlaying,
     testStopAndClearBuffer,
     testStopAndDeletePlayer,
+    testStopAndPlayAgain,
+    testImmediatePause,
     testExitLoop,
 };
 
@@ -449,11 +574,13 @@ static void stressTestInit(StressTestApp *app) {
     // Create buffer (X seconds of silence)
     double duration = 10.0;
     double shortDuraton = 0.042; // 2.5 UI frames at 60Hz
+    double mediumDuration = 0.5;
     app->format.sampleRate = malContextGetSampleRate(app->context);
     app->format.bitDepth = 16;
     app->format.numChannels = 1;
     app->bufferDataFrames = (uint32_t)(app->format.sampleRate * duration);
     uint32_t shortNumFrames = (uint32_t)(app->format.sampleRate * shortDuraton);
+    uint32_t mediumNumFrames = (uint32_t)(app->format.sampleRate * mediumDuration);
     app->bufferData = calloc(app->bufferDataFrames, 2);
     if (!app->bufferData) {
         printf("Error: Couldn't create audio buffer data\n");
@@ -469,6 +596,12 @@ static void stressTestInit(StressTestApp *app) {
     app->shortBuffer = malBufferCreate(app->context, app->format, shortNumFrames, app->bufferData);
     if (!app->shortBuffer) {
         printf("Error: Couldn't create short audio buffer\n");
+        app->state = STATE_FAIL;
+        return;
+    }
+    app->mediumBuffer = malBufferCreate(app->context, app->format, mediumNumFrames, app->bufferData);
+    if (!app->mediumBuffer) {
+        printf("Error: Couldn't create medium audio buffer\n");
         app->state = STATE_FAIL;
         return;
     }
@@ -490,6 +623,7 @@ static void stressTestFree(StressTestApp *app) {
 #endif
     malBufferRelease(app->buffer);
     malBufferRelease(app->shortBuffer);
+    malBufferRelease(app->mediumBuffer);
     for (int i = 0; i < kNumPlayers; i++) {
         malBufferRelease(app->tempBuffers[i]);
     }
@@ -502,6 +636,8 @@ static void stressTestFree(StressTestApp *app) {
 }
 
 static void doTestIterationAndDraw(StressTestApp *app) {
+    malContextPollEvents(app->context);
+
     if (app->state != STATE_FAIL) {
         size_t numTests = sizeof(testFunctions) / sizeof(*testFunctions);
         TestFunction testFunction = testFunctions[app->currentTest];
@@ -512,12 +648,16 @@ static void doTestIterationAndDraw(StressTestApp *app) {
         if (!initialized) {
             app->state = STATE_FAIL;
         } else {
-            State state = testFunction(app);
-            if (state == STATE_FAIL) {
-                printf("Failed (iteration %zu of test %zu)\n", app->testIteration,
-                       (app->currentTest + 1));
+            TestFunctionState functionState = testFunction(app);
+            if (functionState.state == STATE_FAIL) {
+                printf("Failure: %s iteration: %zu line: %zu\n", functionState.name,
+                       app->testIteration, functionState.failureLine);
+                if (functionState.failureReason[0] != 0) {
+                    printf("Reason: %s\n", functionState.failureReason);
+                }
+                printPlayerStates(app);
                 app->state = STATE_FAIL;
-            } else if (state == STATE_SUCCESS) {
+            } else if (functionState.state == STATE_SUCCESS) {
                 if (app->currentTest == numTests - 1) {
                     app->state = STATE_SUCCESS;
                     app->successCount++;
@@ -534,7 +674,6 @@ static void doTestIterationAndDraw(StressTestApp *app) {
             }
         }
     }
-
 
     float r, g, b;
     switch (app->state) {
@@ -711,7 +850,6 @@ int main(void) {
         }
 
         glfwPollEvents();
-        malContextPollEvents(app->context);
     }
     stressTestFree(app);
     glfwDestroyWindow(window);
