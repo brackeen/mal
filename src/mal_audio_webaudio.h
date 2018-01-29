@@ -395,7 +395,10 @@ EMSCRIPTEN_KEEPALIVE
 static void _malPlayerFinished(uintptr_t playerPtr) {
     MalPlayer *player = (MalPlayer *)playerPtr;
     atomic_store(&player->streamState, MAL_STREAM_STOPPED);
-    _malHandleOnFinishedCallback(player);
+    if (atomic_load(&player->hasOnFinishedCallback) && player->context) {
+        malPlayerRetain(player);
+        ok_queue_push(&player->context->finishedPlayersWithCallbacks, player);
+    }
 }
 
 #endif

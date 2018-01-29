@@ -28,11 +28,6 @@
 #include "mal_audio_coreaudio.h"
 #include <AVFoundation/AVFoundation.h>
 
-void malContextPollEvents(MalContext *context) {
-    (void)context;
-    // Do nothing
-}
-
 static void _malNotificationHandler(CFNotificationCenterRef center, void *observer,
                                     CFStringRef name, const void *object,
                                     CFDictionaryRef userInfo) {

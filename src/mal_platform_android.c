@@ -115,11 +115,6 @@ static JNIEnv *_malGetJNIEnv(JavaVM *vm) {
 
 #include "mal_audio_opensl.h"
 
-void malContextPollEvents(MalContext *context) {
-    (void)context;
-    // Do nothing
-}
-
 static void _malContextGetSampleRate(MalContext *context) {
     if (!context->data.appContext || context->data.sdkVersion < 17) {
         return;

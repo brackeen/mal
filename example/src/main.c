@@ -172,6 +172,9 @@ static void onSurfaceCreated(GLFMDisplay *display, int width, int height) {
 }
 
 static void onFrame(GLFMDisplay *display, double frameTime) {
+    ExampleApp *app = glfmGetUserData(display);
+    malContextPollEvents(app->context);
+
     glClearColor(0.6f, 0.0f, 0.4f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 }

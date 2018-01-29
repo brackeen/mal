@@ -208,9 +208,6 @@ fail:
 struct _MalContext {
     pa_threaded_mainloop *mainloop;
     pa_context *context;
-
-    _Atomic(bool) hasPolledEvents;
-    struct ok_queue_of(MalPlayer *) finishedPlayersWithCallbacks;
 };
 
 struct _MalBuffer {
@@ -259,8 +256,6 @@ static bool _malContextInit(MalContext *context, void *androidActivity,
                             const char **errorMissingAudioSystem) {
     (void)androidActivity;
     struct _MalContext *pa = &context->data;
-
-    ok_queue_init(&pa->finishedPlayersWithCallbacks);
 
 #ifndef MAL_PULSEAUDIO_STATIC
     // Load libpulse library
@@ -324,11 +319,6 @@ fail:
 static void _malContextDispose(MalContext *context) {
     struct _MalContext *pa = &context->data;
 
-    MalPlayer *player = NULL;
-    while (ok_queue_pop(&context->data.finishedPlayersWithCallbacks, &player)) {
-        malPlayerRelease(player);
-    }
-
     if (pa->mainloop) {
         pa_threaded_mainloop_stop(pa->mainloop);
     }
@@ -341,7 +331,6 @@ static void _malContextDispose(MalContext *context) {
         pa_threaded_mainloop_free(pa->mainloop);
         pa->mainloop = NULL;
     }
-    ok_queue_deinit(&pa->finishedPlayersWithCallbacks);
 }
 
 static bool _malContextSetActive(MalContext *context, bool active) {
@@ -387,19 +376,6 @@ static void _malContextUpdateGain(MalContext *context) {
     ok_vec_apply(&context->players, _malPlayerUpdateGain);
 }
 
-void malContextPollEvents(MalContext *context) {
-    if (!context) {
-        return;
-    }
-    atomic_store(&context->data.hasPolledEvents, true);
-
-    MalPlayer *player = NULL;
-    while (ok_queue_pop(&context->data.finishedPlayersWithCallbacks, &player)) {
-        _malHandleOnFinishedCallback(player);
-        malPlayerRelease(player);
-    }
-}
-
 // MARK: Player
 
 static void _malStreamStateCallback(pa_stream *stream, void *userData) {
@@ -414,12 +390,9 @@ static void _malPlayerUnderflowCallback(pa_stream *stream, void *userData) {
     MalStreamState expectedState = MAL_STREAM_DRAINING;
     if (atomic_compare_exchange_strong(&player->streamState, &expectedState, MAL_STREAM_STOPPED)) {
         pa_operation_unref(pa_stream_cork(player->data.stream, 1, NULL, NULL));
-        if (atomic_load(&player->hasOnFinishedCallback)) {
-            MalContext *context = player->context;
-            if (context && atomic_load(&context->data.hasPolledEvents)) {
-                malPlayerRetain(player);
-                ok_queue_push(&context->data.finishedPlayersWithCallbacks, player);
-            }
+        if (atomic_load(&player->hasOnFinishedCallback) && player->context) {
+            malPlayerRetain(player);
+            ok_queue_push(&player->context->finishedPlayersWithCallbacks, player);
         }
     }
 }

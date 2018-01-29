@@ -48,11 +48,6 @@ static void _malContextDidSetActive(MalContext *context, bool active) {
 
 #include "mal_audio_coreaudio.h"
 
-void malContextPollEvents(MalContext *context) {
-    (void)context;
-    // Do nothing
-}
-
 static bool _malAttemptRestart(MalContext *context);
 
 // MARK: Notifications

@@ -66,8 +66,6 @@ struct _MalContext {
 #endif
     IXAudio2 *xAudio2;
     IXAudio2MasteringVoice *masteringVoice;
-    struct ok_queue_of(MalPlayer *) finishedPlayersWithCallbacks;
-    _Atomic(bool) hasPolledEvents;
     bool shouldUninitializeCOM;
 };
 
@@ -92,7 +90,6 @@ static bool _malContextInit(MalContext *context, void *androidActivity,
     (void)androidActivity;
 
     ok_static_assert(sizeof(MalStreamState) == sizeof(long));
-    ok_queue_init(&context->data.finishedPlayersWithCallbacks);
 
     // Initialize COM
     HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
@@ -161,10 +158,6 @@ static bool _malContextInit(MalContext *context, void *androidActivity,
 }
 
 static void _malContextDispose(MalContext *context) {
-    MalPlayer *player = NULL;
-    while (ok_queue_pop(&context->data.finishedPlayersWithCallbacks, &player)) {
-        malPlayerRelease(player);
-    }
     if (context->data.masteringVoice) {
         context->data.masteringVoice->DestroyVoice();
         context->data.masteringVoice = NULL;
@@ -183,7 +176,6 @@ static void _malContextDispose(MalContext *context) {
         context->data.shouldUninitializeCOM = false;
         CoUninitialize();
     }
-    ok_queue_deinit(&context->data.finishedPlayersWithCallbacks);
 }
 
 static bool _malContextSetActive(MalContext *context, bool active) {
@@ -206,19 +198,6 @@ static void _malContextUpdateGain(MalContext *context) {
     context->data.masteringVoice->SetVolume(totalGain);
 }
 
-void malContextPollEvents(MalContext *context) {
-    if (!context) {
-        return;
-    }
-    atomic_store(&context->data.hasPolledEvents, true);
-
-    MalPlayer *player = NULL;
-    while (ok_queue_pop(&context->data.finishedPlayersWithCallbacks, &player)) {
-        _malHandleOnFinishedCallback(player);
-        malPlayerRelease(player);
-    }
-}
-
 #pragma endregion
 
 #pragma region Player
@@ -238,12 +217,9 @@ public:
         MalStreamState expectedStreamState = MAL_STREAM_PLAYING;
         atomic_store(&player->data.bufferQueued, false);
         if (MAL_COMPARE_EXCHANGE(&player->streamState, &expectedStreamState, MAL_STREAM_STOPPED) &&
-            atomic_load(&player->hasOnFinishedCallback)) {
-            MalContext *context = player->context;
-            if (context && atomic_load(&context->data.hasPolledEvents)) {
-                malPlayerRetain(player);
-                ok_queue_push(&context->data.finishedPlayersWithCallbacks, player);
-            }
+            atomic_load(&player->hasOnFinishedCallback) && player->context) {
+            malPlayerRetain(player);
+            ok_queue_push(&player->context->finishedPlayersWithCallbacks, player);
         }
     }
 

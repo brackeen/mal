@@ -467,12 +467,6 @@ static OSStatus _malPlayerRenderCallback(void *userData, AudioUnitRenderActionFl
                                          const AudioTimeStamp *timestamp, UInt32 bus,
                                          UInt32 inFrames, AudioBufferList *data);
 
-static void _malHandleOnFinished(void *userData) {
-    MalPlayer *player = (MalPlayer *)userData;
-    _malHandleOnFinishedCallback(player);
-    malPlayerRelease(player);
-}
-
 static inline void _malPlayerConnect(MalPlayer *player) {
     if (player->context && player->context->data.graph) {
         AURenderCallbackStruct renderCallback;
@@ -592,7 +586,7 @@ static OSStatus _malPlayerRenderCallback(void *userData, AudioUnitRenderActionFl
             _malPlayerDisconnect(player);
             if (atomic_load(&player->hasOnFinishedCallback) && isPlaying) {
                 malPlayerRetain(player);
-                dispatch_async_f(dispatch_get_main_queue(), (void *)player, &_malHandleOnFinished);
+                ok_queue_push(&player->context->finishedPlayersWithCallbacks, player);
             }
         }
     } else {

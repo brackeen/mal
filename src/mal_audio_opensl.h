@@ -24,11 +24,7 @@
 
 #include <SLES/OpenSLES.h>
 #if defined(__ANDROID__)
-#include <android/looper.h>
 #include <android/native_activity.h>
-#include <fcntl.h>
-#include <unistd.h>
-#define LOOPER_ID_USER_MESSAGE 0x1ffbdff1
 // From http://mobilepearls.com/labs/native-android-api/ndk/docs/opensles/
 // "The buffer queue interface is expected to have significant changes... We recommend that your
 // application code use Android simple buffer queues instead, because we do not plan to change
@@ -52,10 +48,7 @@ struct _MalContext {
     JavaVM *vm;
     jobject appContext;
     int32_t sdkVersion;
-    ALooper *looper;
-    int looperMessagePipe[2];
 #endif
-    struct ok_queue_of(MalPlayer *) finishedPlayersWithCallbacks;
 };
 
 struct _MalBuffer {
@@ -81,8 +74,6 @@ struct _MalPlayer {
 static bool _malContextInit(MalContext *context, void *androidActivity,
                             const char **errorMissingAudioSystem) {
     (void)errorMissingAudioSystem;
-
-    ok_queue_init(&context->data.finishedPlayersWithCallbacks);
 
     // Create engine
     SLresult result = slCreateEngine(&context->data.slObject, 0, NULL, 0, NULL, NULL);
@@ -143,22 +134,7 @@ static bool _malContextInit(MalContext *context, void *androidActivity,
     return true;
 }
 
-static void _malContextCloseLooper(MalContext *context) {
-#if defined(__ANDROID__)
-    if (context && context->data.looper) {
-        ALooper_removeFd(context->data.looper, context->data.looperMessagePipe[0]);
-        close(context->data.looperMessagePipe[0]);
-        context->data.looper = NULL;
-    }
-#endif
-}
-
 static void _malContextDispose(MalContext *context) {
-    MalPlayer *player = NULL;
-    while (ok_queue_pop(&context->data.finishedPlayersWithCallbacks, &player)) {
-        malPlayerRelease(player);
-    }
-    
     if (context->data.slOutputMixObject) {
         (*context->data.slOutputMixObject)->Destroy(context->data.slOutputMixObject);
         context->data.slOutputMixObject = NULL;
@@ -168,7 +144,6 @@ static void _malContextDispose(MalContext *context) {
         context->data.slObject = NULL;
         context->data.slEngine = NULL;
     }
-    _malContextCloseLooper(context);
 
 #if defined(__ANDROID__)
     if (context->data.vm && context->data.appContext) {
@@ -179,77 +154,10 @@ static void _malContextDispose(MalContext *context) {
         }
     }
 #endif
-    ok_queue_deinit(&context->data.finishedPlayersWithCallbacks);
 }
-
-#if defined(__ANDROID__)
-static void _malContextPollEvents(MalContext *context) {
-    if (context) {
-        MalPlayer *player = NULL;
-        while (ok_queue_pop(&context->data.finishedPlayersWithCallbacks, &player)) {
-            _malHandleOnFinishedCallback(player);
-            malPlayerRelease(player);
-        }
-    }
-}
-
-typedef uint8_t MalLooperMessage;
-
-static int _malLooperCallback(int fd, int events, void *user) {
-    MalContext *context = (MalContext *)user;
-    MalLooperMessage msg;
-
-    if ((events & ALOOPER_EVENT_INPUT) != 0) {
-        bool found = false;
-        while (read(fd, &msg, sizeof(msg)) == sizeof(msg)) {
-            found = true;
-        }
-        if (found) {
-            _malContextPollEvents(context);
-        }
-    }
-
-    if ((events & ALOOPER_EVENT_HANGUP) != 0) {
-        // Not sure this is right
-        _malContextCloseLooper(context);
-    }
-
-    return 1;
-}
-
-static void _malLooperPost(int pipe) {
-    MalLooperMessage msg;
-    if (write(pipe, &msg, sizeof(msg)) != sizeof(msg)) {
-        // The pipe is full. Shouldn't happen, ignore
-    }
-}
-
-#endif
 
 static bool _malContextSetActive(MalContext *context, bool active) {
     if (context->active != active) {
-
-#if defined(__ANDROID__)
-        if (active) {
-            ALooper *looper = ALooper_forThread();
-            if (context->data.looper != looper) {
-                _malContextCloseLooper(context);
-
-                if (looper) {
-                    int result = pipe2(context->data.looperMessagePipe, O_NONBLOCK | O_CLOEXEC);
-                    if (result == 0) {
-                        ALooper_addFd(looper, context->data.looperMessagePipe[0],
-                                      LOOPER_ID_USER_MESSAGE, ALOOPER_EVENT_INPUT,
-                                      _malLooperCallback, context);
-                        context->data.looper = looper;
-                    }
-                }
-            }
-        } else {
-            _malContextCloseLooper(context);
-        }
-#endif
-
         // From http://mobilepearls.com/labs/native-android-api/ndk/docs/opensles/
         // "Be sure to destroy your audio players when your activity is
         // paused, as they are a global resource shared with other apps."
@@ -317,11 +225,9 @@ static void _malPlayerRenderCallback(SLBufferQueueItf queue, void *voidPlayer) {
             MalStreamState expectedState = MAL_STREAM_PLAYING;
             if (atomic_compare_exchange_strong(&player->streamState, &expectedState,
                                                MAL_STREAM_STOPPED) &&
-                atomic_load(&player->hasOnFinishedCallback) && player->context &&
-                player->context->data.looper) {
+                atomic_load(&player->hasOnFinishedCallback) && player->context) {
                 malPlayerRetain(player);
-                ok_queue_push(&player->context->data.finishedPlayersWithCallbacks, player);
-                _malLooperPost(player->context->data.looperMessagePipe[1]);
+                ok_queue_push(&player->context->finishedPlayersWithCallbacks, player);
             }
         }
         OK_UNLOCK(&player->data.lock);

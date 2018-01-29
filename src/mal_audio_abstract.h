@@ -91,10 +91,12 @@ typedef struct ok_vec_of(MalBuffer *) MalBufferVec;
 // MARK: Structs
 
 #if defined(_MSC_VER)
-typedef enum : long {
+#  define MAL_STREAM_STATE_TYPE : long
 #else
-typedef enum {
+#  define MAL_STREAM_STATE_TYPE
 #endif
+
+typedef enum MAL_STREAM_STATE_TYPE {
     MAL_STREAM_STOPPED = 0,
     MAL_STREAM_STARTING,
     MAL_STREAM_PLAYING,
@@ -115,6 +117,8 @@ struct MalContext {
     double actualSampleRate;
 
     _Atomic(size_t) refCount;
+
+    struct ok_queue_of(MalPlayer *) finishedPlayersWithCallbacks;
 
     struct _MalContext data;
 };
@@ -186,6 +190,7 @@ MalContext *malContextCreateWithOptions(double requestedSampleRate, void *androi
         context->requestedSampleRate = requestedSampleRate;
         ok_vec_init(&context->players);
         ok_vec_init(&context->buffers);
+        ok_queue_init(&context->finishedPlayersWithCallbacks);
         bool success = _malContextInit(context, androidActivity, errorMissingAudioSystem);
         if (success) {
             _malContextDidCreate(context);
@@ -250,27 +255,47 @@ bool malContextIsFormatValid(const MalContext *context, MalFormat format) {
             (format.numChannels == 1 || format.numChannels == 2));
 }
 
+void malContextPollEvents(MalContext *context) {
+    if (context) {
+        MalPlayer *player = NULL;
+        while (ok_queue_pop(&context->finishedPlayersWithCallbacks, &player)) {
+            if (player && player->onFinished) {
+                player->onFinished(player, player->onFinishedUserData);
+            }
+            malPlayerRelease(player);
+        }
+    }
+}
+
 static void _malContextFree(MalContext *context) {
-    // Delete players
+    // Release players in unpolled events
+    MalPlayer *finishedPlayer = NULL;
+    while (ok_queue_pop(&context->finishedPlayersWithCallbacks, &finishedPlayer)) {
+        malPlayerRelease(finishedPlayer);
+    }
+
+    // Dispose players
     ok_vec_foreach(&context->players, MalPlayer *player) {
         malPlayerSetBuffer(player, NULL);
         malPlayerSetFinishedFunc(player, NULL, NULL);
         _malPlayerDispose(player);
         player->context = NULL;
     }
-    ok_vec_deinit(&context->players);
-    
-    // Delete buffers
+
+    // Dispose buffers
     ok_vec_foreach(&context->buffers, MalBuffer *buffer) {
         _malBufferDispose(buffer);
         buffer->context = NULL;
     }
-    ok_vec_deinit(&context->buffers);
-    
+
     // Dispose and free
     _malContextWillDispose(context);
     malContextSetActive(context, false);
     _malContextDispose(context);
+
+    ok_vec_deinit(&context->players);
+    ok_vec_deinit(&context->buffers);
+    ok_queue_deinit(&context->finishedPlayersWithCallbacks);
     free(context);
 }
 
@@ -481,12 +506,6 @@ void malPlayerSetFinishedFunc(MalPlayer *player, malPlaybackFinishedFunc onFinis
 
 malPlaybackFinishedFunc malPlayerGetFinishedFunc(MalPlayer *player) {
     return player ? player->onFinished : NULL;
-}
-
-static void _malHandleOnFinishedCallback(MalPlayer *player) {
-    if (player && player->onFinished) {
-        player->onFinished(player, player->onFinishedUserData);
-    }
 }
 
 bool malPlayerGetMute(const MalPlayer *player) {
