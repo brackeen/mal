@@ -586,12 +586,11 @@ static OSStatus _malPlayerRenderCallback(void *userData, AudioUnitRenderActionFl
         _malPlayerClearBuffer(flags, data);
 
         bool isPlaying = (streamState != MAL_STREAM_STOPPING && streamState != MAL_STREAM_STOPPED);
-        if (streamState != MAL_STREAM_STOPPED) {
+        if (streamState != MAL_STREAM_STOPPED &&
+            atomic_compare_exchange_strong(&player->streamState, &streamState,
+                                           MAL_STREAM_STOPPED)) {
             _malPlayerDisconnect(player);
-
-            if (atomic_compare_exchange_strong(&player->streamState, &streamState,
-                                               MAL_STREAM_STOPPED) &&
-                atomic_load(&player->hasOnFinishedCallback) && isPlaying) {
+            if (atomic_load(&player->hasOnFinishedCallback) && isPlaying) {
                 malPlayerRetain(player);
                 dispatch_async_f(dispatch_get_main_queue(), (void *)player, &_malHandleOnFinished);
             }
@@ -845,6 +844,12 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState state) {
         MalPlayerState oldState = _malStreamStateToPlayerState(streamState);
         if (oldState == state) {
             return true;
+        } else if (state == MAL_PLAYER_STATE_PAUSED) {
+            // Pause isn't possible if stopped (or stopping)
+            if (streamState == MAL_STREAM_STOPPING || streamState == MAL_STREAM_STOPPED ||
+                streamState == MAL_STREAM_DRAINING) {
+                return false;
+            }
         }
 
         MalStreamState newStreamState;
@@ -855,7 +860,10 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState state) {
                 newStreamState = MAL_STREAM_RESUMING;
             }
         } else if (state == MAL_PLAYER_STATE_PAUSED) {
-            if (player->context->data.canRampInputGain) {
+            if (streamState == MAL_STREAM_STARTING) {
+                // Hasn't started yet - nextFrame hasn't been set
+                newStreamState = MAL_STREAM_STOPPED;
+            } else if (player->context->data.canRampInputGain) {
                 newStreamState = MAL_STREAM_PAUSING;
             } else {
                 newStreamState = MAL_STREAM_PAUSED;

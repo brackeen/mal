@@ -381,6 +381,12 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState state) {
         MalPlayerState oldState = _malStreamStateToPlayerState(streamState);
         if (oldState == state) {
             return true;
+        } else if (state == MAL_PLAYER_STATE_PAUSED) {
+            // Pause isn't possible if stopped (or stopping)
+            if (streamState == MAL_STREAM_STOPPING || streamState == MAL_STREAM_STOPPED ||
+                streamState == MAL_STREAM_DRAINING) {
+                return false;
+            }
         }
 
         MalStreamState newStreamState;

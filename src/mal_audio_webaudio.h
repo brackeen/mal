@@ -278,17 +278,25 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState state) {
         return false;
     }
 
-    MalPlayerState oldState = malPlayerGetState(player);
+    MalStreamState streamState = atomic_load(&player->streamState);
+    MalPlayerState oldState = _malStreamStateToPlayerState(streamState);
     if (state == oldState) {
         return true;
+    } else if (state == MAL_PLAYER_STATE_PAUSED) {
+        // Pause isn't possible if stopped (or stopping)
+        if (streamState == MAL_STREAM_STOPPING || streamState == MAL_STREAM_STOPPED ||
+            streamState == MAL_STREAM_DRAINING) {
+            return false;
+        }
     }
 
-    MalStreamState streamState;
+    MalStreamState newStreamState;
     int success = 0;
 
     // NOTE: A new AudioBufferSourceNode must be created everytime it is played.
     if (state == MAL_PLAYER_STATE_STOPPED || state == MAL_PLAYER_STATE_PAUSED) {
-        streamState = (state == MAL_PLAYER_STATE_STOPPED) ? MAL_STREAM_STOPPED : MAL_STREAM_PAUSED;
+        newStreamState = ((state == MAL_PLAYER_STATE_STOPPED) ? MAL_STREAM_STOPPED :
+                          MAL_STREAM_PAUSED);
         success = EM_ASM_INT({
             var player = malContexts[$0].players[$1];
             var pause = $2;
@@ -316,7 +324,7 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState state) {
             }
         }, context->data.contextId, player->data.playerId, (state == MAL_PLAYER_STATE_PAUSED));
     } else if (player->buffer && player->buffer->data.bufferId) {
-        streamState = MAL_STREAM_PLAYING;
+        newStreamState = MAL_STREAM_PLAYING;
         EM_ASM_ARGS({
             var contextData = malContexts[$0];
             var player = contextData.players[$1];
@@ -372,11 +380,11 @@ static bool _malPlayerSetState(MalPlayer *player, MalPlayerState state) {
             }
         }, context->data.contextId, player->data.playerId);
     } else {
-        streamState = MAL_STREAM_STOPPED;
+        newStreamState = MAL_STREAM_STOPPED;
     }
 
     if (success) {
-        atomic_store(&player->streamState, streamState);
+        atomic_store(&player->streamState, newStreamState);
         return true;
     } else {
         return false;
