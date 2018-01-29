@@ -112,6 +112,7 @@ typedef enum {
     PLAYER_ACTION_STOP_AND_DELETE_PLAYER,
     PLAYER_ACTION_STOP_AND_PLAY,
     PLAYER_ACTION_PAUSE_AND_RESUME,
+    PLAYER_ACTION_PAUSE_IMMEDIATELY,
     PLAYER_ACTION_EXIT_LOOP
 } PlayerAction;
 
@@ -275,6 +276,13 @@ static bool playerAction(StressTestApp *app, PlayerAction action, size_t index) 
             return success;
         }
         case PLAYER_ACTION_PAUSE_AND_RESUME: {
+            bool success = malPlayerSetState(app->players[index], MAL_PLAYER_STATE_PAUSED);
+            if (success) {
+                success = malPlayerSetState(app->players[index], MAL_PLAYER_STATE_PLAYING);
+            }
+            return success;
+        }
+        case PLAYER_ACTION_PAUSE_IMMEDIATELY: {
             return malPlayerSetState(app->players[index], MAL_PLAYER_STATE_PLAYING);
         }
         case PLAYER_ACTION_EXIT_LOOP: {
@@ -293,7 +301,8 @@ static TestFunctionState testDelayedPlayerAction(StressTestApp *app, const char 
     size_t lastActionIteration = 16;
     size_t lastIteration = (action == PLAYER_ACTION_EXIT_LOOP ||
                             action == PLAYER_ACTION_STOP_AND_PLAY ||
-                            action == PLAYER_ACTION_PAUSE_AND_RESUME) ? 300 : 20;
+                            action == PLAYER_ACTION_PAUSE_AND_RESUME ||
+                            action == PLAYER_ACTION_PAUSE_IMMEDIATELY) ? 300 : 20;
 
     bool success;
     if (app->testIteration == 0) {
@@ -332,7 +341,8 @@ static TestFunctionState testDelayedPlayerAction(StressTestApp *app, const char 
             } else if (action == PLAYER_ACTION_EXIT_LOOP) {
                 buffer = app->shortBuffer;
             } else if (action == PLAYER_ACTION_STOP_AND_PLAY ||
-                       action == PLAYER_ACTION_PAUSE_AND_RESUME) {
+                       action == PLAYER_ACTION_PAUSE_AND_RESUME ||
+                       action == PLAYER_ACTION_PAUSE_IMMEDIATELY) {
                 buffer = app->mediumBuffer;
             } else {
                 buffer = app->buffer;
@@ -356,7 +366,7 @@ static TestFunctionState testDelayedPlayerAction(StressTestApp *app, const char 
                 fail(functionState);
                 return functionState;
             }
-            if (action == PLAYER_ACTION_PAUSE_AND_RESUME) {
+            if (action == PLAYER_ACTION_PAUSE_IMMEDIATELY) {
                 success = malPlayerSetState(app->players[i], MAL_PLAYER_STATE_PAUSED);
                 if (!success) {
                     fail(functionState);
@@ -380,7 +390,7 @@ static TestFunctionState testDelayedPlayerAction(StressTestApp *app, const char 
                 failWithReason(functionState, "Couldn't play player %zu", i);
                 return functionState;
             }
-            if (action == PLAYER_ACTION_PAUSE_AND_RESUME) {
+            if (action == PLAYER_ACTION_PAUSE_IMMEDIATELY) {
                 success = malPlayerSetState(app->players[i], MAL_PLAYER_STATE_PAUSED);
                 if (!success) {
                     failWithReason(functionState, "Couldn't pause player %zu", i);
@@ -418,7 +428,8 @@ static TestFunctionState testDelayedPlayerAction(StressTestApp *app, const char 
             }
             if (action == PLAYER_ACTION_EXIT_LOOP ||
                 action == PLAYER_ACTION_STOP_AND_PLAY ||
-                action == PLAYER_ACTION_PAUSE_AND_RESUME) {
+                action == PLAYER_ACTION_PAUSE_AND_RESUME ||
+                action == PLAYER_ACTION_PAUSE_IMMEDIATELY) {
 
                 success = (app->testIteration < lastIteration);
 
@@ -538,8 +549,12 @@ static TestFunctionState testStopAndPlayAgain(StressTestApp *app) {
     return testDelayedPlayerAction(app, __FUNCTION__, PLAYER_ACTION_STOP_AND_PLAY);
 }
 
-static TestFunctionState testImmediatePause(StressTestApp *app) {
+static TestFunctionState testPauseAndResume(StressTestApp *app) {
     return testDelayedPlayerAction(app, __FUNCTION__, PLAYER_ACTION_PAUSE_AND_RESUME);
+}
+
+static TestFunctionState testImmediatePause(StressTestApp *app) {
+    return testDelayedPlayerAction(app, __FUNCTION__, PLAYER_ACTION_PAUSE_IMMEDIATELY);
 }
 
 static TestFunctionState testExitLoop(StressTestApp *app) {
@@ -555,6 +570,7 @@ static TestFunction testFunctions[] = {
     testStopAndClearBuffer,
     testStopAndDeletePlayer,
     testStopAndPlayAgain,
+    testPauseAndResume,
     testImmediatePause,
     testExitLoop,
 };
@@ -574,7 +590,7 @@ static void stressTestInit(StressTestApp *app) {
     // Create buffer (X seconds of silence)
     double duration = 10.0;
     double shortDuraton = 0.042; // 2.5 UI frames at 60Hz
-    double mediumDuration = 0.5;
+    double mediumDuration = 0.75;
     app->format.sampleRate = malContextGetSampleRate(app->context);
     app->format.bitDepth = 16;
     app->format.numChannels = 1;
